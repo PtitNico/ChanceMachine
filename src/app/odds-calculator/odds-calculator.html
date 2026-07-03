@@ -1,0 +1,162 @@
+<div class="panel">
+  <header class="panel__header">
+    <span class="panel__eyebrow">Calculateur de probabilités</span>
+    <h1 class="panel__title">Table de tir</h1>
+  </header>
+
+  <div class="panel__body">
+    <section class="console" aria-label="Attaque">
+      <h2 class="console__title">Attaque</h2>
+
+      <label class="field">
+        <span class="field__label">MAT / RAT</span>
+        <input
+          class="field__input"
+          type="number"
+          [ngModel]="attackStat()"
+          (ngModelChange)="attackStat.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Dés de boost (attaque)</span>
+        <input
+          class="field__input"
+          type="number"
+          min="0"
+          max="4"
+          [ngModel]="attackBoost()"
+          (ngModelChange)="attackBoost.set($event)"
+        />
+      </label>
+
+      <label class="field field--check">
+        <input
+          type="checkbox"
+          [ngModel]="autoHit()"
+          (ngModelChange)="autoHit.set($event)"
+        />
+        <span class="field__label">Touche auto (cible KD / Stationary)</span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">POW</span>
+        <input
+          class="field__input"
+          type="number"
+          [ngModel]="pow()"
+          (ngModelChange)="pow.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Dés de boost (dégâts)</span>
+        <input
+          class="field__input"
+          type="number"
+          min="0"
+          max="4"
+          [ngModel]="damageBoost()"
+          (ngModelChange)="damageBoost.set($event)"
+        />
+      </label>
+    </section>
+
+    <section class="console" aria-label="Cible">
+      <h2 class="console__title">Cible</h2>
+
+      <label class="field">
+        <span class="field__label">DEF</span>
+        <input
+          class="field__input"
+          type="number"
+          [ngModel]="targetDef()"
+          (ngModelChange)="targetDef.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">ARM</span>
+        <input
+          class="field__input"
+          type="number"
+          [ngModel]="targetArm()"
+          (ngModelChange)="targetArm.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Boîtes restantes</span>
+        <input
+          class="field__input"
+          type="number"
+          min="1"
+          [ngModel]="targetBoxes()"
+          (ngModelChange)="targetBoxes.set($event)"
+        />
+      </label>
+
+      <label class="field field--check">
+        <input
+          type="checkbox"
+          [ngModel]="tough()"
+          (ngModelChange)="tough.set($event)"
+        />
+        <span class="field__label">Tough</span>
+      </label>
+
+      @if (tough()) {
+        <label class="field">
+          <span class="field__label">Tough réussi sur</span>
+          <input
+            class="field__input"
+            type="number"
+            min="2"
+            max="6"
+            [ngModel]="toughOn()"
+            (ngModelChange)="toughOn.set($event)"
+          />
+        </label>
+      }
+    </section>
+
+    <section class="readout" aria-label="Résultats">
+      <h2 class="console__title">Résultats</h2>
+
+      <div class="readout__grid">
+        <div class="gauge">
+          <span class="gauge__value">{{ pct(odds().hitChance) }}</span>
+          <span class="gauge__label">Chance de toucher</span>
+        </div>
+        <div class="gauge">
+          <span class="gauge__value">{{ pct(odds().critOnHitChance) }}</span>
+          <span class="gauge__label">Dont critique</span>
+        </div>
+        <div class="gauge">
+          <span class="gauge__value">{{ odds().expectedDamage.toFixed(1) }}</span>
+          <span class="gauge__label">Dégâts attendus</span>
+        </div>
+        <div class="gauge gauge--highlight">
+          <span class="gauge__value">{{ pct(odds().destroyChance) }}</span>
+          <span class="gauge__label">Chance de détruire</span>
+        </div>
+      </div>
+
+      <div class="distribution">
+        <h3 class="distribution__title">Distribution des dégâts</h3>
+        @for (point of visibleDamagePoints(); track point.damage) {
+          <div class="distribution__row">
+            <span class="distribution__damage">{{ point.damage }}</span>
+            <span class="distribution__bar-track">
+              <span
+                class="distribution__bar"
+                [style.width.%]="(point.probability / maxBarProbability()) * 100"
+              ></span>
+            </span>
+            <span class="distribution__prob">{{ pct(point.probability) }}</span>
+          </div>
+        }
+      </div>
+    </section>
+  </div>
+</div>

@@ -1,0 +1,8 @@
+.page {
+  min-height: 100vh;
+  padding: 2rem 1rem;
+  background: #1a1c1f;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
