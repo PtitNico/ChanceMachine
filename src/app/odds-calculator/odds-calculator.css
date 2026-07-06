@@ -50,12 +50,13 @@
 
 .panel__body {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.3fr;
+  grid-template-columns: 0.85fr 1.3fr 1fr;
   gap: 1px;
   background: var(--line);
+  align-items: start;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 960px) {
   .panel__body {
     grid-template-columns: 1fr;
   }
@@ -122,6 +123,122 @@ input[type='checkbox']:focus-visible {
   height: 1.05rem;
   accent-color: var(--brass);
   margin-right: 0.65rem;
+  flex-shrink: 0;
+}
+
+.field__input--wide {
+  width: 100%;
+  max-width: 11rem;
+  text-align: left;
+}
+
+select.field__input {
+  text-align: left;
+  text-transform: capitalize;
+}
+
+/* --- Attack sequence builder --- */
+
+.console--attacks {
+  min-width: 0;
+}
+
+.attack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.attack-card {
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  padding: 1rem;
+}
+
+.attack-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.attack-card__index {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  color: var(--brass);
+  flex-shrink: 0;
+}
+
+.attack-card__name {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--line);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0;
+}
+
+.attack-card__name:focus-visible {
+  outline: none;
+  border-bottom-color: var(--brass-bright);
+}
+
+.attack-card__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--brass-bright);
+  border-color: var(--brass);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.icon-btn--danger:hover:not(:disabled) {
+  color: #d97a6a;
+  border-color: #d97a6a;
+}
+
+.add-attack-btn {
+  width: 100%;
+  padding: 0.7rem;
+  background: transparent;
+  border: 1px dashed var(--brass);
+  color: var(--brass-bright);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.add-attack-btn:hover {
+  background: rgba(201, 151, 61, 0.1);
 }
 
 .readout__grid {
@@ -162,6 +279,62 @@ input[type='checkbox']:focus-visible {
   letter-spacing: 0.04em;
   color: var(--text-dim);
   text-transform: uppercase;
+}
+
+.steps {
+  margin-bottom: 1.5rem;
+}
+
+.steps__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+}
+
+.steps__label {
+  font-family: 'Inter', sans-serif;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.steps__metric {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.steps__metric--cumulative {
+  color: var(--brass-bright);
+}
+
+.steps__metric-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+@media (max-width: 520px) {
+  .steps__row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .steps__label {
+    grid-column: 1 / -1;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+  }
+}
+
+.distribution__empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
 }
 
 .distribution__title {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { probabilityAtLeast, probabilityOfDouble, rollDicePool } from './dice-pool';
 import { computeAttackOdds } from './attack-model';
+import { computeSequenceOdds, SequencedAttack } from './sequence';
 
 describe('dice-pool', () => {
   it('2d6 distribution sums to 1 and matches the classic triangle', () => {
@@ -47,7 +48,7 @@ describe('attack-model', () => {
     // Hit needs dice sum >= def - stat = 7  =>  21/36
     // Damage dealt = max(0, 2d6 + 12 - 15) = max(0, 2d6 - 3); this is 0 when 2d6 <= 3 (sums 2,3) => 3/36
     const odds = computeAttackOdds({
-      attack: { stat: 6 },
+      attack: { type: 'melee', stat: 6 },
       damage: { pow: 12 },
       target: { def: 13, arm: 15, boxesRemaining: 1 },
     });
@@ -65,12 +66,12 @@ describe('attack-model', () => {
 
   it('Tough scales the destroy chance by the fail-roll probability', () => {
     const base = computeAttackOdds({
-      attack: { stat: 6 },
+      attack: { type: 'melee', stat: 6 },
       damage: { pow: 12 },
       target: { def: 13, arm: 15, boxesRemaining: 1 },
     });
     const tough = computeAttackOdds({
-      attack: { stat: 6 },
+      attack: { type: 'melee', stat: 6 },
       damage: { pow: 12 },
       target: { def: 13, arm: 15, boxesRemaining: 1, tough: true, toughOn: 5 },
     });
@@ -78,12 +79,155 @@ describe('attack-model', () => {
     expect(tough.destroyChance).toBeCloseTo(base.destroyChance * (4 / 6), 9);
   });
 
-  it('an auto-hit target (Knocked Down / Stationary) always hits', () => {
+  it('an auto-hit target (Stationary) always hits and cannot crit', () => {
     const odds = computeAttackOdds({
-      attack: { stat: 6, autoHit: true },
+      attack: { type: 'melee', stat: 6, autoHit: true },
       damage: { pow: 10 },
       target: { def: 20, arm: 10, boxesRemaining: 1 },
     });
     expect(odds.hitChance).toBe(1);
+    expect(odds.critOnHitChance).toBe(0);
+  });
+
+  it('a Knocked Down target auto-hits a melee attack but not a ranged one', () => {
+    const melee = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 10 },
+      target: { def: 20, arm: 10, boxesRemaining: 1, knockedDown: true },
+    });
+    expect(melee.hitChance).toBe(1);
+
+    const ranged = computeAttackOdds({
+      attack: { type: 'ranged', stat: 6 },
+      damage: { pow: 10 },
+      target: { def: 20, arm: 10, boxesRemaining: 1, knockedDown: true },
+    });
+    expect(ranged.hitChance).toBeLessThan(1);
+  });
+
+  it('Brutal Damage adds extra dice only on the crit branch, raising expected damage over a plain crit', () => {
+    const withoutBrutal = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      target: { def: 7, arm: 0, boxesRemaining: 1000 }, // low DEF/ARM: hits and crits are common, nothing gets destroyed mid-check
+    });
+    const withBrutal = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      criticalEffects: { brutalDamageDice: 2 },
+      target: { def: 7, arm: 0, boxesRemaining: 1000 },
+    });
+
+    expect(withBrutal.hitChance).toBeCloseTo(withoutBrutal.hitChance, 9); // to-hit is unaffected
+    expect(withBrutal.expectedDamage).toBeGreaterThan(withoutBrutal.expectedDamage);
+  });
+});
+
+describe('sequence engine', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('a single-step sequence matches computeAttackOdds for the same inputs', () => {
+    const single = computeAttackOdds({
+      attack: { type: 'melee', stat: 7 },
+      damage: { pow: 14 },
+      target: { def: 13, arm: 15, boxesRemaining: 5 },
+    });
+    const seq = computeSequenceOdds([attack()], target);
+
+    expect(seq.finalDestroyChance).toBeCloseTo(single.destroyChance, 9);
+    expect(seq.steps[0].hitChance).toBeCloseTo(single.hitChance, 9);
+  });
+
+  it('cumulative destroy chance never decreases and is monotonic across steps', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2' }), attack({ id: '3' })];
+    const result = computeSequenceOdds(attacks, target);
+
+    let prev = 0;
+    for (const step of result.steps) {
+      expect(step.cumulativeDestroyChance).toBeGreaterThanOrEqual(prev);
+      prev = step.cumulativeDestroyChance;
+    }
+    expect(result.finalDestroyChance).toBeCloseTo(prev, 9);
+  });
+
+  it('more attacks in the sequence strictly increase (or maintain) the final destroy chance', () => {
+    const oneAttack = computeSequenceOdds([attack({ id: '1' })], target);
+    const threeAttacks = computeSequenceOdds(
+      [attack({ id: '1' }), attack({ id: '2' }), attack({ id: '3' })],
+      target
+    );
+    expect(threeAttacks.finalDestroyChance).toBeGreaterThan(oneAttack.finalDestroyChance);
+  });
+
+  it('probability mass is conserved: final destroy chance + survival distribution sums to 1', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2' })];
+    const result = computeSequenceOdds(attacks, target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('Knockdown on a crit makes a later melee attack in the sequence auto-hit', () => {
+    // Attack 1 keeps a normal, realistic chance to hit/crit (DEF 13). Attack 2
+    // has an absurdly low stat so it could basically never hit on its own -
+    // the only way it can hit is if Knockdown from attack 1's crit carries over.
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '2', type: 'melee', stat: -50 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    expect(result.steps[1].hitChance).toBeGreaterThan(0);
+  });
+
+  it('Knockdown does not grant a ranged attack an auto-hit against the same target', () => {
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '2', type: 'ranged', stat: -50 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    expect(result.steps[1].hitChance).toBeCloseTo(0, 6);
+  });
+
+  it('attack order matters: a high-crit-chance Knockdown attack helps more when it goes first', () => {
+    const knockdownFirst: SequencedAttack[] = [
+      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '2', stat: 1 }), // weak attack that badly needs the auto-hit assist
+    ];
+    const knockdownSecond: SequencedAttack[] = [
+      attack({ id: '1', stat: 1 }),
+      attack({ id: '2', criticalEffects: { knockdown: true } }),
+    ];
+
+    const firstResult = computeSequenceOdds(knockdownFirst, target);
+    const secondResult = computeSequenceOdds(knockdownSecond, target);
+
+    expect(firstResult.finalDestroyChance).toBeGreaterThan(secondResult.finalDestroyChance);
+  });
+
+  it('runs 10 chained attacks quickly (exact enumeration, no combinatorial blowup)', () => {
+    const attacks = Array.from({ length: 10 }, (_, i) =>
+      attack({ id: `${i}`, stat: 6 + (i % 3), pow: 12 + (i % 2) })
+    );
+    const bigTarget = { def: 14, arm: 16, boxes: 20 };
+
+    const start = performance.now();
+    const result = computeSequenceOdds(attacks, bigTarget);
+    const elapsedMs = performance.now() - start;
+
+    expect(result.steps).toHaveLength(10);
+    expect(result.finalDestroyChance).toBeGreaterThan(0);
+    expect(result.finalDestroyChance).toBeLessThanOrEqual(1);
+    expect(elapsedMs).toBeLessThan(2000);
   });
 });
