@@ -230,4 +230,93 @@ describe('sequence engine', () => {
     expect(result.finalDestroyChance).toBeLessThanOrEqual(1);
     expect(elapsedMs).toBeLessThan(2000);
   });
+
+  it('still runs 10 chained attacks quickly when the target has focus and fury points to spend', () => {
+    const attacks = Array.from({ length: 10 }, (_, i) =>
+      attack({ id: `${i}`, stat: 6 + (i % 3), pow: 12 + (i % 2) })
+    );
+    const bigTarget = { def: 14, arm: 16, boxes: 20, focusPoints: 3, furyPoints: 2 };
+
+    const start = performance.now();
+    const result = computeSequenceOdds(attacks, bigTarget);
+    const elapsedMs = performance.now() - start;
+
+    expect(result.steps).toHaveLength(10);
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+});
+
+describe('sequence engine - target focus/fury resource points', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('a fury point can fully negate an otherwise-guaranteed-lethal hit', () => {
+    // autoHit + POW 1 vs ARM 0 vs 1 box: damage is 2d6+1 (min 3), always lethal on its own.
+    const lethalAttack = attack({ type: 'melee', stat: 6, pow: 1, criticalEffects: undefined, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1 };
+
+    const withoutFury = computeSequenceOdds([lethalAttack], target);
+    expect(withoutFury.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const withFury = computeSequenceOdds([lethalAttack], { ...target, furyPoints: 1 });
+    expect(withFury.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
+  it('a focus point reduces damage by exactly 5, matching a hand-computed fraction', () => {
+    // autoHit, POW 5 vs ARM 0 vs 7 boxes: damage = 2d6+5, range 7..17 -> always >= 7 -> always lethal unmitigated.
+    // With one focus point: mitigated damage = 2d6 (5-5 cancels out), range 2..12 -> lethal only when 2d6 >= 7 (21/36).
+    const attackDef = attack({ type: 'melee', stat: 6, pow: 5, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 7 };
+
+    const withoutFocus = computeSequenceOdds([attackDef], target);
+    expect(withoutFocus.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const withFocus = computeSequenceOdds([attackDef], { ...target, focusPoints: 1 });
+    expect(withFocus.finalDestroyChance).toBeCloseTo(21 / 36, 9);
+  });
+
+  it('spends at most one point per attack: a single fury point cannot save the target twice', () => {
+    // Two sequential guaranteed-lethal-alone hits (see fury test above) on a 1-box target, but only 1 fury point.
+    const makeLethalAttack = (id: string) => attack({ id, type: 'melee', stat: 6, pow: 1, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1, furyPoints: 1 };
+
+    const result = computeSequenceOdds([makeLethalAttack('1'), makeLethalAttack('2')], target);
+
+    expect(result.steps[0].destroyChanceAtThisStep).toBeCloseTo(0, 9); // saved by the fury point
+    expect(result.steps[1].destroyChanceAtThisStep).toBeCloseTo(1, 9); // no fury left, guaranteed lethal
+    expect(result.finalDestroyChance).toBeCloseTo(1, 9);
+  });
+
+  it('more focus or fury points never make the target worse off (weakly monotonic survival)', () => {
+    const attacks = [
+      attack({ id: '1', pow: 14 }),
+      attack({ id: '2', type: 'ranged', pow: 10, criticalEffects: { knockdown: true } }),
+      attack({ id: '3', pow: 16 }),
+    ];
+    const baseTarget = { def: 13, arm: 14, boxes: 10 };
+
+    const noResources = computeSequenceOdds(attacks, baseTarget);
+    const withFocus = computeSequenceOdds(attacks, { ...baseTarget, focusPoints: 2 });
+    const withFury = computeSequenceOdds(attacks, { ...baseTarget, furyPoints: 1 });
+    const withBoth = computeSequenceOdds(attacks, { ...baseTarget, focusPoints: 2, furyPoints: 1 });
+
+    expect(withFocus.finalDestroyChance).toBeLessThanOrEqual(noResources.finalDestroyChance);
+    expect(withFury.finalDestroyChance).toBeLessThanOrEqual(noResources.finalDestroyChance);
+    expect(withBoth.finalDestroyChance).toBeLessThanOrEqual(withFocus.finalDestroyChance);
+    expect(withBoth.finalDestroyChance).toBeLessThanOrEqual(withFury.finalDestroyChance);
+  });
+
+  it('rejects an unrealistically large focus/fury pool', () => {
+    const target = { def: 13, arm: 14, boxes: 10, focusPoints: 999 };
+    expect(() => computeSequenceOdds([attack()], target)).toThrow();
+  });
 });

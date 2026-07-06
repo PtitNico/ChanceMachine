@@ -57,6 +57,30 @@
           />
         </label>
       }
+
+      <label class="field">
+        <span class="field__label">Focus points</span>
+        <input
+          class="field__input"
+          type="number"
+          min="0"
+          max="10"
+          [ngModel]="targetFocus()"
+          (ngModelChange)="targetFocus.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Fury points</span>
+        <input
+          class="field__input"
+          type="number"
+          min="0"
+          max="10"
+          [ngModel]="targetFury()"
+          (ngModelChange)="targetFury.set($event)"
+        />
+      </label>
     </section>
 
     <section class="console console--attacks" aria-label="Attack sequence">

@@ -83,22 +83,36 @@ Plutôt que de brancher un arbre de probabilités par attaque (explosion combina
 interface TargetState {
   boxes: number;        // boîtes restantes
   knockedDown: boolean; // Knocked Down persistant (sticky) pour le reste de la séquence
+  focusLeft: number;    // points de Focus restants à dépenser
+  furyLeft: number;     // points de Fury restants à dépenser
   destroyed: boolean;   // état absorbant
 }
 ```
 
 Pour chaque attaque de la séquence, on "replie" (fold) son profil dans la distribution d'états courante :
-- Pour chaque état vivant, on calcule si l'attaque doit être auto-hit (Knocked Down + mêlée, ou `forceAutoHit` explicite), on choisit le bon profil pré-calculé, et on répartit la probabilité de chaque issue vers les nouveaux états (boîtes réduites, ou détruit).
-- Un jet de Tough est retenté à chaque fois que des dégâts seraient létaux (pas de limite "une fois par tour" dans cette modélisation — simplification documentée dans le code).
+- Pour chaque état vivant, on calcule si l'attaque doit être auto-hit (Knocked Down + mêlée, ou `forceAutoHit` explicite), on choisit le bon profil pré-calculé, et on répartit la probabilité de chaque issue vers les nouveaux états (boîtes réduites, ou détruit) — après application, le cas échéant, de la dépense **optimale** d'un point de Focus/Fury par la cible (voir plus bas).
+- Un jet de Tough est retenté à chaque fois que des dégâts (après mitigation Focus/Fury éventuelle) seraient létaux (pas de limite "une fois par tour" dans cette modélisation — simplification documentée dans le code).
 - Si Tough réussit, la cible est simplifiée à 1 boîte restante et Knocked Down (comportement standard de la règle Tough), pas de re-modélisation fine d'une grille de dégâts partielle.
 
 **Pourquoi c'est rapide même à ~10 attaques :**
 
-Le profil d'une attaque (`buildAttackProfile`, la partie qui énumère les dés — coûteuse) ne dépend **pas** du nombre de boîtes restantes de la cible. Il est donc calculé **une seule fois par attaque** (deux fois si l'attaque peut être auto-hit via Knockdown : un profil "normal" et un profil "auto-hit"), puis réappliqué à moindre coût contre chaque état de boîtes-restantes rencontré. Le nombre d'états distincts après k attaques reste borné par `(boîtes initiales + 1) × 2` (knockedDown oui/non) — de l'ordre de quelques dizaines, jamais une explosion exponentielle. Un test de performance (`engine.spec.ts`) vérifie qu'une séquence de 10 attaques s'exécute en moins de 2 secondes (en pratique quasi instantané).
+Le profil d'une attaque (`buildAttackProfile`, la partie qui énumère les dés — coûteuse) ne dépend **pas** du nombre de boîtes restantes de la cible. Il est donc calculé **une seule fois par attaque** (deux fois si l'attaque peut être auto-hit via Knockdown : un profil "normal" et un profil "auto-hit"), puis réappliqué à moindre coût contre chaque état rencontré. Le nombre d'états distincts après k attaques reste borné par `(boîtes initiales + 1) × 2 × (Focus+1) × (Fury+1)` — de l'ordre de quelques milliers au pire, jamais une explosion exponentielle. Un test de performance (`engine.spec.ts`) vérifie qu'une séquence de 10 attaques (avec ou sans points de ressource) s'exécute en moins de 2 secondes (en pratique quasi instantané).
+
+**Dépense optimale de Focus/Fury — induction arrière (`valueTables`) :**
+
+La cible peut dépenser, une fois par attaque et après le jet de dégâts, un point de Focus (réduit les dégâts de 5) ou un point de Fury (annule intégralement les dégâts), jamais les deux à la fois. On suppose qu'elle joue **de façon optimale**, ce qui veut dire : maximiser sa probabilité de survivre au **reste de la séquence**, pas seulement réagir au coup en cours. Comme la décision est prise avant de connaître les jets de dés futurs, mais avec une séquence d'attaques connue à l'avance, ce problème se résout par **induction arrière** (programmation dynamique) plutôt que par simulation forward pure :
+
+1. **Passe arrière** : pour chaque attaque `k` (de la dernière à la première), on construit une table `valueTables[k][boxes][knockedDown][focusLeft][furyLeft]` = probabilité de survivre aux attaques `k..n-1` en jouant optimalement, calculée à partir de `valueTables[k+1]` (déjà connue) et du profil de l'attaque `k`. Le cas de base `valueTables[n]` vaut 1 partout (plus d'attaque = déjà survécu).
+2. Pour chaque état et chaque issue de l'attaque `k`, `bestAction` (dans `sequence.ts`) compare les 3 choix possibles (ne rien dépenser / dépenser Focus / dépenser Fury) et retient celui qui maximise cette valeur de survie future.
+3. **Passe avant** : on rejoue exactement la même politique (via les mêmes `valueTables`, déjà calculées) pour produire la distribution d'états réelle et les statistiques affichées (`hitChance`, `destroyChanceAtThisStep`, etc.).
+
+**Départage des égalités.** Comparer uniquement "probabilité de survie du reste de la séquence" peut faire naître des égalités strictes (ex. la cible est de toute façon condamnée quelle que soit la décision, ou plus aucune attaque future ne dépend du nombre exact de boîtes restantes). Une comparaison naïve (`>` strict) résoudrait alors systématiquement ces égalités vers "ne rien dépenser", ce qui se traduit par un comportement contre-intuitif (la cible refuse de se défendre sur le coup en cours alors que cela ne lui coûterait rien). `bestAction` utilise donc un score **lexicographique à 3 niveaux** (voir `outcomeScore`/`isBetterScore`) : (1) probabilité de survie du reste de la séquence — le vrai objectif ; (2) à égalité, probabilité de survivre **à ce coup précis** ; (3) à égalité sur les deux, nombre de boîtes préservées. Ce n'est qu'en cas d'égalité totale sur les 3 niveaux que le point n'est pas dépensé (comportement par défaut : conserver la ressource).
 
 **Résultat retourné (`SequenceResult`)** :
 - `steps[]` : pour chaque attaque, `hitChance` (conditionnelle à la cible encore vivante), `destroyChanceAtThisStep` (probabilité de destruction *exactement* à cette étape), `cumulativeDestroyChance`, `expectedBoxesRemaining`.
 - `finalDestroyChance` : probabilité totale de destruction sur l'ensemble de la séquence.
+
+**Garde-fou** : `focusPoints`/`furyPoints` sont plafonnés à 10 (`MAX_RESOURCE_POINTS`) — au-delà, `computeSequenceOdds` lève une erreur plutôt que de construire une table de valeurs disproportionnée. L'UI clampe silencieusement la saisie dans cette plage avant d'appeler le moteur.
 - `survivalDistribution` : distribution des boîtes restantes, conditionnelle à la survie de la cible.
 
 ### `odds-engine.ts` — pont avec Angular
@@ -147,3 +161,4 @@ npm test          # ng test — exécute les tests Vitest via le builder Angular
 - **Édition de règles ciblée : Warmachine MK4** (choix utilisateur). Les mécaniques de base (2d6, boost, double = critique, Tough) sont considérées stables et communes aux éditions ; les effets nommés spécifiques (Knockdown, Brutal Damage) sont implémentés avec la formulation la plus largement admise, mais restent à vérifier/ajuster face au livre de règles MK4 exact — voir doc fonctionnelle pour le détail des hypothèses.
 - **Ordre des attaques dans une séquence : défini par l'utilisateur**, pas d'optimisation automatique (décision produit assumée, voir doc fonctionnelle pour la justification et les limites).
 - **Effets critiques : liste courte et exacte plutôt qu'un système générique** — extensible facilement dans `CriticalEffects` au fur et à mesure que de nouvelles règles sont confirmées.
+- **Dépense de Focus/Fury par la cible : optimale via induction arrière, pas un simple réflexe "je dépense si ce coup me tuerait sinon"** — pertinent car un point peut valoir mieux dépensé plus tôt (pour préserver des boîtes utiles à la survie d'un coup futur) que gardé "au cas où". Le calcul reste exact (pas d'heuristique), au prix d'une table de valeurs par attaque plutôt que d'une simple règle locale.

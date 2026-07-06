@@ -37,6 +37,7 @@ Caractéristiques de la cible visée, partagées par toute la séquence d'attaqu
 - **DEF**, **ARM**
 - **Boxes remaining** : capacité de dégâts restante avant destruction
 - **Tough** : case à cocher ; si activée, un champ **"Tough succeeds on"** apparaît (valeur du d6 à partir de laquelle le jet de Tough réussit — 5 par défaut, correspond à une réussite sur 5 ou 6)
+- **Focus points** / **Fury points** : réserve de points que la cible peut dépenser pendant la séquence (voir "Focus et Fury" plus bas).
 
 ### 2. Attack sequence (séquence d'attaques)
 
@@ -77,6 +78,16 @@ Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste (le nom
 - **Knockdown** (effet critique) : persiste pour le reste de la séquence une fois déclenché. Seules les attaques de **mêlée** ultérieures dans la séquence touchent automatiquement une cible Knocked Down ; les attaques de **tir** et de **magie** n'en tirent aucun bénéfice dans le modèle actuel.
 - **Brutal Damage** (effet critique) : dés de dégâts supplémentaires, mais uniquement sur la branche critique du jet (une attaque qui touche sans critique n'en bénéficie pas).
 - **Auto-hit** (cible Stationary ou équivalent) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
+
+### Focus et Fury (points de ressource de la cible)
+
+Si la cible dispose de points de **Focus** et/ou de **Fury** (champs de la section Target), elle peut en dépenser **au plus un par attaque**, **après le jet de dégâts** de cette attaque :
+- **1 point de Focus** réduit les dégâts de cette attaque de 5 (plancher à 0).
+- **1 point de Fury** annule intégralement les dégâts de cette attaque (dans le jeu : transfert vers une warbeast — ici simplifié en "dégâts ignorés").
+
+Ces points sont supposés **dépensés de façon optimale** par la cible. "Optimale" signifie ici : l'application calcule, en remontant toute la séquence d'attaques depuis la fin (induction arrière), la politique de dépense qui maximise la probabilité de survie de la cible sur l'ensemble de la séquence — pas seulement une réaction "je dépense si ce coup-ci serait autrement fatal". Concrètement, cela permet à l'application de reconnaître qu'il peut parfois valoir mieux mitiger un coup non-fatal maintenant (pour préserver des boîtes utiles plus tard) plutôt que de garder le point pour un coup futur.
+
+En cas d'égalité stricte entre plusieurs choix vis-à-vis de cet objectif (ex. la cible est de toute façon condamnée quelle que soit la décision), l'application privilégie, dans l'ordre : survivre à l'attaque en cours, puis préserver le plus de boîtes restantes — plutôt que de "gâcher" arbitrairement un point sans aucun bénéfice, ni à l'inverse refuser de s'en servir alors que cela ne coûte rien.
 
 ## Hypothèses à vérifier (édition MK4)
 
