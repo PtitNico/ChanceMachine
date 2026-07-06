@@ -1,69 +1,12 @@
 <div class="panel">
   <header class="panel__header">
-    <span class="panel__eyebrow">Calculateur de probabilités</span>
-    <h1 class="panel__title">Table de tir</h1>
+    <span class="panel__eyebrow">Odds calculator</span>
+    <h1 class="panel__title">Firing Solution</h1>
   </header>
 
   <div class="panel__body">
-    <section class="console" aria-label="Attaque">
-      <h2 class="console__title">Attaque</h2>
-
-      <label class="field">
-        <span class="field__label">MAT / RAT</span>
-        <input
-          class="field__input"
-          type="number"
-          [ngModel]="attackStat()"
-          (ngModelChange)="attackStat.set($event)"
-        />
-      </label>
-
-      <label class="field">
-        <span class="field__label">Dés de boost (attaque)</span>
-        <input
-          class="field__input"
-          type="number"
-          min="0"
-          max="4"
-          [ngModel]="attackBoost()"
-          (ngModelChange)="attackBoost.set($event)"
-        />
-      </label>
-
-      <label class="field field--check">
-        <input
-          type="checkbox"
-          [ngModel]="autoHit()"
-          (ngModelChange)="autoHit.set($event)"
-        />
-        <span class="field__label">Touche auto (cible KD / Stationary)</span>
-      </label>
-
-      <label class="field">
-        <span class="field__label">POW</span>
-        <input
-          class="field__input"
-          type="number"
-          [ngModel]="pow()"
-          (ngModelChange)="pow.set($event)"
-        />
-      </label>
-
-      <label class="field">
-        <span class="field__label">Dés de boost (dégâts)</span>
-        <input
-          class="field__input"
-          type="number"
-          min="0"
-          max="4"
-          [ngModel]="damageBoost()"
-          (ngModelChange)="damageBoost.set($event)"
-        />
-      </label>
-    </section>
-
-    <section class="console" aria-label="Cible">
-      <h2 class="console__title">Cible</h2>
+    <section class="console" aria-label="Target">
+      <h2 class="console__title">Target</h2>
 
       <label class="field">
         <span class="field__label">DEF</span>
@@ -86,7 +29,7 @@
       </label>
 
       <label class="field">
-        <span class="field__label">Boîtes restantes</span>
+        <span class="field__label">Boxes remaining</span>
         <input
           class="field__input"
           type="number"
@@ -97,17 +40,13 @@
       </label>
 
       <label class="field field--check">
-        <input
-          type="checkbox"
-          [ngModel]="tough()"
-          (ngModelChange)="tough.set($event)"
-        />
+        <input type="checkbox" [ngModel]="tough()" (ngModelChange)="tough.set($event)" />
         <span class="field__label">Tough</span>
       </label>
 
       @if (tough()) {
         <label class="field">
-          <span class="field__label">Tough réussi sur</span>
+          <span class="field__label">Tough succeeds on</span>
           <input
             class="field__input"
             type="number"
@@ -120,41 +59,202 @@
       }
     </section>
 
-    <section class="readout" aria-label="Résultats">
-      <h2 class="console__title">Résultats</h2>
+    <section class="console console--attacks" aria-label="Attack sequence">
+      <h2 class="console__title">Attack sequence</h2>
+
+      <div class="attack-list">
+        @for (row of rows(); track row.id; let i = $index; let count = $count) {
+          <article class="attack-card">
+            <header class="attack-card__header">
+              <span class="attack-card__index">{{ i + 1 }}</span>
+              <input
+                class="attack-card__name"
+                type="text"
+                [ngModel]="row.attackerName()"
+                (ngModelChange)="row.attackerName.set($event)"
+                aria-label="Attacker name"
+              />
+              <div class="attack-card__actions">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  (click)="moveAttack(row.id, -1)"
+                  [disabled]="i === 0"
+                  aria-label="Move attack earlier"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  (click)="moveAttack(row.id, 1)"
+                  [disabled]="i === count - 1"
+                  aria-label="Move attack later"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn--danger"
+                  (click)="removeAttack(row.id)"
+                  [disabled]="count === 1"
+                  aria-label="Remove attack"
+                >
+                  ✕
+                </button>
+              </div>
+            </header>
+
+            <label class="field">
+              <span class="field__label">Attack label</span>
+              <input
+                class="field__input field__input--wide"
+                type="text"
+                [ngModel]="row.label()"
+                (ngModelChange)="row.label.set($event)"
+              />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Type</span>
+              <select
+                class="field__input field__input--wide"
+                [ngModel]="row.type()"
+                (ngModelChange)="row.type.set($event)"
+              >
+                @for (t of attackTypes; track t) {
+                  <option [value]="t">{{ t }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="field__label">MAT / RAT</span>
+              <input
+                class="field__input"
+                type="number"
+                [ngModel]="row.stat()"
+                (ngModelChange)="row.stat.set($event)"
+              />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Boost (to hit)</span>
+              <input
+                class="field__input"
+                type="number"
+                min="0"
+                max="4"
+                [ngModel]="row.boostDice()"
+                (ngModelChange)="row.boostDice.set($event)"
+              />
+            </label>
+
+            <label class="field field--check">
+              <input
+                type="checkbox"
+                [ngModel]="row.forceAutoHit()"
+                (ngModelChange)="row.forceAutoHit.set($event)"
+              />
+              <span class="field__label">Auto-hit (target Stationary)</span>
+            </label>
+
+            <label class="field">
+              <span class="field__label">POW</span>
+              <input
+                class="field__input"
+                type="number"
+                [ngModel]="row.pow()"
+                (ngModelChange)="row.pow.set($event)"
+              />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Boost (damage)</span>
+              <input
+                class="field__input"
+                type="number"
+                min="0"
+                max="4"
+                [ngModel]="row.damageBoostDice()"
+                (ngModelChange)="row.damageBoostDice.set($event)"
+              />
+            </label>
+
+            <label class="field field--check">
+              <input
+                type="checkbox"
+                [ngModel]="row.knockdown()"
+                (ngModelChange)="row.knockdown.set($event)"
+              />
+              <span class="field__label">Crit: Knockdown</span>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Crit: Brutal Damage (extra dice)</span>
+              <input
+                class="field__input"
+                type="number"
+                min="0"
+                max="4"
+                [ngModel]="row.brutalDamageDice()"
+                (ngModelChange)="row.brutalDamageDice.set($event)"
+              />
+            </label>
+          </article>
+        }
+      </div>
+
+      <button type="button" class="add-attack-btn" (click)="addAttack()">+ Add attack</button>
+    </section>
+
+    <section class="readout" aria-label="Results">
+      <h2 class="console__title">Results</h2>
 
       <div class="readout__grid">
-        <div class="gauge">
-          <span class="gauge__value">{{ pct(odds().hitChance) }}</span>
-          <span class="gauge__label">Chance de toucher</span>
-        </div>
-        <div class="gauge">
-          <span class="gauge__value">{{ pct(odds().critOnHitChance) }}</span>
-          <span class="gauge__label">Dont critique</span>
-        </div>
-        <div class="gauge">
-          <span class="gauge__value">{{ odds().expectedDamage.toFixed(1) }}</span>
-          <span class="gauge__label">Dégâts attendus</span>
-        </div>
         <div class="gauge gauge--highlight">
-          <span class="gauge__value">{{ pct(odds().destroyChance) }}</span>
-          <span class="gauge__label">Chance de détruire</span>
+          <span class="gauge__value">{{ pct(sequence().finalDestroyChance) }}</span>
+          <span class="gauge__label">Chance to destroy</span>
+        </div>
+        <div class="gauge">
+          <span class="gauge__value">{{ sequence().steps.at(-1)?.expectedBoxesRemaining?.toFixed(1) ?? '—' }}</span>
+          <span class="gauge__label">Expected boxes left</span>
         </div>
       </div>
 
+      <div class="steps">
+        <h3 class="distribution__title">Step by step</h3>
+        @for (step of sequence().steps; track step.attack.id) {
+          <div class="steps__row">
+            <span class="steps__label">{{ step.attack.attackerName }} — {{ step.attack.label }}</span>
+            <span class="steps__metric">
+              <span class="steps__metric-label">Hit</span>{{ pct(step.hitChance) }}
+            </span>
+            <span class="steps__metric">
+              <span class="steps__metric-label">Destroy (step)</span>{{ pct(step.destroyChanceAtThisStep) }}
+            </span>
+            <span class="steps__metric steps__metric--cumulative">
+              <span class="steps__metric-label">Cumulative</span>{{ pct(step.cumulativeDestroyChance) }}
+            </span>
+          </div>
+        }
+      </div>
+
       <div class="distribution">
-        <h3 class="distribution__title">Distribution des dégâts</h3>
-        @for (point of visibleDamagePoints(); track point.damage) {
+        <h3 class="distribution__title">Boxes remaining if it survives</h3>
+        @for (point of visibleSurvivalPoints(); track point.boxes) {
           <div class="distribution__row">
-            <span class="distribution__damage">{{ point.damage }}</span>
+            <span class="distribution__damage">{{ point.boxes }}</span>
             <span class="distribution__bar-track">
               <span
                 class="distribution__bar"
-                [style.width.%]="(point.probability / maxBarProbability()) * 100"
+                [style.width.%]="(point.probability / maxSurvivalProbability()) * 100"
               ></span>
             </span>
             <span class="distribution__prob">{{ pct(point.probability) }}</span>
           </div>
+        } @empty {
+          <p class="distribution__empty">The target is destroyed in every outcome.</p>
         }
       </div>
     </section>
