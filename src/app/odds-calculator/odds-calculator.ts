@@ -61,6 +61,8 @@ export class OddsCalculator {
   protected readonly targetBoxes = signal(5);
   protected readonly tough = signal(false);
   protected readonly toughOn = signal(5);
+  protected readonly targetFocus = signal(0);
+  protected readonly targetFury = signal(0);
 
   // --- Attack sequence ---
   protected readonly rows = signal<AttackRow[]>([createAttackRow('Attacker 1')]);
@@ -83,6 +85,12 @@ export class OddsCalculator {
     }))
   );
 
+  private static readonly MAX_RESOURCE_POINTS = 10;
+
+  private static clampResourcePoints(value: number): number {
+    return Math.max(0, Math.min(OddsCalculator.MAX_RESOURCE_POINTS, Math.floor(value || 0)));
+  }
+
   /** Recomputed automatically whenever any row or target input changes. */
   protected readonly sequence = computed(() =>
     this.engine.computeSequence(this.sequencedAttacks(), {
@@ -91,6 +99,8 @@ export class OddsCalculator {
       boxes: this.targetBoxes(),
       tough: this.tough(),
       toughOn: this.toughOn(),
+      focusPoints: OddsCalculator.clampResourcePoints(this.targetFocus()),
+      furyPoints: OddsCalculator.clampResourcePoints(this.targetFury()),
     })
   );
 
