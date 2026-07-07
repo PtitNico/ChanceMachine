@@ -121,6 +121,54 @@ describe('attack-model', () => {
     expect(withBrutal.hitChance).toBeCloseTo(withoutBrutal.hitChance, 9); // to-hit is unaffected
     expect(withBrutal.expectedDamage).toBeGreaterThan(withoutBrutal.expectedDamage);
   });
+
+  it('an attack roll of all 1s is always a miss, even when MAT/DEF would otherwise guarantee a hit', () => {
+    // MAT 20 vs DEF 1: needed dice sum = 1 - 20 = -19, so normally every possible roll hits.
+    const odds = computeAttackOdds({
+      attack: { type: 'melee', stat: 20 },
+      damage: { pow: 10 },
+      target: { def: 1, arm: 0, boxesRemaining: 1000 },
+    });
+    // Only (1,1) - 1/36 - is forced to miss.
+    expect(odds.hitChance).toBeCloseTo(35 / 36, 9);
+    expect(odds.missChance).toBeCloseTo(1 / 36, 9);
+  });
+
+  it('an attack roll of all 6s is always a hit, even when MAT/DEF would otherwise guarantee a miss', () => {
+    // MAT 1 vs DEF 30: needed dice sum = 29, unreachable by 2d6 (max 12), so normally every roll misses.
+    const odds = computeAttackOdds({
+      attack: { type: 'melee', stat: 1 },
+      damage: { pow: 10 },
+      target: { def: 30, arm: 0, boxesRemaining: 1000 },
+    });
+    // Only (6,6) - 1/36 - is forced to hit, and it's necessarily also a double (a crit).
+    expect(odds.hitChance).toBeCloseTo(1 / 36, 9);
+    expect(odds.critOnHitChance).toBeCloseTo(1 / 36, 9);
+  });
+
+  it('the all-6s auto-hit exception does not apply when only one die is kept', () => {
+    // Discarding the lowest of 2 dice keeps a single die (1-6) - MAT 1 vs DEF 30 still needs
+    // a dice sum of 29, unreachable by a single die, so a lone 6 must NOT auto-hit here.
+    const odds = computeAttackOdds({
+      attack: { type: 'melee', stat: 1, modifiers: { discard: { count: 1, mode: 'lowest' } } },
+      damage: { pow: 10 },
+      target: { def: 30, arm: 0, boxesRemaining: 1000 },
+    });
+    expect(odds.hitChance).toBe(0);
+  });
+
+  it('all 1s still misses even with only one die kept (no exception on the miss side)', () => {
+    // Discarding the highest of 2 dice keeps the lower die - MAT 20 vs DEF 1 would otherwise
+    // guarantee a hit (needed sum = -19), but a kept die of 1 must still force a miss.
+    const odds = computeAttackOdds({
+      attack: { type: 'melee', stat: 20, modifiers: { discard: { count: 1, mode: 'highest' } } },
+      damage: { pow: 10 },
+      target: { def: 1, arm: 0, boxesRemaining: 1000 },
+    });
+    // Kept die = min(d1, d2) = 1 whenever at least one die shows 1: 1 - (5/6)^2 = 11/36 of rolls.
+    expect(odds.missChance).toBeCloseTo(11 / 36, 9);
+    expect(odds.hitChance).toBeCloseTo(25 / 36, 9);
+  });
 });
 
 describe('sequence engine', () => {
@@ -201,21 +249,25 @@ describe('sequence engine', () => {
   });
 
   it('Knockdown on a crit makes a later melee attack in the sequence auto-hit', () => {
-    // Attack 1 keeps a normal, realistic chance to hit/crit (DEF 13). Attack 2
-    // has an absurdly low stat so it could basically never hit on its own -
-    // the only way it can hit is if Knockdown from attack 1's crit carries over.
+    // Attack 1 keeps a normal, realistic chance to hit/crit (DEF 13). Attack 2 has an
+    // absurdly low stat AND keeps only 1 die (discarding the other) so it could basically
+    // never hit on its own - a single die is also exempt from the "natural 6s always hit"
+    // rule (see attack-model.ts), so its baseline hit chance is genuinely ~0, not just low.
+    // The only way it can hit here is if Knockdown from attack 1's crit carries over.
+    const singleDieMods = { discard: { count: 1, mode: 'lowest' as const } };
     const attacks: SequencedAttack[] = [
       attack({ id: '1', criticalEffects: { knockdown: true } }),
-      attack({ id: '2', type: 'melee', stat: -50 }),
+      attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
     expect(result.steps[1].hitChance).toBeGreaterThan(0);
   });
 
   it('Knockdown does not grant a ranged attack an auto-hit against the same target', () => {
+    const singleDieMods = { discard: { count: 1, mode: 'lowest' as const } };
     const attacks: SequencedAttack[] = [
       attack({ id: '1', criticalEffects: { knockdown: true } }),
-      attack({ id: '2', type: 'ranged', stat: -50 }),
+      attack({ id: '2', type: 'ranged', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
     expect(result.steps[1].hitChance).toBeCloseTo(0, 6);
@@ -361,11 +413,29 @@ describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
     expect(result.steps[0].hitChance).toBeCloseTo(1, 9);
   });
 
-  it("DEF: 'KD' also makes ranged and arcane attacks auto-hit (unlike a mid-sequence Knockdown crit)", () => {
+  it("DEF: 'KD' does NOT auto-hit ranged/arcane attacks - they still roll normally against DEF 5", () => {
     const ranged = computeSequenceOdds([attack({ type: 'ranged', stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
     const arcane = computeSequenceOdds([attack({ type: 'arcane', stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
-    expect(ranged.steps[0].hitChance).toBeCloseTo(1, 9);
-    expect(arcane.steps[0].hitChance).toBeCloseTo(1, 9);
+
+    const viaExplicitDef5 = computeAttackOdds({
+      attack: { type: 'ranged', stat: -50 },
+      damage: { pow: 14 },
+      target: { def: 5, arm: 15, boxesRemaining: 5 },
+    });
+
+    expect(ranged.steps[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
+    expect(arcane.steps[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
+    expect(ranged.steps[0].hitChance).toBeLessThan(1); // not an auto-hit
+  });
+
+  it("a melee attack still auto-hits from DEF: 'KD' even after an earlier ranged attack in the same sequence", () => {
+    // Knocked Down is a property of the target from the very start of the sequence, not
+    // something that has to be "re-triggered" - it shouldn't matter what came before it.
+    const result = computeSequenceOdds(
+      [attack({ id: '1', type: 'ranged', stat: -50 }), attack({ id: '2', type: 'melee', stat: -50 })],
+      { def: 'KD', arm: 15, boxes: 1000 }
+    );
+    expect(result.steps[1].hitChance).toBeCloseTo(1, 9);
   });
 
   it("an auto-hit from DEF: 'KD' cannot crit (no attack roll is made)", () => {

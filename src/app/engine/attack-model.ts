@@ -104,6 +104,27 @@ function buildPool(base: number, mods?: RollModifiers, extraDice = 0): DicePoolO
   return pool;
 }
 
+/** Number of dice actually counted towards the sum, after any discard. */
+function keptDiceCount(base: number, mods?: RollModifiers, extraDice = 0): number {
+  return base + (mods?.boostDice ?? 0) + extraDice - (mods?.discard?.count ?? 0);
+}
+
+/**
+ * A roll where every kept die shows the same extreme face is a hard override
+ * of the normal MAT/RAT/AAT-vs-DEF comparison: all 1s always misses, and all
+ * 6s always hits (unless only one die is being rolled, in which case a lone
+ * 6 is just a 6, not the "natural roll of doubles/triples of 6" this models).
+ * Since dice faces are always >= 1, the sum of N dice equals N only when
+ * every die shows exactly 1, and equals 6N only when every die shows 6 - so
+ * this is fully determined by the pool's `sum` and dice count, no need to
+ * inspect individual faces.
+ */
+function isHitOutcome(outcome: DicePoolOutcome, neededDiceSum: number, diceCount: number): boolean {
+  if (outcome.sum === diceCount) return false;
+  if (diceCount > 1 && outcome.sum === diceCount * 6) return true;
+  return outcome.sum >= neededDiceSum;
+}
+
 function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number): Map<number, number> {
   const dist = new Map<number, number>();
   for (const outcome of pool) {
@@ -147,7 +168,8 @@ export function buildAttackProfile(
 
   const toHitPool = buildPool(BASE_DICE, attack.modifiers);
   const neededDiceSum = target.def - attack.stat; // total needed = def, dice needed = def - stat
-  const hitOutcomes = toHitPool.filter((o) => o.sum >= neededDiceSum);
+  const toHitDiceCount = keptDiceCount(BASE_DICE, attack.modifiers);
+  const hitOutcomes = toHitPool.filter((o) => isHitOutcome(o, neededDiceSum, toHitDiceCount));
   const hitChance = hitOutcomes.reduce((acc, o) => acc + o.probability, 0);
   const hitCritChance = hitOutcomes.filter((o) => o.hasDouble).reduce((acc, o) => acc + o.probability, 0);
   const hitNonCritChance = hitChance - hitCritChance;

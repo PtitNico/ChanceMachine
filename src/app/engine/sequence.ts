@@ -50,7 +50,9 @@ export interface SequencedAttack {
 }
 
 export interface SequenceTarget {
-  /** Numeric DEF, or 'KD' if the target starts the whole sequence Knocked Down / unable to defend at all - every attack then auto-hits regardless of type, and DEF is never consulted. */
+  /** Numeric DEF, or 'KD' if the target starts the whole sequence Knocked Down: melee attacks
+   *  then auto-hit for the whole sequence, but ranged and arcane attacks still roll normally
+   *  against a DEF of 5 (Knocked Down does not help against those). */
   def: number | 'KD';
   arm: number;
   boxes: number;
@@ -280,16 +282,17 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   const toughFailChance = hasTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
   const n = attacks.length;
 
-  // A target already Knocked Down (DEF = 'KD') can't defend against anything - every
-  // attack auto-hits regardless of type, and the numeric DEF is never consulted (the
-  // dummy 0 below is only there to satisfy the profile builder's type; autoHit skips it).
-  const alwaysAutoHit = target.def === 'KD';
-  const profileTarget = { def: typeof target.def === 'number' ? target.def : 0, arm: target.arm };
+  // DEF = 'KD' means the target starts Knocked Down: for the to-hit roll itself, that's
+  // just the ordinary Knocked Down DEF of 5 (used by ranged/arcane attacks, which get no
+  // other benefit from it - see AttackType doc). The auto-hit for melee attacks against a
+  // Knocked Down target is handled uniformly below via the `knockedDown` state, seeded to
+  // true from the start in that case - the same mechanism a mid-sequence Knockdown crit uses.
+  const startsKnockedDown = target.def === 'KD';
+  const profileTarget = { def: typeof target.def === 'number' ? target.def : 5, arm: target.arm };
 
   const attackInfos = attacks.map((atk) => {
-    const forcedAutoHit = alwaysAutoHit || !!atk.forceAutoHit;
-    const knockdownGates = !forcedAutoHit && atk.type === 'melee';
-    const normalProfile = buildProfileFor(atk, profileTarget, forcedAutoHit);
+    const knockdownGates = !atk.forceAutoHit && atk.type === 'melee';
+    const normalProfile = buildProfileFor(atk, profileTarget, !!atk.forceAutoHit);
     const autoHitProfile = knockdownGates ? buildProfileFor(atk, profileTarget, true) : normalProfile;
     return { atk, knockdownGates, normalProfile, autoHitProfile };
   });
@@ -307,7 +310,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     const valueAt: ValueLookup = (boxes, kd, focus, fury) => readValueTable(nextTable, boxes, kd, focus, fury);
 
     valueTables[k] = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, knockedDown, focus, fury) => {
-      const usesAutoHit = alwaysAutoHit || !!atk.forceAutoHit || (knockdownGates && knockedDown);
+      const usesAutoHit = !!atk.forceAutoHit || (knockdownGates && knockedDown);
       const profile = usesAutoHit ? autoHitProfile : normalProfile;
       let total = 0;
       for (const outcome of applyProfile(profile)) {
@@ -338,7 +341,12 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   const key = (s: FwdState) => `${s.boxes}|${s.knockedDown}|${s.focusLeft}|${s.furyLeft}`;
 
   let dist = new Map<string, { state: FwdState; probability: number }>();
-  const initialState: FwdState = { boxes: initialBoxes, knockedDown: false, focusLeft: maxFocus, furyLeft: maxFury };
+  const initialState: FwdState = {
+    boxes: initialBoxes,
+    knockedDown: startsKnockedDown,
+    focusLeft: maxFocus,
+    furyLeft: maxFury,
+  };
   dist.set(key(initialState), { state: initialState, probability: 1 });
 
   const steps: SequenceStepResult[] = [];
@@ -358,7 +366,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
 
     for (const { state, probability } of dist.values()) {
       aliveMass += probability;
-      const usesAutoHit = alwaysAutoHit || !!atk.forceAutoHit || (knockdownGates && state.knockedDown);
+      const usesAutoHit = !!atk.forceAutoHit || (knockdownGates && state.knockedDown);
       const profile = usesAutoHit ? autoHitProfile : normalProfile;
 
       for (const outcome of applyProfile(profile)) {

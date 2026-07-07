@@ -36,7 +36,7 @@ Tous les champs numériques sont des **listes déroulantes** (`<select>`) plutô
 ### 1. Target (cible)
 
 Une seule ligne de champs, partagée par toute la séquence d'attaques :
-- **DEF** : `KD` (la cible est Knocked Down / incapable de se défendre dès le début de la séquence — **toutes** les attaques, quel que soit leur type, touchent alors automatiquement), puis de 5 à 25.
+- **DEF** : `KD` (la cible est Knocked Down dès le début de la séquence — les attaques de **mêlée** touchent alors automatiquement pour toute la séquence, mais les attaques de **tir** et de **magie** continuent de lancer un jet normal contre une DEF de 5), puis de 5 à 25.
 - **ARM** : de 1 à 35.
 - **Boxes** (capacité de dégâts restante) : de 1 à 99.
 - **Focus** / **Fury** : de 0 à 15 (voir "Focus et Fury" plus bas).
@@ -74,12 +74,14 @@ Le bouton **"Show details"** ouvre une pop-up avec le détail complet :
 
 - Jet pour toucher : 2d6 + boosts éventuels ≥ (DEF − MAT/RAT).
 - Double sur le jet pour toucher = critique.
+- **Un jet pour toucher où tous les dés affichent 1 est toujours un échec**, quels que soient MAT/RAT/AAT et DEF.
+- **Un jet pour toucher où tous les dés affichent 6 est toujours une réussite** (et donc aussi un critique, puisqu'un jet où tous les dés sont identiques comporte forcément un double), quels que soient MAT/RAT/AAT et DEF — sauf si un seul dé est lancé, auquel cas un simple 6 ne bénéficie d'aucun bonus particulier.
 - Jet de dégâts : 2d6 + boosts éventuels + POW − ARM (minimum 0).
 - **Tough** : à chaque fois que des dégâts seraient létaux, un jet de Tough est tenté ; en cas de réussite, la cible survit avec 1 boîte restante et devient Knocked Down (comportement standard de la règle Tough) plutôt que d'être détruite.
 - **Knockdown** (effet critique) : persiste pour le reste de la séquence une fois déclenché. Seules les attaques de **mêlée** ultérieures dans la séquence touchent automatiquement une cible Knocked Down ; les attaques de **tir** et de **magie** n'en tirent aucun bénéfice dans le modèle actuel.
 - **Brutal Damage** (effet critique) : dés de dégâts supplémentaires, mais uniquement sur la branche critique du jet (une attaque qui touche sans critique n'en bénéficie pas).
 - **Auto-hit** (cible Stationary ou équivalent, `Effects > Auto-hit`, ou `DEF: KD`) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
-- **DEF: KD** (cible Knocked Down dès le début de la séquence) diffère du Knockdown déclenché en cours de séquence par un critique : `DEF: KD` fait toucher automatiquement **toutes** les attaques de la séquence, quel que soit leur type (mêlée, tir, magie), alors qu'un Knockdown déclenché par un critique ne profite qu'aux attaques de **mêlée** qui suivent (voir ci-dessus). C'est un raccourci pour "la cible ne peut absolument pas se défendre pendant toute la séquence", pas juste un état Knocked Down normal.
+- **DEF: KD** (cible Knocked Down dès le début de la séquence) se comporte exactement comme un Knockdown déclenché en cours de séquence par un critique (voir ci-dessus), simplement actif dès la première attaque plutôt que déclenché par un critique : seules les attaques de **mêlée** touchent automatiquement (pour toute la séquence, dès le début) ; les attaques de **tir** et de **magie** lancent un jet normal contre une DEF de 5.
 
 ### Focus et Fury (points de ressource de la cible)
 
