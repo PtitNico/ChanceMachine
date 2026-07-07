@@ -157,9 +157,6 @@
 
             <button type="button" class="effects-btn" (click)="openEffects(row)">
               Effects
-              @if (hasEffects(row)) {
-                <span class="effects-btn__dot"></span>
-              }
             </button>
 
             <button
@@ -172,6 +169,13 @@
               ✕
             </button>
           </div>
+          @if (effectsSummary(row).length > 0) {
+            <div class="attack-row__effects">
+              @for (label of effectsSummary(row); track label) {
+                <span class="effect-tag">{{ label }}</span>
+              }
+            </div>
+          }
         }
       </div>
 
@@ -198,39 +202,165 @@
 
   <dialog #effectsDialog class="dialog" (click)="closeOnBackdropClick($event, effectsDialog)">
     @if (editingRow(); as row) {
-      <div class="dialog__content">
+      <div class="dialog__content dialog__content--framed">
         <header class="dialog__header">
           <h2 class="dialog__title">Effects</h2>
           <button type="button" class="icon-btn" (click)="closeEffects()" aria-label="Close">✕</button>
         </header>
 
-        <label class="field field--check">
-          <input
-            type="checkbox"
-            [ngModel]="row.forceAutoHit()"
-            (ngModelChange)="row.forceAutoHit.set($event)"
-          />
-          <span class="field__label">Auto-hit (target Stationary)</span>
-        </label>
+        <div class="dialog__body">
+        <h3 class="dialog__section-title">General</h3>
+        <div class="toggle-group">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.jumpTheShark()"
+            (click)="row.jumpTheShark.set(!row.jumpTheShark())"
+          >
+            Jump the Shark
+          </button>
+        </div>
 
-        <label class="field field--check">
-          <input type="checkbox" [ngModel]="row.knockdown()" (ngModelChange)="row.knockdown.set($event)" />
-          <span class="field__label">Crit: Knockdown</span>
-        </label>
+        <h3 class="dialog__section-title">Attack</h3>
+        <div class="toggle-group">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.forceAutoHit()"
+            (click)="row.forceAutoHit.set(!row.forceAutoHit())"
+          >
+            Auto-hit
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.discardAttackLowest()"
+            (click)="row.discardAttackLowest.set(!row.discardAttackLowest())"
+          >
+            Discard lowest
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.discardAttackHighest()"
+            (click)="row.discardAttackHighest.set(!row.discardAttackHighest())"
+          >
+            Discard highest
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.rerollAttack()"
+            (click)="row.rerollAttack.set(!row.rerollAttack())"
+          >
+            Reroll
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.sanguineFate()"
+            (click)="row.sanguineFate.set(!row.sanguineFate())"
+          >
+            Sanguine Fate
+          </button>
+        </div>
 
-        <label class="field">
-          <span class="field__label">Crit: Brutal Damage (extra dice)</span>
-          <input
-            class="field__input"
-            type="number"
-            min="0"
-            max="4"
-            [ngModel]="row.brutalDamageDice()"
-            (ngModelChange)="row.brutalDamageDice.set($event)"
-          />
-        </label>
+        <h3 class="dialog__section-title">Damage</h3>
+        <div class="toggle-group">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.discardDamageLowest()"
+            (click)="row.discardDamageLowest.set(!row.discardDamageLowest())"
+          >
+            Discard lowest
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.discardDamageHighest()"
+            (click)="row.discardDamageHighest.set(!row.discardDamageHighest())"
+          >
+            Discard highest
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.rerollDamage()"
+            (click)="row.rerollDamage.set(!row.rerollDamage())"
+          >
+            Reroll
+          </button>
+          <button type="button" class="toggle-btn" [class.toggle-btn--active]="row.trash()" (click)="row.trash.set(!row.trash())">
+            Trash
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.shatter()"
+            (click)="row.shatter.set(!row.shatter())"
+          >
+            Shatter
+          </button>
+        </div>
 
-        <button type="button" class="dialog__done-btn" (click)="closeEffects()">Done</button>
+        <h3 class="dialog__section-title">On hit</h3>
+        <div class="toggle-group">
+          @for (effect of row.triggerEffects; track effect.key) {
+            <button
+              type="button"
+              class="toggle-btn"
+              [class.toggle-btn--active]="effect.trigger() === 'hit'"
+              (click)="toggleTriggerEffect(effect, 'hit')"
+            >
+              {{ triggerEffectLabel(effect.key) }}
+            </button>
+          }
+        </div>
+
+        <h3 class="dialog__section-title">On crit</h3>
+        <div class="toggle-group">
+          @for (effect of row.triggerEffects; track effect.key) {
+            <button
+              type="button"
+              class="toggle-btn"
+              [class.toggle-btn--active]="effect.trigger() === 'crit'"
+              (click)="toggleTriggerEffect(effect, 'crit')"
+            >
+              {{ triggerEffectLabel(effect.key) }}
+            </button>
+          }
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.brutalDamage()"
+            (click)="row.brutalDamage.set(!row.brutalDamage())"
+          >
+            Brutal Damage
+          </button>
+        </div>
+
+        @let armPenalty = armPenaltyEffect(row);
+        @if (armPenalty.trigger() !== 'off') {
+          <label class="field">
+            <span class="field__label">-X ARM amount</span>
+            <select
+              class="field__select field__select--narrow"
+              [ngModel]="armPenalty.amount()"
+              (ngModelChange)="armPenalty.amount.set(toNumber($event))"
+            >
+              @for (v of armPenaltyOptions; track v) {
+                <option [value]="v">-{{ v }}</option>
+              }
+            </select>
+          </label>
+        }
+        </div>
+
+        <div class="dialog__actions">
+          <button type="button" class="dialog__reset-btn" (click)="resetEffects(row)">Reset</button>
+          <button type="button" class="dialog__done-btn" (click)="closeEffects()">Done</button>
+        </div>
       </div>
     }
   </dialog>

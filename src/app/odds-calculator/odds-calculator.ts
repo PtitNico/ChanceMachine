@@ -9,9 +9,9 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AttackType } from '../engine/attack-model';
+import { AttackType, EffectTrigger } from '../engine/attack-model';
 import { OddsEngine } from '../engine/odds-engine';
-import { SequencedAttack } from '../engine/sequence';
+import { SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
 
 let nextRowId = 0;
 
@@ -38,6 +38,65 @@ const RESOURCE_OPTIONS = range(0, 15); // Focus / Fury
 const STAT_OPTIONS = range(0, 20); // MAT / RAT / AAT
 const POW_OPTIONS: (number | '-')[] = ['-', ...range(0, 30)];
 const DICE_OPTIONS = range(1, 6);
+const ARM_PENALTY_OPTIONS = range(1, 10);
+
+const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
+
+/**
+ * Every effect that can fire on a hit or specifically on a crit, rendered as a pair of
+ * toggle buttons (one in the "On hit" group, one in "On crit") - clicking one sets this
+ * effect's trigger, clicking the already-active one turns the effect off. Armor Piercing
+ * and Decapitation are one-off (this attack only); the rest are persistent `StatEffect`s.
+ */
+type TriggerEffectKey = 'armorPiercing' | 'decapitation' | StatEffectType;
+
+const STAT_EFFECT_TYPES: StatEffectType[] = [
+  'knockdown',
+  'stationary',
+  'iceCage',
+  'shadowbind',
+  'blind',
+  'paralysis',
+  'flare',
+  'weaken',
+  'armPenalty',
+];
+
+const TRIGGER_EFFECT_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
+
+const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
+  armorPiercing: 'Armor Piercing',
+  decapitation: 'Decapitation',
+  knockdown: 'Knockdown',
+  stationary: 'Stationary',
+  iceCage: 'Ice Cage (-2 DEF)',
+  shadowbind: 'Shadowbind (-3 DEF)',
+  blind: 'Blind (-4 DEF)',
+  paralysis: 'Paralysis (DEF 5)',
+  flare: 'Flare (-2 DEF)',
+  weaken: 'Weaken (-2 DEF)',
+  armPenalty: '-X ARM',
+};
+
+function isStatEffectKey(key: TriggerEffectKey): key is StatEffectType {
+  return key !== 'armorPiercing' && key !== 'decapitation';
+}
+
+/** 'off' means this effect isn't active on this attack. */
+interface TriggerEffectRow {
+  readonly key: TriggerEffectKey;
+  readonly trigger: WritableSignal<EffectTrigger | 'off'>;
+  /** Only meaningful for 'armPenalty'. */
+  readonly amount: WritableSignal<number>;
+}
+
+function createTriggerEffects(): TriggerEffectRow[] {
+  return TRIGGER_EFFECT_KEYS.map((key) => ({ key, trigger: signal<EffectTrigger | 'off'>('off'), amount: signal(2) }));
+}
+
+function cloneTriggerEffects(source: TriggerEffectRow[]): TriggerEffectRow[] {
+  return source.map((e) => ({ key: e.key, trigger: signal(e.trigger()), amount: signal(e.amount()) }));
+}
 
 /**
  * One editable row in the attack sequence builder. Each field is its own
@@ -57,8 +116,28 @@ interface AttackRow {
   readonly forceAutoHit: WritableSignal<boolean>;
   readonly pow: WritableSignal<number | '-'>;
   readonly damageDiceCount: WritableSignal<number>;
-  readonly knockdown: WritableSignal<boolean>;
-  readonly brutalDamageDice: WritableSignal<number>;
+
+  // General.
+  readonly jumpTheShark: WritableSignal<boolean>;
+
+  // Attack roll.
+  readonly discardAttackLowest: WritableSignal<boolean>;
+  readonly discardAttackHighest: WritableSignal<boolean>;
+  readonly rerollAttack: WritableSignal<boolean>;
+  readonly sanguineFate: WritableSignal<boolean>;
+
+  // Damage roll.
+  readonly discardDamageLowest: WritableSignal<boolean>;
+  readonly discardDamageHighest: WritableSignal<boolean>;
+  readonly rerollDamage: WritableSignal<boolean>;
+  readonly trash: WritableSignal<boolean>;
+  readonly shatter: WritableSignal<boolean>;
+
+  // Crit only.
+  readonly brutalDamage: WritableSignal<boolean>;
+
+  // Everything triggerable on a hit and/or a crit (fixed set, always present - see TriggerEffectRow).
+  readonly triggerEffects: TriggerEffectRow[];
 }
 
 function createAttackRow(): AttackRow {
@@ -70,8 +149,18 @@ function createAttackRow(): AttackRow {
     forceAutoHit: signal(false),
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
-    knockdown: signal(false),
-    brutalDamageDice: signal(0),
+    jumpTheShark: signal(false),
+    discardAttackLowest: signal(false),
+    discardAttackHighest: signal(false),
+    rerollAttack: signal(false),
+    sanguineFate: signal(false),
+    discardDamageLowest: signal(false),
+    discardDamageHighest: signal(false),
+    rerollDamage: signal(false),
+    trash: signal(false),
+    shatter: signal(false),
+    brutalDamage: signal(false),
+    triggerEffects: createTriggerEffects(),
   };
 }
 
@@ -85,20 +174,81 @@ function cloneAttackRow(source: AttackRow): AttackRow {
     forceAutoHit: signal(source.forceAutoHit()),
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
-    knockdown: signal(source.knockdown()),
-    brutalDamageDice: signal(source.brutalDamageDice()),
+    jumpTheShark: signal(source.jumpTheShark()),
+    discardAttackLowest: signal(source.discardAttackLowest()),
+    discardAttackHighest: signal(source.discardAttackHighest()),
+    rerollAttack: signal(source.rerollAttack()),
+    sanguineFate: signal(source.sanguineFate()),
+    discardDamageLowest: signal(source.discardDamageLowest()),
+    discardDamageHighest: signal(source.discardDamageHighest()),
+    rerollDamage: signal(source.rerollDamage()),
+    trash: signal(source.trash()),
+    shatter: signal(source.shatter()),
+    brutalDamage: signal(source.brutalDamage()),
+    triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
 }
 
-function hasEffects(row: AttackRow): boolean {
-  return row.forceAutoHit() || row.knockdown() || row.brutalDamageDice() > 0;
+function resetEffects(row: AttackRow): void {
+  row.forceAutoHit.set(false);
+  row.jumpTheShark.set(false);
+  row.discardAttackLowest.set(false);
+  row.discardAttackHighest.set(false);
+  row.rerollAttack.set(false);
+  row.sanguineFate.set(false);
+  row.discardDamageLowest.set(false);
+  row.discardDamageHighest.set(false);
+  row.rerollDamage.set(false);
+  row.trash.set(false);
+  row.shatter.set(false);
+  row.brutalDamage.set(false);
+  for (const effect of row.triggerEffects) {
+    effect.trigger.set('off');
+    effect.amount.set(2);
+  }
 }
 
-const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
+/** Short "label (trigger)" summary strings for every active effect on a row, shown under the attack row. */
+function effectsSummary(row: AttackRow): string[] {
+  const parts: string[] = [];
+  if (row.forceAutoHit()) parts.push('Auto-hit');
+  if (row.jumpTheShark()) parts.push('Jump the Shark');
+  if (row.discardAttackLowest()) parts.push('Discard lowest (atk)');
+  if (row.discardAttackHighest()) parts.push('Discard highest (atk)');
+  if (row.rerollAttack()) parts.push('Reroll (atk)');
+  if (row.sanguineFate()) parts.push('Sanguine Fate');
+  if (row.discardDamageLowest()) parts.push('Discard lowest (dmg)');
+  if (row.discardDamageHighest()) parts.push('Discard highest (dmg)');
+  if (row.rerollDamage()) parts.push('Reroll (dmg)');
+  if (row.trash()) parts.push('Trash');
+  if (row.shatter()) parts.push('Shatter');
+  if (row.brutalDamage()) parts.push('Crit Brutal Damage');
+  for (const effect of row.triggerEffects) {
+    const trigger = effect.trigger();
+    if (trigger === 'off') continue;
+    let label =
+      effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : TRIGGER_EFFECT_LABELS[effect.key];
+    if (trigger === 'crit') {
+      label = `Crit ${label}`;
+    }
+    parts.push(label);
+  }
+  return parts;
+}
 
 /** Total dice picked by the user -> extra dice on top of the game's 2d6 baseline (never negative). */
 function toBoostDice(diceCount: number): number {
   return Math.max(0, Math.floor(diceCount) - 2);
+}
+
+function discardModifier(lowest: boolean, highest: boolean): { highest?: number; lowest?: number } | undefined {
+  if (!lowest && !highest) return undefined;
+  return { highest: highest ? 1 : undefined, lowest: lowest ? 1 : undefined };
+}
+
+function triggerOf(row: AttackRow, key: TriggerEffectKey): EffectTrigger | undefined {
+  const trigger = row.triggerEffects.find((e) => e.key === key)?.trigger();
+  return trigger && trigger !== 'off' ? trigger : undefined;
 }
 
 @Component({
@@ -113,8 +263,10 @@ export class OddsCalculator {
   private readonly engine = inject(OddsEngine);
 
   protected readonly attackTypes: AttackType[] = ['melee', 'ranged', 'arcane'];
-  protected readonly hasEffects = hasEffects;
+  protected readonly effectsSummary = effectsSummary;
   protected readonly statLabel = (type: AttackType) => STAT_LABELS[type];
+  protected readonly triggerEffectLabel = (key: TriggerEffectKey) => TRIGGER_EFFECT_LABELS[key];
+  protected readonly isArmPenalty = (key: TriggerEffectKey) => key === 'armPenalty';
 
   protected readonly defOptions = DEF_OPTIONS;
   protected readonly armOptions = ARM_OPTIONS;
@@ -123,6 +275,7 @@ export class OddsCalculator {
   protected readonly statOptions = STAT_OPTIONS;
   protected readonly powOptions = POW_OPTIONS;
   protected readonly diceOptions = DICE_OPTIONS;
+  protected readonly armPenaltyOptions = ARM_PENALTY_OPTIONS;
 
   /** <select> change events always carry a string - these convert back to the field's real type. */
   protected readonly toNumber = (raw: string) => Number(raw);
@@ -141,21 +294,48 @@ export class OddsCalculator {
   protected readonly rows = signal<AttackRow[]>([createAttackRow()]);
 
   private readonly sequencedAttacks = computed<SequencedAttack[]>(() =>
-    this.rows().map((r, i) => ({
-      id: r.id,
-      attackerName: '',
-      label: `Attack ${i + 1}`,
-      type: r.type(),
-      stat: r.stat(),
-      modifiers: { boostDice: toBoostDice(r.diceCount()) },
-      pow: resolvePow(r.pow()),
-      damageModifiers: { boostDice: toBoostDice(r.damageDiceCount()) },
-      criticalEffects:
-        r.knockdown() || r.brutalDamageDice() > 0
-          ? { knockdown: r.knockdown() || undefined, brutalDamageDice: r.brutalDamageDice() || undefined }
-          : undefined,
-      forceAutoHit: r.forceAutoHit(),
-    }))
+    this.rows().map((r, i): SequencedAttack => {
+      const statEffects: StatEffect[] = r.triggerEffects
+        .filter((e) => isStatEffectKey(e.key) && e.trigger() !== 'off')
+        .map(
+          (e): StatEffect => ({
+            type: e.key as StatEffectType,
+            trigger: e.trigger() as EffectTrigger,
+            amount: e.key === 'armPenalty' ? e.amount() : undefined,
+          })
+        );
+
+      return {
+        id: r.id,
+        attackerName: '',
+        label: `Attack ${i + 1}`,
+        type: r.type(),
+        stat: r.stat(),
+        modifiers: {
+          boostDice: toBoostDice(r.diceCount()),
+          discard: discardModifier(r.discardAttackLowest(), r.discardAttackHighest()),
+          reroll: r.rerollAttack() || undefined,
+          treatOnesAsSixes: r.jumpTheShark() || undefined,
+          extraCritDice: r.sanguineFate() ? 1 : undefined,
+        },
+        pow: resolvePow(r.pow()),
+        damageModifiers: {
+          boostDice: toBoostDice(r.damageDiceCount()),
+          discard: discardModifier(r.discardDamageLowest(), r.discardDamageHighest()),
+          reroll: r.rerollDamage() || undefined,
+          treatOnesAsSixes: r.jumpTheShark() || undefined,
+        },
+        effects: {
+          brutalDamageDice: r.brutalDamage() ? 1 : undefined,
+          armorPiercing: triggerOf(r, 'armorPiercing'),
+          decapitation: triggerOf(r, 'decapitation'),
+          trash: r.trash() || undefined,
+          shatter: r.shatter() || undefined,
+        },
+        statEffects: statEffects.length > 0 ? statEffects : undefined,
+        forceAutoHit: r.forceAutoHit(),
+      };
+    })
   );
 
   private static readonly MAX_RESOURCE_POINTS = 10;
@@ -213,6 +393,20 @@ export class OddsCalculator {
 
   protected closeEffects(): void {
     this.effectsDialog?.nativeElement.close();
+  }
+
+  protected resetEffects(row: AttackRow): void {
+    resetEffects(row);
+  }
+
+  /** Toggling the already-active trigger for this effect turns it off; toggling the other one switches to it. */
+  protected toggleTriggerEffect(effect: TriggerEffectRow, trigger: EffectTrigger): void {
+    effect.trigger.set(effect.trigger() === trigger ? 'off' : trigger);
+  }
+
+  /** 'armPenalty' is always present in `triggerEffects` (fixed key set), so this is never undefined. */
+  protected armPenaltyEffect(row: AttackRow): TriggerEffectRow {
+    return row.triggerEffects.find((e) => e.key === 'armPenalty')!;
   }
 
   // --- Results details popup ---

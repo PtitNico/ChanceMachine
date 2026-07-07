@@ -8,40 +8,65 @@
  * The expensive part (enumerating every dice-pool outcome) is isolated in
  * `buildAttackProfile`, which deliberately does NOT depend on the target's
  * remaining boxes. That split lets `sequence.ts` build each attack's profile
- * exactly once and then cheaply re-apply it against many different
- * boxes-remaining values as a multi-attack sequence plays out, instead of
+ * exactly once per distinct (DEF/ARM/status) context and reuse it cheaply
+ * across every target state a sequence needs to consider, instead of
  * re-enumerating dice per step.
+ *
+ * This module only knows about effects that matter for ONE attack in
+ * isolation (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter -
+ * all resolved using the target's CURRENT DEF/ARM/status, passed in as plain
+ * numbers/flags). Effects that persist and change the target's DEF/ARM/status
+ * for LATER attacks in a sequence (Knockdown, Stationary, Ice Cage,
+ * Shadowbind, Blind, Paralysis, Flare, Weaken, generic ARM debuffs) are
+ * `sequence.ts`'s job - it computes the effective DEF/ARM for a given point
+ * in the sequence and passes plain numbers in here.
  */
 
 import {
   DicePoolOutcome,
-  rerollPoolOnceIfBelow,
+  rerollPoolOnceIf,
   rollDicePool,
 } from './dice-pool';
 
 export type AttackType = 'melee' | 'ranged' | 'arcane';
 
+/** Whether a one-off effect triggers on any hit, or only on a critical hit. */
+export type EffectTrigger = 'hit' | 'crit';
+
 export interface RollModifiers {
   /** Extra d6 added to the base 2d6, e.g. from spending a focus/fury point. */
   boostDice?: number;
-  /** Discard the N highest or lowest dice before summing (some debuffs/effects). */
-  discard?: { count: number; mode: 'highest' | 'lowest' };
-  /** Reroll the whole pool once if the raw dice sum is below this value. */
-  rerollDiceSumBelow?: number;
+  /** Discard the N highest and/or M lowest dice before summing - both can be set at once. */
+  discard?: { highest?: number; lowest?: number };
+  /** Reroll the whole roll once if it's "bad" (optimal single-reroll policy): for
+   *  an attack roll, bad means it would miss; for a damage roll, bad means
+   *  below-average. See `applyRerollIfConfigured`. */
+  reroll?: boolean;
+  /** Jump the Shark: every rolled die showing a 1 counts as a 6 instead. */
+  treatOnesAsSixes?: boolean;
+  /** Sanguine Fate: N extra d6 that count towards "double" detection for a
+   *  crit, without being added to the roll's sum. Only meaningful on an
+   *  attack roll (there's no such thing as a "critical" damage roll). */
+  extraCritDice?: number;
 }
 
 /**
- * Effects that trigger only on a critical hit (a natural double on the
- * attack roll). Kept deliberately small for now - a curated, exact list
- * beats a vague generic system. More named effects (Decapitation, Sustained
- * Attack, etc.) will be added once their exact rules text is confirmed.
+ * Effects scoped to THIS single attack (as opposed to persistent target
+ * debuffs - see the file header). Kept as a curated, exact list rather than
+ * a vague generic system.
  */
-export interface CriticalEffects {
-  /** Target becomes Knocked Down for the rest of the sequence. Only melee
-   *  attacks auto-hit a Knocked Down target (see `AttackInput.target.knockedDown`). */
-  knockdown?: boolean;
-  /** Extra d6 added to the damage roll, but only on the crit branch (e.g. Brutal Damage). */
+export interface AttackEffects {
+  /** Crit-only: extra d6 added to the damage roll (Brutal Damage). */
   brutalDamageDice?: number;
+  /** Halves BASE ARM (i.e. ignoring any ARM debuff already in play), rounded
+   *  up, for this attack's damage only. */
+  armorPiercing?: EffectTrigger;
+  /** Doubles this attack's damage. */
+  decapitation?: EffectTrigger;
+  /** Extra d6 on the damage roll if the target is currently Knocked Down (Trash). */
+  trash?: boolean;
+  /** Extra d6 on the damage roll if the target is currently Stationary (Shatter). */
+  shatter?: boolean;
 }
 
 export interface AttackInput {
@@ -58,10 +83,14 @@ export interface AttackInput {
     pow: number;
     modifiers?: RollModifiers;
   };
-  criticalEffects?: CriticalEffects;
+  effects?: AttackEffects;
   target: {
     def: number;
+    /** Effective ARM, after any persistent ARM debuff. */
     arm: number;
+    /** Original ARM before any debuff - used by Armor Piercing, which explicitly
+     *  ignores debuffs. Defaults to `arm` (i.e. no debuff in play) when omitted. */
+    baseArm?: number;
     /** Remaining damage capacity (health boxes / remaining life) needed to destroy the model. */
     boxesRemaining: number;
     /** Does the target have Tough? */
@@ -69,8 +98,12 @@ export interface AttackInput {
     /** Tough roll target number on 1d6 (5 in the core rules: 5 or 6 survives). */
     toughOn?: number;
     /** Target is already Knocked Down when this attack resolves. Melee attacks
-     *  automatically hit a Knocked Down target; ranged/arcane attacks are unaffected. */
+     *  automatically hit a Knocked Down (or Stationary) target; ranged/arcane are unaffected. */
     knockedDown?: boolean;
+    /** Target is already Stationary when this attack resolves. Functionally identical
+     *  to Knocked Down for the to-hit roll (melee auto-hits, ranged/arcane unaffected) -
+     *  tracked separately only because Shatter cares about Stationary specifically. */
+    stationary?: boolean;
   };
 }
 
@@ -97,16 +130,31 @@ const BASE_DICE = 2; // Warmachine/Hordes attack and damage rolls are 2d6 at bas
 
 function buildPool(base: number, mods?: RollModifiers, extraDice = 0): DicePoolOutcome[] {
   const diceCount = base + (mods?.boostDice ?? 0) + extraDice;
-  let pool = rollDicePool({ diceCount, discard: mods?.discard });
-  if (mods?.rerollDiceSumBelow !== undefined) {
-    pool = rerollPoolOnceIfBelow(pool, mods.rerollDiceSumBelow);
-  }
-  return pool;
+  return rollDicePool({
+    diceCount,
+    discard: mods?.discard,
+    treatOnesAsSixes: mods?.treatOnesAsSixes,
+    extraCritDice: mods?.extraCritDice,
+  });
 }
 
-/** Number of dice actually counted towards the sum, after any discard. */
+/** Number of dice actually counted towards the sum, after any discard (excludes Sanguine Fate's extra crit dice). */
 function keptDiceCount(base: number, mods?: RollModifiers, extraDice = 0): number {
-  return base + (mods?.boostDice ?? 0) + extraDice - (mods?.discard?.count ?? 0);
+  const discarded = (mods?.discard?.highest ?? 0) + (mods?.discard?.lowest ?? 0);
+  return Math.max(0, base + (mods?.boostDice ?? 0) + extraDice - discarded);
+}
+
+/** A below-average raw dice sum is always worth rerolling (strictly maximizes expected damage). */
+function isBadDamageRoll(outcome: DicePoolOutcome, diceCount: number): boolean {
+  return outcome.sum < 3.5 * diceCount;
+}
+
+function applyRerollIfConfigured(
+  pool: DicePoolOutcome[],
+  mods: RollModifiers | undefined,
+  isBad: (outcome: DicePoolOutcome) => boolean
+): DicePoolOutcome[] {
+  return mods?.reroll ? rerollPoolOnceIf(pool, isBad) : pool;
 }
 
 /**
@@ -134,11 +182,29 @@ function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number): 
   return dist;
 }
 
+function doubleDamageValues(dist: Map<number, number>): Map<number, number> {
+  const doubled = new Map<number, number>();
+  for (const [dealt, p] of dist) {
+    doubled.set(dealt * 2, (doubled.get(dealt * 2) ?? 0) + p);
+  }
+  return doubled;
+}
+
+/** Whether a one-off effect (Armor Piercing / Decapitation) applies to a non-crit hit. */
+function appliesOnNonCritHit(trigger: EffectTrigger | undefined): boolean {
+  return trigger === 'hit';
+}
+
+/** Whether it applies to a crit - both triggers do, since a crit is also a hit. */
+function appliesOnCritHit(trigger: EffectTrigger | undefined): boolean {
+  return trigger === 'hit' || trigger === 'crit';
+}
+
 /**
  * An attack's full probabilistic profile, independent of the target's
  * remaining boxes. This is the piece that enumerates dice pools, so it's
- * built once per attack and reused across every target state a sequence
- * needs to consider.
+ * built once per attack (per distinct DEF/ARM/status context) and reused
+ * across every target state a sequence needs to consider.
  */
 export interface AttackProfile {
   missChance: number;
@@ -153,12 +219,28 @@ export interface AttackProfile {
 export function buildAttackProfile(
   attack: AttackInput['attack'],
   damage: AttackInput['damage'],
-  target: Pick<AttackInput['target'], 'def' | 'arm'>,
-  criticalEffects: CriticalEffects | undefined,
+  target: Pick<AttackInput['target'], 'def' | 'arm' | 'baseArm' | 'knockedDown' | 'stationary'>,
+  effects: AttackEffects | undefined,
   autoHit: boolean
 ): AttackProfile {
-  const baseDamagePool = buildPool(BASE_DICE, damage.modifiers);
-  const nonCritDamage = damageDistFromPool(baseDamagePool, damage.pow, target.arm);
+  const baseArm = target.baseArm ?? target.arm;
+  const armorPiercingArm = Math.ceil(baseArm / 2);
+  const nonCritArm = appliesOnNonCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
+  const critArm = appliesOnCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
+
+  // Trash/Shatter: an extra damage die if the target is currently in the matching state.
+  const conditionalExtraDice =
+    (effects?.trash && target.knockedDown ? 1 : 0) + (effects?.shatter && target.stationary ? 1 : 0);
+
+  const buildDamagePool = (extraDice: number): DicePoolOutcome[] => {
+    const totalExtra = extraDice + conditionalExtraDice;
+    const pool = buildPool(BASE_DICE, damage.modifiers, totalExtra);
+    const diceCount = keptDiceCount(BASE_DICE, damage.modifiers, totalExtra);
+    return applyRerollIfConfigured(pool, damage.modifiers, (o) => isBadDamageRoll(o, diceCount));
+  };
+
+  let nonCritDamage = damageDistFromPool(buildDamagePool(0), damage.pow, nonCritArm);
+  if (appliesOnNonCritHit(effects?.decapitation)) nonCritDamage = doubleDamageValues(nonCritDamage);
 
   if (autoHit) {
     // No attack roll is made at all, so no doubles are rolled - an auto-hit
@@ -166,20 +248,29 @@ export function buildAttackProfile(
     return { missChance: 0, hitNonCritChance: 1, hitCritChance: 0, nonCritDamage, critDamage: new Map() };
   }
 
-  const toHitPool = buildPool(BASE_DICE, attack.modifiers);
   const neededDiceSum = target.def - attack.stat; // total needed = def, dice needed = def - stat
   const toHitDiceCount = keptDiceCount(BASE_DICE, attack.modifiers);
+  const toHitPool = applyRerollIfConfigured(
+    buildPool(BASE_DICE, attack.modifiers),
+    attack.modifiers,
+    (o) => !isHitOutcome(o, neededDiceSum, toHitDiceCount)
+  );
   const hitOutcomes = toHitPool.filter((o) => isHitOutcome(o, neededDiceSum, toHitDiceCount));
   const hitChance = hitOutcomes.reduce((acc, o) => acc + o.probability, 0);
   const hitCritChance = hitOutcomes.filter((o) => o.hasDouble).reduce((acc, o) => acc + o.probability, 0);
   const hitNonCritChance = hitChance - hitCritChance;
   const missChance = 1 - hitChance;
 
-  const brutalDice = criticalEffects?.brutalDamageDice ?? 0;
-  const critDamage =
-    brutalDice > 0
-      ? damageDistFromPool(buildPool(BASE_DICE, damage.modifiers, brutalDice), damage.pow, target.arm)
-      : nonCritDamage;
+  const brutalDice = effects?.brutalDamageDice ?? 0;
+  let critDamage: Map<number, number>;
+  if (brutalDice > 0) {
+    critDamage = damageDistFromPool(buildDamagePool(brutalDice), damage.pow, critArm);
+  } else if (critArm === nonCritArm) {
+    critDamage = nonCritDamage; // same dice, same ARM -> identical distribution, reuse it
+  } else {
+    critDamage = damageDistFromPool(buildDamagePool(0), damage.pow, critArm);
+  }
+  if (appliesOnCritHit(effects?.decapitation)) critDamage = doubleDamageValues(critDamage);
 
   return { missChance, hitNonCritChance, hitCritChance, nonCritDamage, critDamage };
 }
@@ -212,9 +303,9 @@ export function applyProfile(profile: AttackProfile): AppliedOutcome[] {
 }
 
 export function computeAttackOdds(input: AttackInput): AttackOdds {
-  const { attack, damage, target, criticalEffects } = input;
-  const autoHit = !!attack.autoHit || (!!target.knockedDown && attack.type === 'melee');
-  const profile = buildAttackProfile(attack, damage, target, criticalEffects, autoHit);
+  const { attack, damage, target, effects } = input;
+  const autoHit = !!attack.autoHit || ((!!target.knockedDown || !!target.stationary) && attack.type === 'melee');
+  const profile = buildAttackProfile(attack, damage, target, effects, autoHit);
   const outcomes = applyProfile(profile);
 
   const hitChance = profile.hitNonCritChance + profile.hitCritChance;

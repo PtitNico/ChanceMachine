@@ -27,52 +27,67 @@ export interface DicePoolConfig {
   /** Total number of d6 rolled, including any boost dice. */
   diceCount: number;
   /** Optional: discard some dice before summing (e.g. an effect that forces
-   *  you to discard the highest die). */
+   *  you to discard the highest die). `highest` and `lowest` can both be set
+   *  at once (some builds combine "discard lowest" and "discard highest" on
+   *  the same roll). */
   discard?: {
-    count: number;
-    mode: 'highest' | 'lowest';
+    highest?: number;
+    lowest?: number;
   };
+  /** Jump the Shark: every rolled die showing a 1 is treated as a 6 instead,
+   *  before discard/sum/double detection all happen. */
+  treatOnesAsSixes?: boolean;
+  /** Sanguine Fate: N extra d6 rolled alongside the pool. They're never part
+   *  of the kept sum, but they DO count towards "double" detection for
+   *  crits (rolling one of them the same as any other die in the pool
+   *  still triggers a critical hit). */
+  extraCritDice?: number;
 }
 
 const FACES = [1, 2, 3, 4, 5, 6];
+const MAX_TOTAL_DICE = 8; // 6^8 ~= 1.68M tuples - far beyond anything this game produces, just a safety cap.
 
 /**
- * Enumerates every ordered outcome of rolling `diceCount` d6, applies the
- * optional discard rule, and aggregates identical (sum, hasDouble) results.
- *
- * Safety cap: 8 dice (6^8 ~= 1.68M tuples) is already far beyond anything
- * this game produces (boosted rolls rarely exceed 4-5 dice); the cap just
- * protects against an accidental huge input from the UI.
+ * Enumerates every ordered outcome of rolling `diceCount` d6 (plus any extra
+ * crit-only dice), applies the optional discard rule, and aggregates
+ * identical (sum, hasDouble) results.
  */
 export function rollDicePool(config: DicePoolConfig): DicePoolOutcome[] {
   const { diceCount } = config;
+  const extraCritDice = config.extraCritDice ?? 0;
+  const totalDice = diceCount + extraCritDice;
+
   if (diceCount < 1) return [{ sum: 0, hasDouble: false, probability: 1 }];
-  if (diceCount > 8) {
-    throw new Error(`diceCount=${diceCount} is unrealistically large for this game (cap: 8)`);
+  if (totalDice > MAX_TOTAL_DICE) {
+    throw new Error(`diceCount=${totalDice} is unrealistically large for this game (cap: ${MAX_TOTAL_DICE})`);
   }
 
-  const discardCount = config.discard?.count ?? 0;
-  const discardHighest = config.discard?.mode === 'highest';
+  const discardHighestCount = config.discard?.highest ?? 0;
+  const discardLowestCount = config.discard?.lowest ?? 0;
+  const treatOnesAsSixes = !!config.treatOnesAsSixes;
   const singleProb = 1 / 6;
-  const totalOutcomes = Math.pow(6, diceCount);
-  const perOutcomeProb = Math.pow(singleProb, diceCount);
+  const totalOutcomes = Math.pow(6, totalDice);
+  const perOutcomeProb = Math.pow(singleProb, totalDice);
 
   // Aggregate by a string key "sum|hasDouble" -> probability
   const agg = new Map<string, DicePoolOutcome>();
 
-  // Iterate all 6^diceCount tuples via mixed-radix counting (fast enough:
-  // worst case 6^8 ~ 1.68M iterations, well under a second in Node/V8).
-  const dice = new Array(diceCount).fill(0);
+  // Iterate all 6^totalDice tuples via mixed-radix counting. The first
+  // `diceCount` slots are the "real" pool (summed, discardable); any
+  // remaining slots are extra crit-only dice (Sanguine Fate).
+  const dice = new Array(totalDice).fill(0);
   for (let i = 0; i < totalOutcomes; i++) {
-    // decode i into `diceCount` base-6 digits -> face values
     let n = i;
-    for (let d = 0; d < diceCount; d++) {
-      dice[d] = FACES[n % 6];
+    for (let d = 0; d < totalDice; d++) {
+      let face = FACES[n % 6];
+      if (treatOnesAsSixes && face === 1) face = 6;
+      dice[d] = face;
       n = Math.floor(n / 6);
     }
 
     const hasDouble = detectDouble(dice);
-    const kept = applyDiscard(dice, discardCount, discardHighest);
+    const pool = dice.slice(0, diceCount);
+    const kept = applyDiscard(pool, discardHighestCount, discardLowestCount);
     const sum = kept.reduce((a, b) => a + b, 0);
 
     const key = `${sum}|${hasDouble}`;
@@ -96,43 +111,59 @@ function detectDouble(dice: number[]): boolean {
   return false;
 }
 
-function applyDiscard(dice: number[], count: number, discardHighest: boolean): number[] {
-  if (count <= 0) return dice;
+/** Discards `lowestCount` of the lowest dice and `highestCount` of the highest - both can apply at once. */
+function applyDiscard(dice: number[], highestCount: number, lowestCount: number): number[] {
+  if (highestCount <= 0 && lowestCount <= 0) return dice;
   const sorted = [...dice].sort((a, b) => a - b);
-  return discardHighest ? sorted.slice(0, sorted.length - count) : sorted.slice(count);
+  const end = Math.max(lowestCount, sorted.length - highestCount);
+  return sorted.slice(lowestCount, end);
 }
 
 /**
- * Applies a "reroll the whole pool once" rule: if the dice sum is below
- * `threshold`, the pool is rerolled once and the new result is kept
- * unconditionally (models a player who always rerolls a bad roll once,
- * which is how most WM/H rerolls work in practice).
+ * Applies a "reroll the whole pool once" rule: outcomes flagged `isBad` are
+ * rerolled once, and the new result is kept unconditionally. Models an
+ * optimal "may reroll" ability: since a fresh reroll always follows the same
+ * distribution as the original roll, only rerolling a roll you'd genuinely
+ * want to replace (a miss, or a below-average damage roll) is never worse
+ * than keeping a roll that already clears it.
  *
- * Simplification: this operates on the sum-only distribution, so
- * `hasDouble` correlation with the reroll is not tracked (crit chance on a
- * rerolled attack is computed separately if needed). Good enough for
- * accurate hit/damage-threshold math, which is 95% of what people check.
+ * Correctly tracks (sum, hasDouble) jointly through the reroll: a kept
+ * outcome keeps its own hasDouble, and the rerolled mass redistributes
+ * across the FULL original distribution (including its hasDouble values) -
+ * a reroll can still crit.
  */
-export function rerollPoolOnceIfBelow(
+export function rerollPoolOnceIf(
   outcomes: DicePoolOutcome[],
-  threshold: number
+  isBad: (outcome: DicePoolOutcome) => boolean
 ): DicePoolOutcome[] {
-  const qBelow = outcomes
-    .filter((o) => o.sum < threshold)
-    .reduce((acc, o) => acc + o.probability, 0);
+  const qBad = outcomes.filter(isBad).reduce((acc, o) => acc + o.probability, 0);
 
-  if (qBelow === 0) return outcomes;
+  if (qBad === 0) return outcomes;
 
-  const bySum = new Map<number, number>();
+  const agg = new Map<string, DicePoolOutcome>();
+  const add = (sum: number, hasDouble: boolean, probability: number) => {
+    const key = `${sum}|${hasDouble}`;
+    const existing = agg.get(key);
+    if (existing) {
+      existing.probability += probability;
+    } else {
+      agg.set(key, { sum, hasDouble, probability });
+    }
+  };
+
   for (const o of outcomes) {
-    const kept = o.sum >= threshold ? o.probability : 0;
-    const rerolled = qBelow * o.probability;
-    bySum.set(o.sum, (bySum.get(o.sum) ?? 0) + kept + rerolled);
+    if (!isBad(o)) {
+      add(o.sum, o.hasDouble, o.probability); // kept as rolled
+    }
+    add(o.sum, o.hasDouble, qBad * o.probability); // this outcome's share of the rerolled mass
   }
 
-  return [...bySum.entries()]
-    .map(([sum, probability]) => ({ sum, hasDouble: false, probability }))
-    .sort((a, b) => a.sum - b.sum);
+  return [...agg.values()].sort((a, b) => a.sum - b.sum);
+}
+
+/** Convenience wrapper for the common "reroll if sum is below N" case (e.g. a below-average damage roll). */
+export function rerollPoolOnceIfBelow(outcomes: DicePoolOutcome[], threshold: number): DicePoolOutcome[] {
+  return rerollPoolOnceIf(outcomes, (o) => o.sum < threshold);
 }
 
 /** Utility: total probability that sum >= threshold. */

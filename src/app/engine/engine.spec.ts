@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { probabilityAtLeast, probabilityOfDouble, rollDicePool } from './dice-pool';
+import { probabilityAtLeast, probabilityOfDouble, rerollPoolOnceIfBelow, rollDicePool } from './dice-pool';
 import { computeAttackOdds } from './attack-model';
 import { computeSequenceOdds, SequencedAttack } from './sequence';
 
@@ -34,12 +34,81 @@ describe('dice-pool', () => {
 
   it('discarding the highest of 3 dice lowers the expected value vs a plain 2d6 roll', () => {
     const twoD6 = rollDicePool({ diceCount: 2 });
-    const discardHighest = rollDicePool({ diceCount: 3, discard: { count: 1, mode: 'highest' } });
+    const discardHighest = rollDicePool({ diceCount: 3, discard: { highest: 1 } });
     const total = discardHighest.reduce((a, o) => a + o.probability, 0);
     expect(total).toBeCloseTo(1, 9);
 
     const ev = (dist: typeof twoD6) => dist.reduce((a, o) => a + o.sum * o.probability, 0);
     expect(ev(discardHighest)).toBeLessThan(ev(twoD6));
+  });
+
+  it('discarding both the highest and lowest of 4 dice narrows the sum distribution', () => {
+    const fourD6 = rollDicePool({ diceCount: 4, discard: { highest: 1, lowest: 1 } });
+    const total = fourD6.reduce((a, o) => a + o.probability, 0);
+    expect(total).toBeCloseTo(1, 9);
+
+    const twoD6 = rollDicePool({ diceCount: 2 });
+    const p = (dist: typeof twoD6, sum: number) =>
+      dist.filter((o) => o.sum === sum).reduce((a, o) => a + o.probability, 0);
+
+    // Keeping the two middle-ranked dice out of four can still reach the extremes 2 and 12
+    // (e.g. three dice showing 1), but far less often than a plain 2d6 roll - it now takes 3
+    // matching extreme dice instead of just 2 to produce an extreme sum.
+    expect(p(fourD6, 2)).toBeGreaterThan(0);
+    expect(p(fourD6, 2)).toBeLessThan(p(twoD6, 2));
+    expect(p(fourD6, 12)).toBeLessThan(p(twoD6, 12));
+
+    const ev = (dist: typeof twoD6) => dist.reduce((a, o) => a + o.sum * o.probability, 0);
+    expect(ev(fourD6)).toBeCloseTo(ev(twoD6), 6); // discarding symmetric extremes doesn't shift the mean (still 7)
+  });
+
+  it('reroll-if-below-threshold preserves probability mass and hasDouble correlation', () => {
+    const twoD6 = rollDicePool({ diceCount: 2 });
+    const rerolled = rerollPoolOnceIfBelow(twoD6, 7);
+
+    const total = rerolled.reduce((a, o) => a + o.probability, 0);
+    expect(total).toBeCloseTo(1, 9);
+
+    // P(crit) after "reroll if sum < 7" = P(sum>=7 and double) + P(sum<7) * P(double)
+    // (a kept roll keeps its own double status; a rerolled roll follows the full original distribution).
+    const pDoubleAndAtLeast7 = twoD6
+      .filter((o) => o.sum >= 7 && o.hasDouble)
+      .reduce((a, o) => a + o.probability, 0);
+    const pBelow7 = twoD6.filter((o) => o.sum < 7).reduce((a, o) => a + o.probability, 0);
+    const pDouble = probabilityOfDouble(twoD6);
+    const expectedCrit = pDoubleAndAtLeast7 + pBelow7 * pDouble;
+
+    expect(probabilityOfDouble(rerolled)).toBeCloseTo(expectedCrit, 9);
+    // A reroll can only ever help (or match) the chance of clearing the threshold it was for.
+    expect(probabilityAtLeast(rerolled, 7)).toBeGreaterThanOrEqual(probabilityAtLeast(twoD6, 7));
+  });
+
+  it('"treat 1s as 6s" (Jump the Shark) removes the minimum roll and inflates the maximum', () => {
+    const jts = rollDicePool({ diceCount: 2, treatOnesAsSixes: true });
+
+    const total = jts.reduce((a, o) => a + o.probability, 0);
+    expect(total).toBeCloseTo(1, 9);
+
+    // Snake eyes (1,1) is impossible once every 1 becomes a 6.
+    expect(jts.find((o) => o.sum === 2)).toBeUndefined();
+    // Sum=12 is now reached by any combination of {1,6} on both dice (4 of the 36 tuples),
+    // not just (6,6) - and it's still necessarily a double, since both transformed faces are 6.
+    const twelve = jts.find((o) => o.sum === 12);
+    expect(twelve?.probability).toBeCloseTo(4 / 36, 9);
+    expect(twelve?.hasDouble).toBe(true);
+  });
+
+  it('extra crit-only dice (Sanguine Fate) raise crit chance without changing the sum distribution', () => {
+    const plain = rollDicePool({ diceCount: 2 });
+    const withExtra = rollDicePool({ diceCount: 2, extraCritDice: 1 });
+
+    const total = withExtra.reduce((a, o) => a + o.probability, 0);
+    expect(total).toBeCloseTo(1, 9);
+
+    // The extra die never contributes to the sum, so the sum-only distribution is unaffected.
+    expect(probabilityAtLeast(withExtra, 7)).toBeCloseTo(probabilityAtLeast(plain, 7), 9);
+    // But it can still create a "double" with either of the two real dice, so crit chance goes up.
+    expect(probabilityOfDouble(withExtra)).toBeGreaterThan(probabilityOfDouble(plain));
   });
 });
 
@@ -114,12 +183,91 @@ describe('attack-model', () => {
     const withBrutal = computeAttackOdds({
       attack: { type: 'melee', stat: 6 },
       damage: { pow: 12 },
-      criticalEffects: { brutalDamageDice: 2 },
+      effects: { brutalDamageDice: 2 },
       target: { def: 7, arm: 0, boxesRemaining: 1000 },
     });
 
     expect(withBrutal.hitChance).toBeCloseTo(withoutBrutal.hitChance, 9); // to-hit is unaffected
     expect(withBrutal.expectedDamage).toBeGreaterThan(withoutBrutal.expectedDamage);
+  });
+
+  it('reroll on the attack roll matches the hand-computed "reroll on a miss" formula', () => {
+    // MAT 6 vs DEF 13: needed sum = 7, hitChance = 21/36 (the same case used elsewhere).
+    const plain = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    const withReroll = computeAttackOdds({
+      attack: { type: 'melee', stat: 6, modifiers: { reroll: true } },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+
+    // Reroll-on-miss: P(hit) = P(hit) + P(miss) * P(hit) = hitChance * (2 - hitChance).
+    const expected = plain.hitChance * (2 - plain.hitChance);
+    expect(withReroll.hitChance).toBeCloseTo(expected, 9);
+    expect(withReroll.hitChance).toBeGreaterThan(plain.hitChance);
+  });
+
+  it('reroll on the attack roll still lets a rerolled natural-6s auto-hit crit (does not wipe out hasDouble)', () => {
+    // MAT 1 vs DEF 30: needed sum = 29, unreachable normally, but a natural (6,6) auto-hits and crits (1/36).
+    // A reroll can only ever add MORE ways to reach that same auto-hit-and-crit outcome, never remove it.
+    const plain = computeAttackOdds({
+      attack: { type: 'melee', stat: 1 },
+      damage: { pow: 10 },
+      target: { def: 30, arm: 0, boxesRemaining: 1000 },
+    });
+    const withReroll = computeAttackOdds({
+      attack: { type: 'melee', stat: 1, modifiers: { reroll: true } },
+      damage: { pow: 10 },
+      target: { def: 30, arm: 0, boxesRemaining: 1000 },
+    });
+    expect(withReroll.critOnHitChance).toBeGreaterThanOrEqual(plain.critOnHitChance);
+    expect(withReroll.hitChance).toBeGreaterThanOrEqual(plain.hitChance);
+  });
+
+  it('reroll on the damage roll raises expected damage (rerolls anything below average)', () => {
+    const plain = computeAttackOdds({
+      attack: { type: 'melee', stat: 6, autoHit: true },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 0, boxesRemaining: 1000 },
+    });
+    const withReroll = computeAttackOdds({
+      attack: { type: 'melee', stat: 6, autoHit: true },
+      damage: { pow: 12, modifiers: { reroll: true } },
+      target: { def: 13, arm: 0, boxesRemaining: 1000 },
+    });
+    expect(withReroll.expectedDamage).toBeGreaterThan(plain.expectedDamage);
+  });
+
+  it('"treat 1s as 6s" (Jump the Shark) on the attack roll can only ever help the hit chance', () => {
+    const plain = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    const withJts = computeAttackOdds({
+      attack: { type: 'melee', stat: 6, modifiers: { treatOnesAsSixes: true } },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    expect(withJts.hitChance).toBeGreaterThan(plain.hitChance);
+  });
+
+  it('Sanguine Fate (extra crit-only die) raises crit chance without changing hit chance', () => {
+    const plain = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    const withSanguineFate = computeAttackOdds({
+      attack: { type: 'melee', stat: 6, modifiers: { extraCritDice: 1 } },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    expect(withSanguineFate.hitChance).toBeCloseTo(plain.hitChance, 9);
+    expect(withSanguineFate.critOnHitChance).toBeGreaterThan(plain.critOnHitChance);
   });
 
   it('an attack roll of all 1s is always a miss, even when MAT/DEF would otherwise guarantee a hit', () => {
@@ -150,7 +298,7 @@ describe('attack-model', () => {
     // Discarding the lowest of 2 dice keeps a single die (1-6) - MAT 1 vs DEF 30 still needs
     // a dice sum of 29, unreachable by a single die, so a lone 6 must NOT auto-hit here.
     const odds = computeAttackOdds({
-      attack: { type: 'melee', stat: 1, modifiers: { discard: { count: 1, mode: 'lowest' } } },
+      attack: { type: 'melee', stat: 1, modifiers: { discard: { lowest: 1 } } },
       damage: { pow: 10 },
       target: { def: 30, arm: 0, boxesRemaining: 1000 },
     });
@@ -161,7 +309,7 @@ describe('attack-model', () => {
     // Discarding the highest of 2 dice keeps the lower die - MAT 20 vs DEF 1 would otherwise
     // guarantee a hit (needed sum = -19), but a kept die of 1 must still force a miss.
     const odds = computeAttackOdds({
-      attack: { type: 'melee', stat: 20, modifiers: { discard: { count: 1, mode: 'highest' } } },
+      attack: { type: 'melee', stat: 20, modifiers: { discard: { highest: 1 } } },
       damage: { pow: 10 },
       target: { def: 1, arm: 0, boxesRemaining: 1000 },
     });
@@ -254,9 +402,9 @@ describe('sequence engine', () => {
     // never hit on its own - a single die is also exempt from the "natural 6s always hit"
     // rule (see attack-model.ts), so its baseline hit chance is genuinely ~0, not just low.
     // The only way it can hit here is if Knockdown from attack 1's crit carries over.
-    const singleDieMods = { discard: { count: 1, mode: 'lowest' as const } };
+    const singleDieMods = { discard: { lowest: 1 } };
     const attacks: SequencedAttack[] = [
-      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '1', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
       attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
@@ -264,9 +412,9 @@ describe('sequence engine', () => {
   });
 
   it('Knockdown does not grant a ranged attack an auto-hit against the same target', () => {
-    const singleDieMods = { discard: { count: 1, mode: 'lowest' as const } };
+    const singleDieMods = { discard: { lowest: 1 } };
     const attacks: SequencedAttack[] = [
-      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '1', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
       attack({ id: '2', type: 'ranged', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
@@ -275,12 +423,12 @@ describe('sequence engine', () => {
 
   it('attack order matters: a high-crit-chance Knockdown attack helps more when it goes first', () => {
     const knockdownFirst: SequencedAttack[] = [
-      attack({ id: '1', criticalEffects: { knockdown: true } }),
+      attack({ id: '1', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
       attack({ id: '2', stat: 1 }), // weak attack that badly needs the auto-hit assist
     ];
     const knockdownSecond: SequencedAttack[] = [
       attack({ id: '1', stat: 1 }),
-      attack({ id: '2', criticalEffects: { knockdown: true } }),
+      attack({ id: '2', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
     ];
 
     const firstResult = computeSequenceOdds(knockdownFirst, target);
@@ -335,7 +483,7 @@ describe('sequence engine - target focus/fury resource points', () => {
 
   it('a fury point can fully negate an otherwise-guaranteed-lethal hit', () => {
     // autoHit + POW 1 vs ARM 0 vs 1 box: damage is 2d6+1 (min 3), always lethal on its own.
-    const lethalAttack = attack({ type: 'melee', stat: 6, pow: 1, criticalEffects: undefined, forceAutoHit: true });
+    const lethalAttack = attack({ type: 'melee', stat: 6, pow: 1, forceAutoHit: true });
     const target = { def: 13, arm: 0, boxes: 1 };
 
     const withoutFury = computeSequenceOdds([lethalAttack], target);
@@ -373,7 +521,7 @@ describe('sequence engine - target focus/fury resource points', () => {
   it('more focus or fury points never make the target worse off (weakly monotonic survival)', () => {
     const attacks = [
       attack({ id: '1', pow: 14 }),
-      attack({ id: '2', type: 'ranged', pow: 10, criticalEffects: { knockdown: true } }),
+      attack({ id: '2', type: 'ranged', pow: 10, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
       attack({ id: '3', pow: 16 }),
     ];
     const baseTarget = { def: 13, arm: 14, boxes: 10 };
@@ -440,12 +588,218 @@ describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
 
   it("an auto-hit from DEF: 'KD' cannot crit (no attack roll is made)", () => {
     const result = computeSequenceOdds(
-      [attack({ stat: -50, criticalEffects: { brutalDamageDice: 2 } })],
+      [attack({ stat: -50, effects: { brutalDamageDice: 2 } })],
       { def: 'KD', arm: 0, boxes: 1000 }
     );
     // If it could crit, Brutal Damage would push expected damage up; confirm it behaves
     // identically to the same attack without Brutal Damage (i.e. the crit branch is unreachable).
     const withoutBrutal = computeSequenceOdds([attack({ stat: -50 })], { def: 'KD', arm: 0, boxes: 1000 });
     expect(result.steps[0].expectedBoxesRemaining).toBeCloseTo(withoutBrutal.steps[0].expectedBoxesRemaining, 9);
+  });
+});
+
+describe('sequence engine - persistent target debuffs', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('Stationary auto-hits melee and floors ranged/arcane DEF to 5, exactly like Knockdown', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+
+    const melee = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'stationary', trigger: 'hit' }] }),
+        attack({ id: '2', type: 'melee', stat: -50 }),
+      ],
+      target
+    );
+    expect(melee.steps[1].hitChance).toBeCloseTo(1, 9);
+
+    const ranged = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'stationary', trigger: 'hit' }] }),
+        attack({ id: '2', type: 'ranged', stat: 0 }),
+      ],
+      target
+    );
+    // DEF floored to 5, RAT 0 -> needed sum 5 -> P(2d6 >= 5) = 30/36.
+    expect(ranged.steps[1].hitChance).toBeCloseTo(30 / 36, 9);
+  });
+
+  it('Ice Cage stacks -2 DEF per application and makes the target Stationary at 2+ stacks', () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+
+    const oneStack = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'iceCage', trigger: 'hit' }] }),
+        attack({ id: '2', type: 'ranged', stat: 6 }),
+      ],
+      target
+    );
+    // DEF 13-2=11, RAT 6, needed=5 -> 30/36.
+    expect(oneStack.steps[1].hitChance).toBeCloseTo(30 / 36, 9);
+
+    const twoStacks = computeSequenceOdds(
+      [
+        attack({
+          id: '1',
+          forceAutoHit: true,
+          statEffects: [
+            { type: 'iceCage', trigger: 'hit' },
+            { type: 'iceCage', trigger: 'hit' },
+          ],
+        }),
+        attack({ id: '2', type: 'melee', stat: -50 }),
+      ],
+      target
+    );
+    // 2 stacks -> Stationary -> melee auto-hits regardless of stat.
+    expect(twoStacks.steps[1].hitChance).toBeCloseTo(1, 9);
+  });
+
+  it('Blind applies its fixed -4 DEF exactly once, even if triggered twice (non-stacking)', () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const result = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'blind', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, statEffects: [{ type: 'blind', trigger: 'hit' }] }),
+        attack({ id: '3', type: 'ranged', stat: 0 }),
+      ],
+      target
+    );
+    // DEF 13-4=9 (Blind counted once), RAT 0, needed=9 -> P(2d6>=9) = 10/36.
+    expect(result.steps[2].hitChance).toBeCloseTo(10 / 36, 9);
+  });
+
+  it('Paralysis sets a base DEF of 5, and other flat DEF debuffs still subtract further on top', () => {
+    const target = { def: 30, arm: 0, boxes: 1000 }; // high base DEF, irrelevant once Paralysis triggers
+    const result = computeSequenceOdds(
+      [
+        attack({
+          id: '1',
+          forceAutoHit: true,
+          statEffects: [
+            { type: 'paralysis', trigger: 'hit' },
+            { type: 'blind', trigger: 'hit' },
+          ],
+        }),
+        attack({ id: '2', type: 'ranged', stat: 0 }),
+      ],
+      target
+    );
+    // DEF = 5 (Paralysis base) - 4 (Blind) = 1, RAT 0, needed = 1 -> hits on any roll except all-1s (1/36).
+    expect(result.steps[1].hitChance).toBeCloseTo(35 / 36, 9);
+  });
+
+  it('generic ARM penalty ("-X ARM") persists and stacks across triggers', () => {
+    const target = { def: 13, arm: 20, boxes: 1000 };
+    const result = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, pow: 0, statEffects: [{ type: 'armPenalty', trigger: 'hit', amount: 5 }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 0, statEffects: [{ type: 'armPenalty', trigger: 'hit', amount: 3 }] }),
+        attack({ id: '3', forceAutoHit: true, pow: 12 }),
+      ],
+      target
+    );
+    // Effective ARM for attack 3 = 20 - 5 - 3 = 12 = POW, so damage dealt = raw 2d6 sum every time.
+    expect(result.steps[2].averageDamage).toBeCloseTo(7, 9);
+  });
+
+  it('Armor Piercing halves BASE ARM (ignoring any ARM debuff already in play), rounded up', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const result = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, pow: 0, statEffects: [{ type: 'armPenalty', trigger: 'hit', amount: 5 }] }), // effective ARM now 10
+        attack({ id: '2', forceAutoHit: true, pow: 12, effects: { armorPiercing: 'hit' } }),
+      ],
+      target
+    );
+    // Armor Piercing uses ceil(15/2)=8 (BASE ARM 15, ignoring the -5 debuff) rather than 10.
+    // averageDamage = E[2d6] + 12 - 8 = 7 + 4 = 11.
+    expect(result.steps[1].averageDamage).toBeCloseTo(11, 9);
+  });
+
+  it("Decapitation doubles this attack's damage", () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const plain = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const withDecap = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, effects: { decapitation: 'hit' } })],
+      target
+    );
+    expect(withDecap.steps[0].averageDamage).toBeCloseTo(plain.steps[0].averageDamage * 2, 9);
+  });
+
+  it('Trash adds an extra damage die only once the target is actually Knocked Down', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const plain = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const trashNotYetKD = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, effects: { trash: true } })],
+      target
+    );
+    expect(trashNotYetKD.steps[0].averageDamage).toBeCloseTo(plain.steps[0].averageDamage, 9);
+
+    const withoutTrash = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12 }),
+      ],
+      target
+    );
+    const withTrash = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12, effects: { trash: true } }),
+      ],
+      target
+    );
+    expect(withTrash.steps[1].averageDamage).toBeGreaterThan(withoutTrash.steps[1].averageDamage);
+  });
+
+  it('Shatter adds an extra damage die only once the target is actually Stationary', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const withoutShatter = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'stationary', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12 }),
+      ],
+      target
+    );
+    const withShatter = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, statEffects: [{ type: 'stationary', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12, effects: { shatter: true } }),
+      ],
+      target
+    );
+    expect(withShatter.steps[1].averageDamage).toBeGreaterThan(withoutShatter.steps[1].averageDamage);
+  });
+
+  it('a "hit" trigger fires on any hit including non-crit, a "crit" trigger only fires on a crit', () => {
+    const target = { def: 13, arm: 20, boxes: 1000 };
+    const hitTrigger = computeSequenceOdds(
+      [
+        attack({ id: '1', pow: 0, statEffects: [{ type: 'armPenalty', trigger: 'hit', amount: 10 }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12 }),
+      ],
+      target
+    );
+    const critTrigger = computeSequenceOdds(
+      [
+        attack({ id: '1', pow: 0, statEffects: [{ type: 'armPenalty', trigger: 'crit', amount: 10 }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 12 }),
+      ],
+      target
+    );
+    // 'hit' fires on strictly more outcomes (any hit) than 'crit' (crit only), so more expected ARM
+    // reduction reaches attack 2 -> strictly higher average damage for the 'hit' variant.
+    expect(hitTrigger.steps[1].averageDamage).toBeGreaterThan(critTrigger.steps[1].averageDamage);
   });
 });

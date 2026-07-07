@@ -51,12 +51,17 @@ Liste ordonnée de lignes "attaque". Chaque ligne représente **une attaque** et
 - **Dice** : nombre total de dés lancés pour toucher, de 1 à 6 (2 par défaut ; le joueur choisit directement ce nombre pour représenter un boost plutôt que de saisir un nombre de dés de boost séparément).
 - **POW** : `-` (l'attaque ne fait aucun dégât — utile pour une attaque dont le seul but est un effet critique comme Knockdown ; un critique reste possible puisque le jet pour toucher a bien lieu), puis de 0 à 30.
 - **Dice** (deuxième occurrence) : nombre total de dés lancés pour les dégâts, de 1 à 6.
-- **Effects** : bouton qui ouvre une pop-up regroupant les effets spéciaux de cette attaque — un point apparaît sur le bouton dès qu'au moins un effet est actif. Contenu de la pop-up :
-  - **Auto-hit (target Stationary)** : force la réussite automatique du jet pour toucher, indépendamment de DEF.
-  - **Crit: Knockdown** : si cette attaque inflige un critique (double au jet pour toucher), la cible devient *Knocked Down* pour le **reste de la séquence**.
-  - **Crit: Brutal Damage (extra dice)** : nombre de dés supplémentaires ajoutés au jet de dégâts, **uniquement** si l'attaque est critique.
+- **Effects** : bouton qui ouvre une pop-up regroupant les effets spéciaux de cette attaque — un point apparaît sur le bouton dès qu'au moins un effet est actif. Une fois la pop-up fermée, un **résumé compact** des effets actifs de cette attaque s'affiche en petit **sous la ligne** (ex. `Discard highest (atk)`, `Trash`, `Ice Cage (crit)`), pour garder une vue d'ensemble de la séquence sans rouvrir chaque pop-up.
 
-Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste, en **recopiant les valeurs de la dernière attaque de la liste** (type, stats, dés, effets) — le cas le plus courant étant d'enchaîner des attaques similaires, il suffit d'ajuster les quelques champs qui changent plutôt que de tout ressaisir.
+  Chaque effet de la pop-up est un **bouton "toggle" à bords arrondis** : gris/inactif par défaut, il se colore (fond brass) dès qu'il est activé — un simple clic l'active ou le désactive, sans passer par une case à cocher ou un menu déroulant. Les boutons sont regroupés par catégorie, chaque catégorie s'affichant sur sa propre ligne qui **passe à la ligne dès que nécessaire** plutôt que d'élargir la pop-up (le nombre d'effets actifs n'a donc aucun impact sur la largeur de l'application) :
+  - **Auto-hit** : bouton isolé en tête de pop-up — force la réussite automatique du jet pour toucher, indépendamment de DEF.
+  - **General** : Jump the Shark — s'applique **à la fois** au jet pour toucher et au jet de dégâts (un seul bouton pour les deux, plutôt qu'un réglage séparé par jet).
+  - **Attack** (modificateurs du jet pour toucher) : Discard lowest, Discard highest — défausser le plus bas et/ou le plus haut dé avant de sommer ; **les deux peuvent être actifs en même temps** sur le même jet —, Reroll (relance optionnelle si le jet raterait), Sanguine Fate.
+  - **Damage** (modificateurs du jet de dégâts) : Discard lowest, Discard highest (même règle : cumulables), Reroll (relance optionnelle si le jet est sous la moyenne), Trash, Shatter.
+  - **On hit** / **On crit** : tous les effets déclenchables sur une touche et/ou sur un critique (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM") apparaissent dans les deux catégories, une fois chacune. Activer le bouton d'un effet dans "On hit" le déclenche sur toute touche (crit compris) ; l'activer dans "On crit" le réserve au seul critique ; les deux boutons d'un même effet sont mutuellement exclusifs (en activer un désactive l'autre). Brutal Damage n'apparaît que dans "On crit" (il ne peut jamais se déclencher sur une touche normale). Quand **"-X ARM"** est actif (dans l'une ou l'autre catégorie), un sélecteur de montant (1 à 10) apparaît en bas de la pop-up.
+  - **Reset** : bouton en bas de la pop-up qui désactive d'un coup tous les effets de cette attaque (y compris Auto-hit), pour repartir d'une ligne "propre" sans les décocher un par un.
+
+Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste, en **recopiant les valeurs de la dernière attaque de la liste** (type, stats, dés, tous les effets) — le cas le plus courant étant d'enchaîner des attaques similaires, il suffit d'ajuster les quelques champs qui changent plutôt que de tout ressaisir.
 
 **L'ordre des lignes est l'ordre de résolution.** L'application ne cherche pas automatiquement le meilleur ordre possible : c'est un choix assumé (voir "Choix produit" ci-dessous) — c'est au joueur de définir l'ordre qu'il compte jouer, comme il le ferait à la table.
 
@@ -78,10 +83,38 @@ Le bouton **"Show details"** ouvre une pop-up avec le détail complet :
 - **Un jet pour toucher où tous les dés affichent 6 est toujours une réussite** (et donc aussi un critique, puisqu'un jet où tous les dés sont identiques comporte forcément un double), quels que soient MAT/RAT/AAT et DEF — sauf si un seul dé est lancé, auquel cas un simple 6 ne bénéficie d'aucun bonus particulier.
 - Jet de dégâts : 2d6 + boosts éventuels + POW − ARM (minimum 0).
 - **Tough** : à chaque fois que des dégâts seraient létaux, un jet de Tough est tenté ; en cas de réussite, la cible survit avec 1 boîte restante et devient Knocked Down (comportement standard de la règle Tough) plutôt que d'être détruite.
-- **Knockdown** (effet critique) : persiste pour le reste de la séquence une fois déclenché. Seules les attaques de **mêlée** ultérieures dans la séquence touchent automatiquement une cible Knocked Down ; les attaques de **tir** et de **magie** n'en tirent aucun bénéfice dans le modèle actuel.
-- **Brutal Damage** (effet critique) : dés de dégâts supplémentaires, mais uniquement sur la branche critique du jet (une attaque qui touche sans critique n'en bénéficie pas).
-- **Auto-hit** (cible Stationary ou équivalent, `Effects > Auto-hit`, ou `DEF: KD`) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
-- **DEF: KD** (cible Knocked Down dès le début de la séquence) se comporte exactement comme un Knockdown déclenché en cours de séquence par un critique (voir ci-dessus), simplement actif dès la première attaque plutôt que déclenché par un critique : seules les attaques de **mêlée** touchent automatiquement (pour toute la séquence, dès le début) ; les attaques de **tir** et de **magie** lancent un jet normal contre une DEF de 5.
+- **Auto-hit** (`Effects > Auto-hit`, ou cible Knocked Down/Stationary face à une attaque de mêlée, ou `DEF: KD`) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
+- **DEF: KD** (cible Knocked Down dès le début de la séquence) se comporte exactement comme un Knockdown déclenché en cours de séquence (voir ci-dessous), simplement actif dès la première attaque plutôt que déclenché par une attaque : seules les attaques de **mêlée** touchent automatiquement (pour toute la séquence, dès le début) ; les attaques de **tir** et de **magie** lancent un jet normal contre une DEF de 5.
+
+### Effets pris en charge
+
+**Modificateurs de jet** (s'appliquent au jet lui-même, avant de déterminer le résultat) :
+- **Discard lowest** / **Discard highest** (attaque et/ou dégâts, indépendamment) : défausse le dé le plus bas et/ou le plus haut avant de sommer. **Les deux peuvent être actifs en même temps** sur le même jet (ex. un jet à 4 dés qui ne garde que les deux dés du milieu).
+- **Reroll** (attaque et/ou dégâts) : relance optionnelle unique. Sur le jet pour toucher, l'application relance systématiquement un jet qui **raterait** — c'est mathématiquement toujours au moins aussi bon que de garder le jet initial. Sur le jet de dégâts, elle relance un jet **sous la moyenne** (2d6 → en dessous de 7 typiquement) selon le même principe. Le joueur n'a donc rien à configurer : la case active simplement "relance optimale disponible" pour ce jet.
+- **Jump the Shark** : chaque dé montrant un 1 compte comme un 6 à la place — s'applique **à la fois** au jet pour toucher et au jet de dégâts (un seul réglage pour les deux, puisque l'effet en jeu concerne tous les dés lancés par l'attaque).
+- **Sanguine Fate** : un dé supplémentaire est lancé sur le jet pour toucher — il ne compte jamais dans la somme, mais peut créer un double (donc un critique) avec n'importe quel autre dé du jet.
+
+**Effets propres à une seule attaque** (ne persistent pas sur la cible) :
+- **Brutal Damage** : sur critique, ajoute un dé supplémentaire au jet de dégâts.
+- **Armor Piercing** (déclenché sur touche ou sur critique, au choix) : divise par deux l'ARM **de base** de la cible (avant tout malus d'ARM déjà en cours — voir "-X ARM" ci-dessous), arrondi au supérieur, pour le jet de dégâts de cette seule attaque.
+- **Decapitation** (déclenché sur touche ou sur critique, au choix) : double les dégâts infligés par cette attaque.
+- **Trash** : dé de dégâts supplémentaire si la cible est **actuellement** Knocked Down au moment de cette attaque.
+- **Shatter** : dé de dégâts supplémentaire si la cible est **actuellement** Stationary au moment de cette attaque.
+
+**Effets persistants sur la cible** (déclenchés sur touche ou sur critique, au choix par effet ; restent actifs pour **le reste de la séquence** une fois déclenchés — sauf mention contraire) :
+- **Knockdown** : la cible devient *Knocked Down*. Seules les attaques de **mêlée** ultérieures en profitent (auto-hit) ; le tir et la magie continuent de lancer un jet normal, mais contre une DEF plafonnée à 5 (voir "Stationary" ci-dessous pour le détail du plafond).
+- **Stationary** : se comporte **exactement comme Knockdown** pour le jet pour toucher (auto-hit en mêlée, DEF plafonnée à 5 pour tir/magie) — les deux sont suivis séparément uniquement parce que Trash (Knockdown) et Shatter (Stationary) doivent pouvoir les distinguer.
+- **Ice Cage** : −2 DEF, **cumulable** (chaque déclenchement s'ajoute aux précédents). À partir de 2 cumuls, la cible devient également Stationary (donc auto-hit en mêlée), en plus du malus de DEF qui continue de s'additionner.
+- **Shadowbind** : −3 DEF.
+- **Blind** : −4 DEF.
+- **Paralysis** : plafonne la DEF de la cible à 5 (comme Knocked Down/Stationary), et se cumule ensuite avec les autres malus de DEF actifs (Ice Cage, Shadowbind, Blind, Flare, Weaken) exactement comme s'il s'agissait d'un Knockdown.
+- **Flare** : −2 DEF.
+- **Weaken** : −2 DEF.
+- **-X ARM** (générique, montant réglable de 1 à 10) : réduit l'ARM de la cible pour le reste de la séquence, cumulable avec d'autres instances de cet effet. Armor Piercing ignore volontairement ce malus (il repart toujours de l'ARM de base).
+
+Tous les malus de DEF listés ci-dessus sont **additifs** entre eux (Ice Cage, Shadowbind, Blind, Flare, Weaken s'additionnent tous), à l'exception de Knocked Down/Stationary/Paralysis qui **plafonnent d'abord la DEF à 5** avant que les autres malus ne s'y ajoutent (donc potentiellement en dessous de 5 si plusieurs effets sont cumulés). Chaque effet nommé (hors Ice Cage et "-X ARM", explicitement cumulables) ne peut s'appliquer qu'une fois sur une même cible, même s'il est déclenché par plusieurs attaques différentes de la séquence — une deuxième occurrence n'a alors aucun effet supplémentaire.
+
+**Effet réservé pour une prochaine itération : Shred** (attaque gratuite supplémentaire sur critique, avec le même profil que l'attaque qui l'a déclenché) — volontairement pas encore implémenté (voir "Ce qui n'est pas encore implémenté").
 
 ### Focus et Fury (points de ressource de la cible)
 
@@ -103,7 +136,7 @@ Certains points de règles ont été implémentés selon la formulation la plus 
 
 ## Ce qui n'est pas encore implémenté
 
-- **Effets critiques nommés au-delà de Knockdown et Brutal Damage** (Decapitation, Sustained Attack, etc.) : liste volontairement reportée à une prochaine itération, en attente de la liste exacte et de la formulation précise de ces règles (fournie par l'utilisateur).
+- **Shred** (attaque gratuite supplémentaire sur critique, même profil que l'attaque qui l'a déclenché, pouvant elle-même redéclencher un nouveau Shred) : reportée à une prochaine itération — c'est le seul effet de la liste fournie par l'utilisateur encore non implémenté.
 - **Optimisation automatique de l'ordre des attaques** : décision produit — l'ordre reste défini manuellement par l'utilisateur (voir "Choix produit").
 - Gestion des unités (plusieurs modèles identiques dans une même attaque de groupe) — non traitée, le moteur raisonne modèle par modèle.
 
@@ -111,10 +144,13 @@ Certains points de règles ont été implémentés selon la formulation la plus 
 
 - **Édition de règles : MK4** — plutôt que MK2/MK3, en cohérence avec l'édition actuellement jouée par la communauté.
 - **Ordre des attaques défini par l'utilisateur**, plutôt qu'une optimisation automatique : plus simple à utiliser, correspond à la façon dont un joueur planifie réellement son tour (il sait déjà dans quel ordre il compte jouer ses attaques), et évite l'explosion combinatoire d'une recherche exhaustive sur l'ordre à mesure que le nombre d'attaques augmente.
-- **Effets critiques : liste courte et exacte plutôt qu'un système générique** configurable "à la carte" — priorité à la justesse des règles implémentées sur la couverture large mais approximative.
+- **Effets : liste courte et exacte plutôt qu'un système générique** configurable "à la carte" — priorité à la justesse des règles implémentées sur la couverture large mais approximative. La liste s'est étoffée (modificateurs de jet, effets propres à une attaque, effets persistants sur la cible) mais reste une liste nommée et fermée, pas un moteur d'effets arbitraires.
+- **Relance (Reroll) sans seuil configurable** : plutôt que de demander au joueur de choisir un seuil de relance, l'application applique toujours la politique optimale (relancer un jet pour toucher raté, ou un jet de dégâts sous la moyenne) — évite un champ de configuration supplémentaire pour un résultat mathématiquement équivalent ou meilleur.
+- **Malus de DEF additifs, avec Knocked Down/Stationary/Paralysis comme plancher** : les malus nommés (Ice Cage, Shadowbind, Blind, Flare, Weaken) s'additionnent tous entre eux ; Knocked Down/Stationary/Paralysis plafonnent d'abord la DEF à 5 plutôt que de s'additionner comme les autres, ce qui reflète leur formulation en jeu ("DEF réduite à 5" et non "−X DEF").
+- **Effets persistants non stackables sauf mention contraire** : un même effet nommé ne peut s'appliquer qu'une fois sur une cible (Ice Cage et le "-X ARM" générique étant les seules exceptions explicitement cumulables), pour rester fidèle à la formulation "sauf si précisé" fournie par l'utilisateur.
 
 ## Feuille de route
 
-- Recueillir la liste exacte des effets critiques/spéciaux à ajouter (Decapitation et autres) avec leur formulation précise.
+- Implémenter Shred (attaque gratuite récursive sur critique).
 - Icônes et configuration finale du manifest PWA.
 - Vérification de l'affichage sur smartphone (en cours).

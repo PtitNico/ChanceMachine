@@ -260,6 +260,24 @@
   border-bottom: none;
 }
 
+.attack-row__effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-left: 1.4rem;
+}
+
+.effect-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--steel);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}
+
 .attack-row__index {
   flex-shrink: 0;
   align-self: center;
@@ -290,16 +308,6 @@
 .effects-btn:hover {
   border-color: var(--brass);
   color: var(--brass-bright);
-}
-
-.effects-btn__dot {
-  display: inline-block;
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
-  background: var(--brass-bright);
-  margin-left: 0.4rem;
-  vertical-align: middle;
 }
 
 .icon-btn {
@@ -436,6 +444,26 @@
   overflow-y: auto;
 }
 
+/* Effects dialog only: header and footer (.dialog__actions) stay put, and only
+   .dialog__body (the effect sections in between) scrolls - overrides the plain
+   .dialog__content's own overflow-y so the header/footer are never scrolled past. */
+.dialog__content--framed {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog__content--framed > .dialog__header,
+.dialog__content--framed > .dialog__actions {
+  flex-shrink: 0;
+}
+
+.dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .dialog__header {
   display: flex;
   align-items: center;
@@ -455,13 +483,16 @@
   margin: 0;
 }
 
-.dialog__done-btn {
-  width: 100%;
+.dialog__actions {
+  display: flex;
+  gap: 0.6rem;
   margin-top: 0.75rem;
+}
+
+.dialog__done-btn,
+.dialog__reset-btn {
+  flex: 1 1 0;
   padding: 0.65rem;
-  background: var(--brass);
-  border: none;
-  color: #1a1c1f;
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -470,8 +501,25 @@
   cursor: pointer;
 }
 
+.dialog__done-btn {
+  background: var(--brass);
+  border: none;
+  color: #1a1c1f;
+}
+
 .dialog__done-btn:hover {
   background: var(--brass-bright);
+}
+
+.dialog__reset-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+}
+
+.dialog__reset-btn:hover {
+  border-color: #d97a6a;
+  color: #d97a6a;
 }
 
 /* --- Fields used inside dialogs (label + input side by side) --- */
@@ -484,42 +532,94 @@
   margin-bottom: 0.85rem;
 }
 
-.field--check {
-  justify-content: flex-start;
-}
-
 .field__label {
   font-size: 0.85rem;
   color: var(--text-dim);
 }
 
-.field--check .field__label {
-  color: var(--text);
-}
-
-.field__input {
-  width: 4.5rem;
+.field__select {
+  min-width: 6rem;
   background: var(--bg);
   border: 1px solid var(--line);
   color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.95rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
   padding: 0.35rem 0.5rem;
-  text-align: right;
+  text-transform: capitalize;
 }
 
-.field__input:focus-visible,
-input[type='checkbox']:focus-visible {
+.field__select--narrow {
+  min-width: 4rem;
+  flex-shrink: 0;
+}
+
+.dialog__section-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  margin: 1.1rem 0 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+
+/* The first section title inside .dialog__body would otherwise show its own
+   top border just below the header's bottom border - two parallel lines a
+   few pixels apart. Only later sections need a rule of their own to separate
+   them from the section above. */
+.dialog__body > .dialog__section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* --- Toggle-pill buttons: the primary control for every effect in the Effects dialog.
+   Grouped into flex-wrap rows (.toggle-group) so adding many effects wraps onto more
+   lines within the dialog's fixed max-width instead of ever widening the app. --- */
+
+.toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+}
+
+.toggle-btn {
+  flex-shrink: 0;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.toggle-btn:hover {
+  border-color: var(--brass);
+  color: var(--text);
+}
+
+.toggle-btn--active {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #1a1c1f;
+  font-weight: 600;
+}
+
+.toggle-btn--active:hover {
+  background: var(--brass-bright);
+  border-color: var(--brass-bright);
+}
+
+.toggle-btn:focus-visible {
   outline: 2px solid var(--brass-bright);
   outline-offset: 2px;
-}
-
-.field--check input[type='checkbox'] {
-  width: 1.05rem;
-  height: 1.05rem;
-  accent-color: var(--brass);
-  margin-right: 0.65rem;
-  flex-shrink: 0;
 }
 
 /* --- Step-by-step and survival distribution (shown inside the Details dialog) --- */
