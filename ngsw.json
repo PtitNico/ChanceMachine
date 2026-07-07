@@ -1,7 +1,7 @@
 {
   "configVersion": 1,
-  "timestamp": 1783434475721,
-  "index": "/chancemachine/index.html",
+  "timestamp": 1783434772132,
+  "index": "/ChanceMachine/index.html",
   "assetGroups": [
     {
       "name": "app",
@@ -11,11 +11,11 @@
         "ignoreVary": true
       },
       "urls": [
-        "/chancemachine/favicon.ico",
-        "/chancemachine/index.html",
-        "/chancemachine/main-YNOFLCRL.js",
-        "/chancemachine/manifest.webmanifest",
-        "/chancemachine/styles-4AAQQ372.css"
+        "/ChanceMachine/favicon.ico",
+        "/ChanceMachine/index.html",
+        "/ChanceMachine/main-YNOFLCRL.js",
+        "/ChanceMachine/manifest.webmanifest",
+        "/ChanceMachine/styles-4AAQQ372.css"
       ],
       "patterns": []
     },
@@ -27,33 +27,33 @@
         "ignoreVary": true
       },
       "urls": [
-        "/chancemachine/icons/icon-128x128.png",
-        "/chancemachine/icons/icon-144x144.png",
-        "/chancemachine/icons/icon-152x152.png",
-        "/chancemachine/icons/icon-192x192.png",
-        "/chancemachine/icons/icon-384x384.png",
-        "/chancemachine/icons/icon-512x512.png",
-        "/chancemachine/icons/icon-72x72.png",
-        "/chancemachine/icons/icon-96x96.png"
+        "/ChanceMachine/icons/icon-128x128.png",
+        "/ChanceMachine/icons/icon-144x144.png",
+        "/ChanceMachine/icons/icon-152x152.png",
+        "/ChanceMachine/icons/icon-192x192.png",
+        "/ChanceMachine/icons/icon-384x384.png",
+        "/ChanceMachine/icons/icon-512x512.png",
+        "/ChanceMachine/icons/icon-72x72.png",
+        "/ChanceMachine/icons/icon-96x96.png"
       ],
       "patterns": []
     }
   ],
   "dataGroups": [],
   "hashTable": {
-    "/chancemachine/favicon.ico": "9c39f434fe1261f68c5e3eefdf734630d99c5670",
-    "/chancemachine/icons/icon-128x128.png": "f912963bdc6d5a38d8f1dd0afbaab2ce8d657acb",
-    "/chancemachine/icons/icon-144x144.png": "b155fd5f2fd5d2ea7760721063003c4cd95fd783",
-    "/chancemachine/icons/icon-152x152.png": "eae6e0f0c8afb8aaae339e2a569b43e9238e5e6c",
-    "/chancemachine/icons/icon-192x192.png": "15c4180454633880d98674aa7394656196c91584",
-    "/chancemachine/icons/icon-384x384.png": "94a915751ef6c9282df9aea405ad679230631814",
-    "/chancemachine/icons/icon-512x512.png": "1de182f76f7329dfa8f9fcdd1fdcdd695bea6a99",
-    "/chancemachine/icons/icon-72x72.png": "aa88a6096bd973be7f6d7a5489bfa6bc2463f8c4",
-    "/chancemachine/icons/icon-96x96.png": "7fb8f59c30ce2ff12c700321a0b39e14b3dc8f95",
-    "/chancemachine/index.html": "6a3aa49d3f1f165fbb37e7d1b049afd308215829",
-    "/chancemachine/main-YNOFLCRL.js": "bd3b9f04c07b8772cfc03516d9b631e104b9c1f2",
-    "/chancemachine/manifest.webmanifest": "c5d1f49056d359e13c13164039fc31814d8c32ce",
-    "/chancemachine/styles-4AAQQ372.css": "51b12bad22cb596951afad3f1457032fe9c2bf92"
+    "/ChanceMachine/favicon.ico": "9c39f434fe1261f68c5e3eefdf734630d99c5670",
+    "/ChanceMachine/icons/icon-128x128.png": "f912963bdc6d5a38d8f1dd0afbaab2ce8d657acb",
+    "/ChanceMachine/icons/icon-144x144.png": "b155fd5f2fd5d2ea7760721063003c4cd95fd783",
+    "/ChanceMachine/icons/icon-152x152.png": "eae6e0f0c8afb8aaae339e2a569b43e9238e5e6c",
+    "/ChanceMachine/icons/icon-192x192.png": "15c4180454633880d98674aa7394656196c91584",
+    "/ChanceMachine/icons/icon-384x384.png": "94a915751ef6c9282df9aea405ad679230631814",
+    "/ChanceMachine/icons/icon-512x512.png": "1de182f76f7329dfa8f9fcdd1fdcdd695bea6a99",
+    "/ChanceMachine/icons/icon-72x72.png": "aa88a6096bd973be7f6d7a5489bfa6bc2463f8c4",
+    "/ChanceMachine/icons/icon-96x96.png": "7fb8f59c30ce2ff12c700321a0b39e14b3dc8f95",
+    "/ChanceMachine/index.html": "b3ef32dd462a37c48c2bd078e5f1460811b2d95c",
+    "/ChanceMachine/main-YNOFLCRL.js": "bd3b9f04c07b8772cfc03516d9b631e104b9c1f2",
+    "/ChanceMachine/manifest.webmanifest": "c5d1f49056d359e13c13164039fc31814d8c32ce",
+    "/ChanceMachine/styles-4AAQQ372.css": "51b12bad22cb596951afad3f1457032fe9c2bf92"
   },
   "navigationUrls": [
     {
