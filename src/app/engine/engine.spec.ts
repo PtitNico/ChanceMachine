@@ -148,6 +148,28 @@ describe('sequence engine', () => {
 
     expect(seq.finalDestroyChance).toBeCloseTo(single.destroyChance, 9);
     expect(seq.steps[0].hitChance).toBeCloseTo(single.hitChance, 9);
+    expect(seq.steps[0].critChance).toBeCloseTo(single.critOnHitChance, 9);
+    expect(seq.steps[0].averageDamage).toBeCloseTo(single.expectedDamage, 9);
+  });
+
+  it('critChance and averageDamage match a hand-computed case (MAT 6 vs DEF 13, POW 12 vs ARM 15)', () => {
+    // Same numbers as the hand-computed attack-model test: hit needs 2d6 >= 7 (21/36),
+    // and among those, a double (crit) is 6/36 of all rolls, all of which are >= 7 anyway
+    // since a double >= 7 requires face >= 4 (4,4/5,5/6,6) -> 3/36 of all rolls are hits AND doubles.
+    const result = computeSequenceOdds(
+      [attack({ id: 'a', stat: 6, pow: 12 })],
+      { def: 13, arm: 15, boxes: 1000 }
+    );
+    expect(result.steps[0].hitChance).toBeCloseTo(21 / 36, 9);
+    expect(result.steps[0].critChance).toBeCloseTo(3 / 36, 9);
+
+    // Expected raw damage = P(hit) * E[max(0, 2d6 + 12 - 15) | hit] - matches computeAttackOdds's expectedDamage.
+    const viaSingleAttack = computeAttackOdds({
+      attack: { type: 'melee', stat: 6 },
+      damage: { pow: 12 },
+      target: { def: 13, arm: 15, boxesRemaining: 1000 },
+    });
+    expect(result.steps[0].averageDamage).toBeCloseTo(viaSingleAttack.expectedDamage, 9);
   });
 
   it('cumulative destroy chance never decreases and is monotonic across steps', () => {
@@ -318,5 +340,42 @@ describe('sequence engine - target focus/fury resource points', () => {
   it('rejects an unrealistically large focus/fury pool', () => {
     const target = { def: 13, arm: 14, boxes: 10, focusPoints: 999 };
     expect(() => computeSequenceOdds([attack()], target)).toThrow();
+  });
+});
+
+describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it("DEF: 'KD' makes a melee attack auto-hit regardless of its stat", () => {
+    const result = computeSequenceOdds([attack({ stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
+    expect(result.steps[0].hitChance).toBeCloseTo(1, 9);
+  });
+
+  it("DEF: 'KD' also makes ranged and arcane attacks auto-hit (unlike a mid-sequence Knockdown crit)", () => {
+    const ranged = computeSequenceOdds([attack({ type: 'ranged', stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
+    const arcane = computeSequenceOdds([attack({ type: 'arcane', stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
+    expect(ranged.steps[0].hitChance).toBeCloseTo(1, 9);
+    expect(arcane.steps[0].hitChance).toBeCloseTo(1, 9);
+  });
+
+  it("an auto-hit from DEF: 'KD' cannot crit (no attack roll is made)", () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: -50, criticalEffects: { brutalDamageDice: 2 } })],
+      { def: 'KD', arm: 0, boxes: 1000 }
+    );
+    // If it could crit, Brutal Damage would push expected damage up; confirm it behaves
+    // identically to the same attack without Brutal Damage (i.e. the crit branch is unreachable).
+    const withoutBrutal = computeSequenceOdds([attack({ stat: -50 })], { def: 'KD', arm: 0, boxes: 1000 });
+    expect(result.steps[0].expectedBoxesRemaining).toBeCloseTo(withoutBrutal.steps[0].expectedBoxesRemaining, 9);
   });
 });

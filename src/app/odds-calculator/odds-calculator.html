@@ -1,86 +1,85 @@
 <div class="panel">
   <header class="panel__header">
-    <span class="panel__eyebrow">Odds calculator</span>
-    <h1 class="panel__title">Firing Solution</h1>
+    <span class="panel__eyebrow">ChanceMachine</span>
   </header>
 
   <div class="panel__body">
     <section class="console" aria-label="Target">
       <h2 class="console__title">Target</h2>
 
-      <label class="field">
-        <span class="field__label">DEF</span>
-        <input
-          class="field__input"
-          type="number"
-          [ngModel]="targetDef()"
-          (ngModelChange)="targetDef.set($event)"
-        />
-      </label>
-
-      <label class="field">
-        <span class="field__label">ARM</span>
-        <input
-          class="field__input"
-          type="number"
-          [ngModel]="targetArm()"
-          (ngModelChange)="targetArm.set($event)"
-        />
-      </label>
-
-      <label class="field">
-        <span class="field__label">Boxes remaining</span>
-        <input
-          class="field__input"
-          type="number"
-          min="1"
-          [ngModel]="targetBoxes()"
-          (ngModelChange)="targetBoxes.set($event)"
-        />
-      </label>
-
-      <label class="field field--check">
-        <input type="checkbox" [ngModel]="tough()" (ngModelChange)="tough.set($event)" />
-        <span class="field__label">Tough</span>
-      </label>
-
-      @if (tough()) {
-        <label class="field">
-          <span class="field__label">Tough succeeds on</span>
-          <input
-            class="field__input"
-            type="number"
-            min="2"
-            max="6"
-            [ngModel]="toughOn()"
-            (ngModelChange)="toughOn.set($event)"
-          />
+      <div class="target-row">
+        <label class="mini-field">
+          <span class="mini-field__label">DEF</span>
+          <select
+            class="mini-field__input mini-field__input--select"
+            [ngModel]="targetDef()"
+            (ngModelChange)="targetDef.set(parseDef($event))"
+          >
+            @for (v of defOptions; track v) {
+              <option [value]="v">{{ v }}</option>
+            }
+          </select>
         </label>
-      }
 
-      <label class="field">
-        <span class="field__label">Focus points</span>
-        <input
-          class="field__input"
-          type="number"
-          min="0"
-          max="10"
-          [ngModel]="targetFocus()"
-          (ngModelChange)="targetFocus.set($event)"
-        />
-      </label>
+        <label class="mini-field">
+          <span class="mini-field__label">ARM</span>
+          <select
+            class="mini-field__input mini-field__input--select"
+            [ngModel]="targetArm()"
+            (ngModelChange)="targetArm.set(toNumber($event))"
+          >
+            @for (v of armOptions; track v) {
+              <option [value]="v">{{ v }}</option>
+            }
+          </select>
+        </label>
 
-      <label class="field">
-        <span class="field__label">Fury points</span>
-        <input
-          class="field__input"
-          type="number"
-          min="0"
-          max="10"
-          [ngModel]="targetFury()"
-          (ngModelChange)="targetFury.set($event)"
-        />
-      </label>
+        <label class="mini-field">
+          <span class="mini-field__label">Boxes</span>
+          <select
+            class="mini-field__input mini-field__input--select"
+            [ngModel]="targetBoxes()"
+            (ngModelChange)="targetBoxes.set(toNumber($event))"
+          >
+            @for (v of boxesOptions; track v) {
+              <option [value]="v">{{ v }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="mini-field">
+          <span class="mini-field__label">Focus</span>
+          <select
+            class="mini-field__input mini-field__input--select"
+            [ngModel]="targetFocus()"
+            (ngModelChange)="targetFocus.set(toNumber($event))"
+          >
+            @for (v of resourceOptions; track v) {
+              <option [value]="v">{{ v }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="mini-field">
+          <span class="mini-field__label">Fury</span>
+          <select
+            class="mini-field__input mini-field__input--select"
+            [ngModel]="targetFury()"
+            (ngModelChange)="targetFury.set(toNumber($event))"
+          >
+            @for (v of resourceOptions; track v) {
+              <option [value]="v">{{ v }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="mini-field mini-field--check" title="Tough (succeeds on 5+)">
+          <span class="mini-field__label">Tough</span>
+          <span class="mini-field__control">
+            <input type="checkbox" [ngModel]="tough()" (ngModelChange)="tough.set($event)" />
+          </span>
+        </label>
+      </div>
     </section>
 
     <section class="console console--attacks" aria-label="Attack sequence">
@@ -88,61 +87,13 @@
 
       <div class="attack-list">
         @for (row of rows(); track row.id; let i = $index; let count = $count) {
-          <article class="attack-card">
-            <header class="attack-card__header">
-              <span class="attack-card__index">{{ i + 1 }}</span>
-              <input
-                class="attack-card__name"
-                type="text"
-                [ngModel]="row.attackerName()"
-                (ngModelChange)="row.attackerName.set($event)"
-                aria-label="Attacker name"
-              />
-              <div class="attack-card__actions">
-                <button
-                  type="button"
-                  class="icon-btn"
-                  (click)="moveAttack(row.id, -1)"
-                  [disabled]="i === 0"
-                  aria-label="Move attack earlier"
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn"
-                  (click)="moveAttack(row.id, 1)"
-                  [disabled]="i === count - 1"
-                  aria-label="Move attack later"
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn icon-btn--danger"
-                  (click)="removeAttack(row.id)"
-                  [disabled]="count === 1"
-                  aria-label="Remove attack"
-                >
-                  ✕
-                </button>
-              </div>
-            </header>
+          <div class="attack-row">
+            <span class="attack-row__index">{{ i + 1 }}</span>
 
-            <label class="field">
-              <span class="field__label">Attack label</span>
-              <input
-                class="field__input field__input--wide"
-                type="text"
-                [ngModel]="row.label()"
-                (ngModelChange)="row.label.set($event)"
-              />
-            </label>
-
-            <label class="field">
-              <span class="field__label">Type</span>
+            <label class="mini-field">
+              <span class="mini-field__label">Type</span>
               <select
-                class="field__input field__input--wide"
+                class="mini-field__input mini-field__input--select"
                 [ngModel]="row.type()"
                 (ngModelChange)="row.type.set($event)"
               >
@@ -152,80 +103,75 @@
               </select>
             </label>
 
-            <label class="field">
-              <span class="field__label">MAT / RAT</span>
-              <input
-                class="field__input"
-                type="number"
+            <label class="mini-field">
+              <span class="mini-field__label">{{ statLabel(row.type()) }}</span>
+              <select
+                class="mini-field__input mini-field__input--select mini-field__input--narrow"
                 [ngModel]="row.stat()"
-                (ngModelChange)="row.stat.set($event)"
-              />
+                (ngModelChange)="row.stat.set(toNumber($event))"
+              >
+                @for (v of statOptions; track v) {
+                  <option [value]="v">{{ v }}</option>
+                }
+              </select>
             </label>
 
-            <label class="field">
-              <span class="field__label">Boost (to hit)</span>
-              <input
-                class="field__input"
-                type="number"
-                min="0"
-                max="4"
-                [ngModel]="row.boostDice()"
-                (ngModelChange)="row.boostDice.set($event)"
-              />
+            <label class="mini-field">
+              <span class="mini-field__label">Dice</span>
+              <select
+                class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                [ngModel]="row.diceCount()"
+                (ngModelChange)="row.diceCount.set(toNumber($event))"
+              >
+                @for (v of diceOptions; track v) {
+                  <option [value]="v">{{ v }}</option>
+                }
+              </select>
             </label>
 
-            <label class="field field--check">
-              <input
-                type="checkbox"
-                [ngModel]="row.forceAutoHit()"
-                (ngModelChange)="row.forceAutoHit.set($event)"
-              />
-              <span class="field__label">Auto-hit (target Stationary)</span>
-            </label>
-
-            <label class="field">
-              <span class="field__label">POW</span>
-              <input
-                class="field__input"
-                type="number"
+            <label class="mini-field">
+              <span class="mini-field__label">POW</span>
+              <select
+                class="mini-field__input mini-field__input--select mini-field__input--narrow"
                 [ngModel]="row.pow()"
-                (ngModelChange)="row.pow.set($event)"
-              />
+                (ngModelChange)="row.pow.set(parsePow($event))"
+              >
+                @for (v of powOptions; track v) {
+                  <option [value]="v">{{ v }}</option>
+                }
+              </select>
             </label>
 
-            <label class="field">
-              <span class="field__label">Boost (damage)</span>
-              <input
-                class="field__input"
-                type="number"
-                min="0"
-                max="4"
-                [ngModel]="row.damageBoostDice()"
-                (ngModelChange)="row.damageBoostDice.set($event)"
-              />
+            <label class="mini-field">
+              <span class="mini-field__label">Dice</span>
+              <select
+                class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                [ngModel]="row.damageDiceCount()"
+                (ngModelChange)="row.damageDiceCount.set(toNumber($event))"
+              >
+                @for (v of diceOptions; track v) {
+                  <option [value]="v">{{ v }}</option>
+                }
+              </select>
             </label>
 
-            <label class="field field--check">
-              <input
-                type="checkbox"
-                [ngModel]="row.knockdown()"
-                (ngModelChange)="row.knockdown.set($event)"
-              />
-              <span class="field__label">Crit: Knockdown</span>
-            </label>
+            <button type="button" class="effects-btn" (click)="openEffects(row)">
+              Effects
+              @if (hasEffects(row)) {
+                <span class="effects-btn__dot"></span>
+              }
+            </button>
 
-            <label class="field">
-              <span class="field__label">Crit: Brutal Damage (extra dice)</span>
-              <input
-                class="field__input"
-                type="number"
-                min="0"
-                max="4"
-                [ngModel]="row.brutalDamageDice()"
-                (ngModelChange)="row.brutalDamageDice.set($event)"
-              />
-            </label>
-          </article>
+            <button
+              type="button"
+              class="icon-btn icon-btn--danger"
+              (click)="removeAttack(row.id)"
+              [disabled]="count === 1"
+              aria-label="Remove attack"
+            >
+              ✕
+            </button>
+          </div>
         }
       </div>
 
@@ -246,19 +192,69 @@
         </div>
       </div>
 
+      <button type="button" class="details-btn" (click)="openDetails()">Show details</button>
+    </section>
+  </div>
+
+  <dialog #effectsDialog class="dialog" (click)="closeOnBackdropClick($event, effectsDialog)">
+    @if (editingRow(); as row) {
+      <div class="dialog__content">
+        <header class="dialog__header">
+          <h2 class="dialog__title">Effects</h2>
+          <button type="button" class="icon-btn" (click)="closeEffects()" aria-label="Close">✕</button>
+        </header>
+
+        <label class="field field--check">
+          <input
+            type="checkbox"
+            [ngModel]="row.forceAutoHit()"
+            (ngModelChange)="row.forceAutoHit.set($event)"
+          />
+          <span class="field__label">Auto-hit (target Stationary)</span>
+        </label>
+
+        <label class="field field--check">
+          <input type="checkbox" [ngModel]="row.knockdown()" (ngModelChange)="row.knockdown.set($event)" />
+          <span class="field__label">Crit: Knockdown</span>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Crit: Brutal Damage (extra dice)</span>
+          <input
+            class="field__input"
+            type="number"
+            min="0"
+            max="4"
+            [ngModel]="row.brutalDamageDice()"
+            (ngModelChange)="row.brutalDamageDice.set($event)"
+          />
+        </label>
+
+        <button type="button" class="dialog__done-btn" (click)="closeEffects()">Done</button>
+      </div>
+    }
+  </dialog>
+
+  <dialog #detailsDialog class="dialog dialog--wide" (click)="closeOnBackdropClick($event, detailsDialog)">
+    <div class="dialog__content">
+      <header class="dialog__header">
+        <h2 class="dialog__title">Details</h2>
+        <button type="button" class="icon-btn" (click)="closeDetails()" aria-label="Close">✕</button>
+      </header>
+
       <div class="steps">
         <h3 class="distribution__title">Step by step</h3>
         @for (step of sequence().steps; track step.attack.id) {
           <div class="steps__row">
-            <span class="steps__label">{{ step.attack.attackerName }} — {{ step.attack.label }}</span>
+            <span class="steps__label">{{ step.attack.label }}</span>
             <span class="steps__metric">
               <span class="steps__metric-label">Hit</span>{{ pct(step.hitChance) }}
             </span>
             <span class="steps__metric">
-              <span class="steps__metric-label">Destroy (step)</span>{{ pct(step.destroyChanceAtThisStep) }}
+              <span class="steps__metric-label">Crit</span>{{ pct(step.critChance) }}
             </span>
-            <span class="steps__metric steps__metric--cumulative">
-              <span class="steps__metric-label">Cumulative</span>{{ pct(step.cumulativeDestroyChance) }}
+            <span class="steps__metric">
+              <span class="steps__metric-label">Avg damage</span>{{ step.averageDamage.toFixed(1) }}
             </span>
           </div>
         }
@@ -281,6 +277,6 @@
           <p class="distribution__empty">The target is destroyed in every outcome.</p>
         }
       </div>
-    </section>
-  </div>
+    </div>
+  </dialog>
 </div>

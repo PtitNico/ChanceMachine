@@ -50,7 +50,8 @@ export interface SequencedAttack {
 }
 
 export interface SequenceTarget {
-  def: number;
+  /** Numeric DEF, or 'KD' if the target starts the whole sequence Knocked Down / unable to defend at all - every attack then auto-hits regardless of type, and DEF is never consulted. */
+  def: number | 'KD';
   arm: number;
   boxes: number;
   tough?: boolean;
@@ -65,6 +66,10 @@ export interface SequenceStepResult {
   attack: SequencedAttack;
   /** Chance to hit for this attack, conditional on the target still being alive when it's made. */
   hitChance: number;
+  /** Chance of a critical hit (natural double) for this attack, conditional on the target still being alive when it's made. */
+  critChance: number;
+  /** Expected raw damage dealt by this attack's dice/POW/ARM (before any Focus/Fury mitigation), conditional on the target still being alive when it's made. */
+  averageDamage: number;
   /** Chance the target is newly destroyed on exactly this attack (unconditional, out of the original 1.0). */
   destroyChanceAtThisStep: number;
   /** Chance the target has been destroyed by this attack or any earlier one. */
@@ -251,7 +256,7 @@ function bestAction(
   return bestBranches;
 }
 
-function buildProfileFor(atk: SequencedAttack, target: SequenceTarget, autoHit: boolean): AttackProfile {
+function buildProfileFor(atk: SequencedAttack, target: { def: number; arm: number }, autoHit: boolean): AttackProfile {
   return buildAttackProfile(
     { type: atk.type, stat: atk.stat, autoHit, modifiers: atk.modifiers },
     { pow: atk.pow, modifiers: atk.damageModifiers },
@@ -275,10 +280,17 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   const toughFailChance = hasTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
   const n = attacks.length;
 
+  // A target already Knocked Down (DEF = 'KD') can't defend against anything - every
+  // attack auto-hits regardless of type, and the numeric DEF is never consulted (the
+  // dummy 0 below is only there to satisfy the profile builder's type; autoHit skips it).
+  const alwaysAutoHit = target.def === 'KD';
+  const profileTarget = { def: typeof target.def === 'number' ? target.def : 0, arm: target.arm };
+
   const attackInfos = attacks.map((atk) => {
-    const knockdownGates = !atk.forceAutoHit && atk.type === 'melee';
-    const normalProfile = buildProfileFor(atk, target, !!atk.forceAutoHit);
-    const autoHitProfile = knockdownGates ? buildProfileFor(atk, target, true) : normalProfile;
+    const forcedAutoHit = alwaysAutoHit || !!atk.forceAutoHit;
+    const knockdownGates = !forcedAutoHit && atk.type === 'melee';
+    const normalProfile = buildProfileFor(atk, profileTarget, forcedAutoHit);
+    const autoHitProfile = knockdownGates ? buildProfileFor(atk, profileTarget, true) : normalProfile;
     return { atk, knockdownGates, normalProfile, autoHitProfile };
   });
 
@@ -295,7 +307,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     const valueAt: ValueLookup = (boxes, kd, focus, fury) => readValueTable(nextTable, boxes, kd, focus, fury);
 
     valueTables[k] = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, knockedDown, focus, fury) => {
-      const usesAutoHit = !!atk.forceAutoHit || (knockdownGates && knockedDown);
+      const usesAutoHit = alwaysAutoHit || !!atk.forceAutoHit || (knockdownGates && knockedDown);
       const profile = usesAutoHit ? autoHitProfile : normalProfile;
       let total = 0;
       for (const outcome of applyProfile(profile)) {
@@ -340,17 +352,21 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     const next = new Map<string, { state: FwdState; probability: number }>();
     let destroyedThisStep = 0;
     let hitMass = 0;
+    let critMass = 0;
+    let damageMass = 0;
     let aliveMass = 0;
 
     for (const { state, probability } of dist.values()) {
       aliveMass += probability;
-      const usesAutoHit = !!atk.forceAutoHit || (knockdownGates && state.knockedDown);
+      const usesAutoHit = alwaysAutoHit || !!atk.forceAutoHit || (knockdownGates && state.knockedDown);
       const profile = usesAutoHit ? autoHitProfile : normalProfile;
 
       for (const outcome of applyProfile(profile)) {
         const p = probability * outcome.probability;
         if (p <= 0) continue;
         if (outcome.isHit) hitMass += p;
+        if (outcome.isCrit) critMass += p;
+        damageMass += p * outcome.damageDealt;
 
         const newKnockedDown = state.knockedDown || (!!atk.criticalEffects?.knockdown && outcome.isCrit);
         const branches = bestAction(
@@ -391,6 +407,8 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     steps.push({
       attack: atk,
       hitChance: aliveMass > 0 ? hitMass / aliveMass : 0,
+      critChance: aliveMass > 0 ? critMass / aliveMass : 0,
+      averageDamage: aliveMass > 0 ? damageMass / aliveMass : 0,
       destroyChanceAtThisStep: destroyedThisStep,
       cumulativeDestroyChance: cumulativeDestroy,
       expectedBoxesRemaining,
