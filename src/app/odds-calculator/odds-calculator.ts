@@ -356,14 +356,28 @@ export class OddsCalculator {
     })
   );
 
-  protected readonly visibleSurvivalPoints = computed(() =>
-    this.sequence()
-      .survivalDistribution.filter((p) => p.probability >= 0.0005)
-      .sort((a, b) => b.boxes - a.boxes)
-  );
+  /** Total damage dealt over the whole sequence: `survivalDistribution` (boxes remaining if
+   *  the target survives) converted to `boxesInitial - boxes`, plus one aggregated bucket for
+   *  every outcome that destroys the target (>= boxesInitial damage, labelled "N+") - since a
+   *  destroyed target's exact overkill isn't tracked, only that it reached or exceeded its box count. */
+  protected readonly damageDistributionPoints = computed(() => {
+    const { survivalDistribution, finalDestroyChance } = this.sequence();
+    const boxesInitial = this.targetBoxes();
 
-  protected readonly maxSurvivalProbability = computed(() =>
-    Math.max(...this.visibleSurvivalPoints().map((p) => p.probability), 0.0001)
+    const points = survivalDistribution.map((p) => ({
+      damage: boxesInitial - p.boxes,
+      label: `${boxesInitial - p.boxes}`,
+      probability: p.probability,
+    }));
+    if (finalDestroyChance > 0) {
+      points.push({ damage: boxesInitial, label: `${boxesInitial}+`, probability: finalDestroyChance });
+    }
+
+    return points.filter((p) => p.probability >= 0.0005).sort((a, b) => a.damage - b.damage);
+  });
+
+  protected readonly maxDamageProbability = computed(() =>
+    Math.max(...this.damageDistributionPoints().map((p) => p.probability), 0.0001)
   );
 
   /** Copies the previous attack by default - most sequences chain similar attacks. */

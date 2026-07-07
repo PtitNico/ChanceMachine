@@ -248,15 +248,17 @@
   margin-bottom: 1rem;
 }
 
-.attack-row {
-  flex-shrink: 0; /* keep every row at its natural height - without this, flex would squash
-                     all rows to fit whatever space is left instead of letting .attack-list
+/* Groups one attack row with its (optional) effects-summary tags underneath, so the
+   separator border sits below the whole group instead of between the row and its tags. */
+.attack-row-group {
+  flex-shrink: 0; /* keep every group at its natural height - without this, flex would squash
+                     all groups to fit whatever space is left instead of letting .attack-list
                      (which has overflow-y: auto) actually scroll past it */
   padding: 0.7rem 0;
   border-bottom: 1px solid var(--line);
 }
 
-.attack-row:last-child {
+.attack-row-group:last-child {
   border-bottom: none;
 }
 
@@ -628,27 +630,42 @@
   margin-bottom: 1.5rem;
 }
 
+/* Each step always stays on a single line - if a narrow viewport can't fit the
+   label + all three metrics, the row scrolls horizontally instead of wrapping
+   onto a second line (same "one line, scroll if needed" pattern used by
+   .target-row/.attack-row), with the scrollbar hidden as elsewhere in this app. */
 .steps__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.9rem;
   padding: 0.55rem 0;
   border-bottom: 1px solid var(--line);
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.78rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.steps__row::-webkit-scrollbar {
+  display: none;
 }
 
 .steps__label {
+  flex-shrink: 0;
   font-family: 'Inter', sans-serif;
+  font-weight: 600;
   color: var(--text);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .steps__metric {
+  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  line-height: 1.2;
+  align-items: baseline;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 .steps__metric-label {
@@ -659,16 +676,8 @@
   color: var(--text-dim);
 }
 
-@media (max-width: 420px) {
-  .steps__row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .steps__label {
-    grid-column: 1 / -1;
-    font-weight: 600;
-    margin-bottom: 0.15rem;
-  }
+.steps__metric-value {
+  color: var(--text);
 }
 
 .distribution__empty {

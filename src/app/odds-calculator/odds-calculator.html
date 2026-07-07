@@ -87,95 +87,97 @@
 
       <div class="attack-list">
         @for (row of rows(); track row.id; let i = $index; let count = $count) {
-          <div class="attack-row">
-            <span class="attack-row__index">{{ i + 1 }}</span>
+          <div class="attack-row-group">
+            <div class="attack-row">
+              <span class="attack-row__index">{{ i + 1 }}</span>
 
-            <label class="mini-field">
-              <span class="mini-field__label">Type</span>
-              <select
-                class="mini-field__input mini-field__input--select"
-                [ngModel]="row.type()"
-                (ngModelChange)="row.type.set($event)"
+              <label class="mini-field">
+                <span class="mini-field__label">Type</span>
+                <select
+                  class="mini-field__input mini-field__input--select"
+                  [ngModel]="row.type()"
+                  (ngModelChange)="row.type.set($event)"
+                >
+                  @for (t of attackTypes; track t) {
+                    <option [value]="t">{{ t }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="mini-field">
+                <span class="mini-field__label">{{ statLabel(row.type()) }}</span>
+                <select
+                  class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                  [ngModel]="row.stat()"
+                  (ngModelChange)="row.stat.set(toNumber($event))"
+                >
+                  @for (v of statOptions; track v) {
+                    <option [value]="v">{{ v }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="mini-field">
+                <span class="mini-field__label">Dice</span>
+                <select
+                  class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                  [ngModel]="row.diceCount()"
+                  (ngModelChange)="row.diceCount.set(toNumber($event))"
+                >
+                  @for (v of diceOptions; track v) {
+                    <option [value]="v">{{ v }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="mini-field">
+                <span class="mini-field__label">POW</span>
+                <select
+                  class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                  [ngModel]="row.pow()"
+                  (ngModelChange)="row.pow.set(parsePow($event))"
+                >
+                  @for (v of powOptions; track v) {
+                    <option [value]="v">{{ v }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="mini-field">
+                <span class="mini-field__label">Dice</span>
+                <select
+                  class="mini-field__input mini-field__input--select mini-field__input--narrow"
+                  [ngModel]="row.damageDiceCount()"
+                  (ngModelChange)="row.damageDiceCount.set(toNumber($event))"
+                >
+                  @for (v of diceOptions; track v) {
+                    <option [value]="v">{{ v }}</option>
+                  }
+                </select>
+              </label>
+
+              <button type="button" class="effects-btn" (click)="openEffects(row)">
+                Effects
+              </button>
+
+              <button
+                type="button"
+                class="icon-btn icon-btn--danger"
+                (click)="removeAttack(row.id)"
+                [disabled]="count === 1"
+                aria-label="Remove attack"
               >
-                @for (t of attackTypes; track t) {
-                  <option [value]="t">{{ t }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="mini-field">
-              <span class="mini-field__label">{{ statLabel(row.type()) }}</span>
-              <select
-                class="mini-field__input mini-field__input--select mini-field__input--narrow"
-                [ngModel]="row.stat()"
-                (ngModelChange)="row.stat.set(toNumber($event))"
-              >
-                @for (v of statOptions; track v) {
-                  <option [value]="v">{{ v }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="mini-field">
-              <span class="mini-field__label">Dice</span>
-              <select
-                class="mini-field__input mini-field__input--select mini-field__input--narrow"
-                [ngModel]="row.diceCount()"
-                (ngModelChange)="row.diceCount.set(toNumber($event))"
-              >
-                @for (v of diceOptions; track v) {
-                  <option [value]="v">{{ v }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="mini-field">
-              <span class="mini-field__label">POW</span>
-              <select
-                class="mini-field__input mini-field__input--select mini-field__input--narrow"
-                [ngModel]="row.pow()"
-                (ngModelChange)="row.pow.set(parsePow($event))"
-              >
-                @for (v of powOptions; track v) {
-                  <option [value]="v">{{ v }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="mini-field">
-              <span class="mini-field__label">Dice</span>
-              <select
-                class="mini-field__input mini-field__input--select mini-field__input--narrow"
-                [ngModel]="row.damageDiceCount()"
-                (ngModelChange)="row.damageDiceCount.set(toNumber($event))"
-              >
-                @for (v of diceOptions; track v) {
-                  <option [value]="v">{{ v }}</option>
-                }
-              </select>
-            </label>
-
-            <button type="button" class="effects-btn" (click)="openEffects(row)">
-              Effects
-            </button>
-
-            <button
-              type="button"
-              class="icon-btn icon-btn--danger"
-              (click)="removeAttack(row.id)"
-              [disabled]="count === 1"
-              aria-label="Remove attack"
-            >
-              ✕
-            </button>
-          </div>
-          @if (effectsSummary(row).length > 0) {
-            <div class="attack-row__effects">
-              @for (label of effectsSummary(row); track label) {
-                <span class="effect-tag">{{ label }}</span>
-              }
+                ✕
+              </button>
             </div>
-          }
+            @if (effectsSummary(row).length > 0) {
+              <div class="attack-row__effects">
+                @for (label of effectsSummary(row); track label) {
+                  <span class="effect-tag">{{ label }}</span>
+                }
+              </div>
+            }
+          </div>
         }
       </div>
 
@@ -378,33 +380,36 @@
           <div class="steps__row">
             <span class="steps__label">{{ step.attack.label }}</span>
             <span class="steps__metric">
-              <span class="steps__metric-label">Hit</span>{{ pct(step.hitChance) }}
+              <span class="steps__metric-label">Hit</span>
+              <span class="steps__metric-value">{{ pct(step.hitChance) }}</span>
             </span>
             <span class="steps__metric">
-              <span class="steps__metric-label">Crit</span>{{ pct(step.critChance) }}
+              <span class="steps__metric-label">Crit</span>
+              <span class="steps__metric-value">{{ pct(step.critChance) }}</span>
             </span>
             <span class="steps__metric">
-              <span class="steps__metric-label">Avg damage</span>{{ step.averageDamage.toFixed(1) }}
+              <span class="steps__metric-label">Avg damage</span>
+              <span class="steps__metric-value">{{ step.averageDamage.toFixed(1) }}</span>
             </span>
           </div>
         }
       </div>
 
       <div class="distribution">
-        <h3 class="distribution__title">Boxes remaining if it survives</h3>
-        @for (point of visibleSurvivalPoints(); track point.boxes) {
+        <h3 class="distribution__title">Total damage distribution</h3>
+        @for (point of damageDistributionPoints(); track point.damage) {
           <div class="distribution__row">
-            <span class="distribution__damage">{{ point.boxes }}</span>
+            <span class="distribution__damage">{{ point.label }}</span>
             <span class="distribution__bar-track">
               <span
                 class="distribution__bar"
-                [style.width.%]="(point.probability / maxSurvivalProbability()) * 100"
+                [style.width.%]="(point.probability / maxDamageProbability()) * 100"
               ></span>
             </span>
             <span class="distribution__prob">{{ pct(point.probability) }}</span>
           </div>
         } @empty {
-          <p class="distribution__empty">The target is destroyed in every outcome.</p>
+          <p class="distribution__empty">No data available.</p>
         }
       </div>
     </div>
