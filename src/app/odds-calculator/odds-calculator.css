@@ -733,3 +733,20 @@
 .distribution__prob {
   color: var(--text);
 }
+
+.support {
+  text-align: center;
+  padding: 0.75rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.support a {
+  color: var(--brass-bright);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.support a:hover {
+  text-decoration: underline;
+}
