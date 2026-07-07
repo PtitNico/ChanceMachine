@@ -444,6 +444,26 @@
   overflow-y: auto;
 }
 
+/* Effects dialog only: header and footer (.dialog__actions) stay put, and only
+   .dialog__body (the effect sections in between) scrolls - overrides the plain
+   .dialog__content's own overflow-y so the header/footer are never scrolled past. */
+.dialog__content--framed {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog__content--framed > .dialog__header,
+.dialog__content--framed > .dialog__actions {
+  flex-shrink: 0;
+}
+
+.dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .dialog__header {
   display: flex;
   align-items: center;
@@ -545,6 +565,16 @@
   border-top: 1px solid var(--line);
 }
 
+/* The first section title inside .dialog__body would otherwise show its own
+   top border just below the header's bottom border - two parallel lines a
+   few pixels apart. Only later sections need a rule of their own to separate
+   them from the section above. */
+.dialog__body > .dialog__section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 /* --- Toggle-pill buttons: the primary control for every effect in the Effects dialog.
    Grouped into flex-wrap rows (.toggle-group) so adding many effects wraps onto more
    lines within the dialog's fixed max-width instead of ever widening the app. --- */
@@ -590,11 +620,6 @@
 .toggle-btn:focus-visible {
   outline: 2px solid var(--brass-bright);
   outline-offset: 2px;
-}
-
-/* Auto-hit sits on its own line above the first section, not inside a .toggle-group. */
-.dialog__content > .toggle-btn {
-  margin-bottom: 0.5rem;
 }
 
 /* --- Step-by-step and survival distribution (shown inside the Details dialog) --- */

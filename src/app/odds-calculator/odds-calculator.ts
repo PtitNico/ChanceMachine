@@ -222,12 +222,16 @@ function effectsSummary(row: AttackRow): string[] {
   if (row.rerollDamage()) parts.push('Reroll (dmg)');
   if (row.trash()) parts.push('Trash');
   if (row.shatter()) parts.push('Shatter');
-  if (row.brutalDamage()) parts.push('Brutal Damage');
+  if (row.brutalDamage()) parts.push('Crit Brutal Damage');
   for (const effect of row.triggerEffects) {
     const trigger = effect.trigger();
     if (trigger === 'off') continue;
-    const label = effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : TRIGGER_EFFECT_LABELS[effect.key];
-    parts.push(`${label} (${trigger})`);
+    let label =
+      effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : TRIGGER_EFFECT_LABELS[effect.key];
+    if (trigger === 'crit') {
+      label = `Crit ${label}`;
+    }
+    parts.push(label);
   }
   return parts;
 }

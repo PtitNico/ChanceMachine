@@ -202,21 +202,13 @@
 
   <dialog #effectsDialog class="dialog" (click)="closeOnBackdropClick($event, effectsDialog)">
     @if (editingRow(); as row) {
-      <div class="dialog__content">
+      <div class="dialog__content dialog__content--framed">
         <header class="dialog__header">
           <h2 class="dialog__title">Effects</h2>
           <button type="button" class="icon-btn" (click)="closeEffects()" aria-label="Close">✕</button>
         </header>
 
-        <button
-          type="button"
-          class="toggle-btn"
-          [class.toggle-btn--active]="row.forceAutoHit()"
-          (click)="row.forceAutoHit.set(!row.forceAutoHit())"
-        >
-          Auto-hit
-        </button>
-
+        <div class="dialog__body">
         <h3 class="dialog__section-title">General</h3>
         <div class="toggle-group">
           <button
@@ -231,6 +223,14 @@
 
         <h3 class="dialog__section-title">Attack</h3>
         <div class="toggle-group">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.forceAutoHit()"
+            (click)="row.forceAutoHit.set(!row.forceAutoHit())"
+          >
+            Auto-hit
+          </button>
           <button
             type="button"
             class="toggle-btn"
@@ -355,6 +355,7 @@
             </select>
           </label>
         }
+        </div>
 
         <div class="dialog__actions">
           <button type="button" class="dialog__reset-btn" (click)="resetEffects(row)">Reset</button>
