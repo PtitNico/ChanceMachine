@@ -109,11 +109,15 @@ La cible peut dépenser, une fois par attaque et après le jet de dégâts, un p
 **Départage des égalités.** Comparer uniquement "probabilité de survie du reste de la séquence" peut faire naître des égalités strictes (ex. la cible est de toute façon condamnée quelle que soit la décision, ou plus aucune attaque future ne dépend du nombre exact de boîtes restantes). Une comparaison naïve (`>` strict) résoudrait alors systématiquement ces égalités vers "ne rien dépenser", ce qui se traduit par un comportement contre-intuitif (la cible refuse de se défendre sur le coup en cours alors que cela ne lui coûterait rien). `bestAction` utilise donc un score **lexicographique à 3 niveaux** (voir `outcomeScore`/`isBetterScore`) : (1) probabilité de survie du reste de la séquence — le vrai objectif ; (2) à égalité, probabilité de survivre **à ce coup précis** ; (3) à égalité sur les deux, nombre de boîtes préservées. Ce n'est qu'en cas d'égalité totale sur les 3 niveaux que le point n'est pas dépensé (comportement par défaut : conserver la ressource).
 
 **Résultat retourné (`SequenceResult`)** :
-- `steps[]` : pour chaque attaque, `hitChance` (conditionnelle à la cible encore vivante), `destroyChanceAtThisStep` (probabilité de destruction *exactement* à cette étape), `cumulativeDestroyChance`, `expectedBoxesRemaining`.
+- `steps[]` : pour chaque attaque, `hitChance`, `critChance` et `averageDamage` (les trois conditionnels à la cible encore vivante à ce moment de la séquence - mêmes accumulateurs `hitMass`/`critMass`/`damageMass` que la boucle de simulation forward existante, juste normalisés par `aliveMass`), ainsi que `destroyChanceAtThisStep` (probabilité de destruction *exactement* à cette étape), `cumulativeDestroyChance`, `expectedBoxesRemaining`. `averageDamage` est le dégât **brut** du jet (dés + POW − ARM), avant toute mitigation Focus/Fury - une propriété de l'attaque, pas de l'état de la cible à cet instant (ces deux derniers champs, avec `destroyChanceAtThisStep`/`cumulativeDestroyChance`, restent calculés en interne mais ne sont plus affichés dans la pop-up Details - voir doc fonctionnelle).
 - `finalDestroyChance` : probabilité totale de destruction sur l'ensemble de la séquence.
+- `survivalDistribution` : distribution des boîtes restantes, conditionnelle à la survie de la cible.
 
 **Garde-fou** : `focusPoints`/`furyPoints` sont plafonnés à 10 (`MAX_RESOURCE_POINTS`) — au-delà, `computeSequenceOdds` lève une erreur plutôt que de construire une table de valeurs disproportionnée. L'UI clampe silencieusement la saisie dans cette plage avant d'appeler le moteur.
-- `survivalDistribution` : distribution des boîtes restantes, conditionnelle à la survie de la cible.
+
+**`SequenceTarget.def: number | 'KD'`.** Si `def === 'KD'`, la cible commence toute la séquence Knocked Down / incapable de se défendre : chaque attaque, quel que soit son type, est traitée en `autoHit`, sans jamais consulter la valeur numérique de DEF (`profileTarget` dans `computeSequenceOdds` construit une valeur factice `def: 0` uniquement pour satisfaire le typage de `buildAttackProfile`, sciemment jamais lue puisque la branche `autoHit` de `buildAttackProfile` ne lit pas `def`). Ce cas est distinct du Knockdown déclenché en cours de séquence par un critique (`criticalEffects.knockdown`), qui ne profite qu'aux attaques de mêlée ultérieures — voir doc fonctionnelle.
+
+**`AttackRow.pow: number | '-'`** (composant UI) : `'-'` représente une attaque qui ne fait jamais de dégâts (mais peut toujours critiquer, un effet critique comme Knockdown restant possible). Traduit en `NO_DAMAGE_POW = -9999` avant d'atteindre le moteur (`resolvePow` dans `odds-calculator.ts`) — un POW aussi négatif garantit `max(0, dés + pow - arm) === 0` quels que soient les dés ou l'ARM, sans qu'aucun changement du moteur ne soit nécessaire.
 
 ### `odds-engine.ts` — pont avec Angular
 
@@ -125,19 +129,66 @@ Composant standalone (`OddsCalculator`), `ChangeDetectionStrategy.OnPush`, enti�
 
 ### Modèle de données du formulaire
 
-- **Cible partagée** (`targetDef`, `targetArm`, `targetBoxes`, `tough`, `toughOn`) : signals simples au niveau du composant.
-- **Séquence d'attaques** (`rows: WritableSignal<AttackRow[]>`) : chaque ligne (`AttackRow`) est un objet dont **chaque champ est lui-même un signal** (`attackerName`, `label`, `type`, `stat`, `boostDice`, `forceAutoHit`, `pow`, `damageBoostDice`, `knockdown`, `brutalDamageDice`).
+- **Cible partagée** (`targetDef`, `targetArm`, `targetBoxes`, `tough`, `toughOn`, `targetFocus`, `targetFury`) : signals simples au niveau du composant, affichés sur une seule ligne (`.target-row`).
+- **Séquence d'attaques** (`rows: WritableSignal<AttackRow[]>`) : chaque ligne (`AttackRow`) est un objet dont **chaque champ est lui-même un signal** (`type`, `stat`, `diceCount`, `forceAutoHit`, `pow`, `damageDiceCount`, `knockdown`, `brutalDamageDice`). Pas de nom d'attaquant ni de libellé éditable : le libellé affiché dans les résultats (`Attack N`) est généré à partir de la position de la ligne.
 
-  **Pourquoi cette structure et pas un simple tableau d'objets JS ?** Avec les signals Angular, muter un objet imbriqué dans un tableau signal ne déclenche pas de recalcul (le signal ne détecte que le remplacement de sa propre valeur). Deux options : (a) cloner tout le tableau à chaque frappe clavier, ou (b) donner à chaque champ son propre signal, that `computed()` lira individuellement et pourra donc suivre finement. L'option (b) est retenue ici : ajouter/retirer/réordonner une ligne remplace le tableau (`rows.update(...)`), mais éditer un champ ne touche que son signal — pas de clonage profond nécessaire.
+  **Pourquoi cette structure et pas un simple tableau d'objets JS ?** Avec les signals Angular, muter un objet imbriqué dans un tableau signal ne déclenche pas de recalcul (le signal ne détecte que le remplacement de sa propre valeur). Deux options : (a) cloner tout le tableau à chaque frappe clavier, ou (b) donner à chaque champ son propre signal, que `computed()` lira individuellement et pourra donc suivre finement. L'option (b) est retenue ici : ajouter/retirer une ligne remplace le tableau (`rows.update(...)`), mais éditer un champ ne touche que son signal — pas de clonage profond nécessaire.
 
-- `sequencedAttacks` (computed) : projette `rows()` vers `SequencedAttack[]` (le type attendu par le moteur).
+- **`diceCount` / `damageDiceCount`** : l'utilisateur choisit directement le **nombre total** de dés lancés (2 par défaut), pas un nombre de dés de boost. `toBoostDice(diceCount)` fait la conversion (`max(0, diceCount - 2)`) au moment de construire l'objet `SequencedAttack` envoyé au moteur, qui raisonne en base 2d6 + boost.
+- `sequencedAttacks` (computed) : projette `rows()` vers `SequencedAttack[]` (le type attendu par le moteur), génère le libellé `Attack ${i+1}` à partir de l'index, convertit `pow` via `resolvePow` (voir plus haut).
 - `sequence` (computed) : appelle `engine.computeSequence(...)` — recalculé automatiquement dès qu'un signal lu à l'intérieur change (cible ou n'importe quel champ de n'importe quelle ligne).
+
+### Champs numériques en `<select>` plutôt qu'en `<input type="number">`
+
+Tous les champs à plage connue (DEF, ARM, Boxes, Focus, Fury, MAT/RAT/AAT, POW, Dice) sont des `<select>` plutôt que des `<input type="number">`, pour que le choix d'une valeur ouvre un sélecteur natif sur mobile plutôt que le clavier. Les listes d'options (`DEF_OPTIONS`, `ARM_OPTIONS`, etc., en tête de `odds-calculator.ts`) sont générées une fois via `range(start, end)`.
+
+Le seuil de réussite de Tough n'est plus configurable (retiré : `toughOn`) - la règle reste toujours 5+, qui est aussi la valeur par défaut de `SequenceTarget.toughOn` côté moteur (`target.toughOn ?? 5`), donc le composant n'a plus besoin de la transmettre du tout.
+
+**Piège à connaître : `<select>` + `ngModel` communique toujours en chaînes de caractères.** Un `<select>` natif ne connaît que des valeurs `value` de type `string` ; `(ngModelChange)` émet donc systématiquement une chaîne, jamais un nombre, même quand `[ngModel]` reçoit un nombre en entrée. Chaque binding reconvertit explicitement : `toNumber(raw)` pour les champs numériques classiques, et `parseDef`/`parsePow` pour DEF/POW qui acceptent en plus une valeur sentinelle (`'KD'`, `'-'`) à ne surtout pas convertir en nombre.
 
 ### Actions
 
-- `addAttack()` : ajoute une ligne (préremplit le nom d'attaquant avec celui de la dernière ligne, pour enchaîner facilement plusieurs attaques du même attaquant).
+- `addAttack()` : ajoute une ligne en clonant les valeurs de la dernière ligne (`cloneAttackRow`, nouveaux signals initialisés à la même valeur - pas de référence partagée avec la ligne source), ou une ligne par défaut (`createAttackRow`) s'il n'y en a pas encore.
 - `removeAttack(id)` : retire une ligne (au moins 1 ligne toujours présente).
-- `moveAttack(id, -1|+1)` : réordonne (l'ordre saisi par l'utilisateur *est* l'ordre de résolution — voir doc fonctionnelle).
+
+Pas de bouton pour réordonner les lignes (retiré : voir doc fonctionnelle) - l'ordre se construit uniquement en ajoutant les attaques dans l'ordre voulu.
+
+### Pop-ups (Effects / Details)
+
+Les effets spéciaux par attaque (Auto-hit, Crit: Knockdown, Crit: Brutal Damage) et le détail des résultats (step-by-step, distribution des boîtes restantes) sont déplacés dans des pop-ups plutôt qu'affichés en permanence, pour garder la ligne d'attaque et le résumé des résultats compacts.
+
+Implémentation : élément HTML natif **`<dialog>`** (pas de librairie de modal/CDK) avec `@ViewChild` + `.showModal()` :
+- `editingRow: WritableSignal<AttackRow | null>` retient la ligne actuellement éditée ; `openEffects(row)` la renseigne puis ouvre la pop-up, dont le contenu (`@if (editingRow(); as row)`) se lie directement aux signals de cette ligne.
+- Une seule pop-up "Effects" est réutilisée pour toutes les lignes (plutôt qu'une pop-up par ligne), et une seule pop-up "Details" pour les résultats.
+- `closeOnBackdropClick(event, dialog)` ferme la pop-up au clic en dehors de son contenu : pour un `<dialog>` ouvert en mode modal, un clic sur le `::backdrop` remonte un événement `click` dont la `target` est l'élément `dialog` lui-même (pas un enfant) — cette propriété permet de distinguer "clic sur le fond" de "clic à l'intérieur du contenu" sans `stopPropagation()`. La touche Échap ferme nativement la pop-up sans code additionnel.
+
+### App shell : titre/Target/Results fixes, seule Attack sequence défile
+
+Le composant est structuré comme un app shell en trois zones empilées dans un conteneur de hauteur fixe (`height: 100dvh` sur `.page`, propagé via `display:flex; flex-direction:column; height:100%` sur `:host` puis `.panel`, `.panel__body`) : `.console`/`.readout` (Target et Results) ont `flex-shrink: 0` (taille naturelle, jamais compressés), et seule `.console--attacks` porte `flex: 1 1 auto; min-height: 0`, ce qui lui fait occuper tout l'espace restant entre Target et Results. À l'intérieur, c'est `.attack-list` (pas toute la section) qui a `overflow-y: auto` - le titre "Attack sequence" et le bouton "+ Add attack" restent donc visibles au-dessus et en dessous de la liste qui défile.
+
+**`min-height: 0` est essentiel à chaque niveau de cette chaîne flexbox.** Sans lui, un flex item en colonne refuse par défaut de rétrécir en dessous de la hauteur de son contenu (même piège `min-*:auto` que pour la largeur des lignes compactes, voir plus bas) - ce qui aurait empêché `.attack-list` d'être jamais plus petit que son contenu, et donc de jamais scroller : toute la page aurait poussé en hauteur à la place.
+
+`100dvh` plutôt que `100vh` sur `.page` (`app.css`) : sur mobile, la barre d'adresse du navigateur apparaît/disparaît en défilant, ce qui fait varier la hauteur réellement visible. `100vh` est calculé sur la hauteur maximale (barre cachée), ce qui peut laisser le bas de l'écran (ici, Results) partiellement caché derrière la barre d'adresse quand elle est visible ; `dvh` (*dynamic* viewport height) suit la hauteur réellement visible à tout instant. `100vh` reste écrit en premier comme repli pour les navigateurs qui ne supportent pas `dvh`.
+
+### Barres de défilement masquées
+
+`.target-row`, `.attack-row` (défilement horizontal) et `.attack-list` (défilement vertical) masquent leur barre de défilement (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`) tout en restant défilables (souris/trackpad/tactile) - une barre visible se serait retrouvée juste sous/à côté des chiffres des champs et les aurait visuellement encombrés.
+
+### Lignes compactes, centrées et espacées, tenant sur une seule ligne (mobile inclus)
+
+Le Target et chaque ligne d'attaque utilisent `flex-wrap: nowrap` plutôt que `wrap` : l'objectif est que tout tienne sur une seule ligne même sur un téléphone étroit, quitte à défiler horizontalement plutôt que de passer à la ligne suivante. Les champs sont centrés horizontalement sur la ligne (`justify-content: safe center` sur `.target-row`/`.attack-row`) avec un `gap` généreux entre eux ; les valeurs à l'intérieur de chaque champ sont elles-mêmes centrées (`text-align`/`text-align-last: center` sur `.mini-field__input`, `align-items: center` sur `.mini-field`).
+
+Le mot-clé `safe` dans `justify-content: safe center` évite un piège connu : avec un simple `center`, si la ligne finit par déborder (viewport très étroit, ou davantage de champs ajoutés plus tard), le début du contenu peut devenir inatteignable au défilement dans certains navigateurs - `safe` retombe sur un alignement de type `start` dans ce cas précis, pour que le défilement horizontal (`overflow-x: auto`) reste toujours capable de tout montrer.
+
+**Alignement vertical des contrôles (`--control-h`).** Tous les contrôles d'une ligne (`<select>`, boutons Effects/✕, case Tough) partagent la même hauteur explicite via la variable `--control-h` (définie dans `:host`), plutôt que de compter sur `align-items: flex-end` seul pour les aligner visuellement. Avant cette variable, chaque contrôle avait une hauteur légèrement différente (padding/bordure propres à chaque type d'élément), et même si `flex-end` alignait mathématiquement leurs bas de boîte au pixel près, les tailles visuellement différentes donnaient une impression de désalignement. La case à cocher Tough est en plus enveloppée dans un `<span class="mini-field__control">` (`height: var(--control-h)`, centré) : ça réserve la même hauteur de "ligne de contrôle" que les autres champs sans agrandir la case à cocher elle-même (qui reste à sa taille native habituelle).
+
+**Flèche de `<select>` personnalisée, minimaliste.** La flèche native d'un `<select>` réserve un espace dépendant du navigateur/OS (souvent 20px+), ce qui laissait peu de marge pour tenir sur une ligne une fois les champs numériques convertis en `<select>`. `.mini-field__input--select` désactive le rendu natif (`appearance: none`) et dessine une flèche minuscule via `background-image` (deux dégradés linéaires formant un chevron), ce qui permet de maîtriser exactement l'espace qu'elle occupe - et laisse la valeur réellement centrée plutôt que décalée par une flèche large.
+
+Deux pièges CSS rencontrés en implémentant le "tient sur une seule ligne", à garder en tête si ces règles sont retouchées :
+- **`min-width: 0` sur `:host`** : ce composant est lui-même un item flexbox du conteneur `.page` (`app.css`). Par défaut, un item flexbox refuse de rétrécir en dessous de la largeur minimale de son contenu (`min-width: auto`) - avec des lignes en `nowrap`, ce contenu minimal peut dépasser la largeur de l'écran, ce qui aurait fait déborder **toute la page** (et pas juste défiler dans la ligne) sans ce `min-width: 0`. C'est le piège flexbox classique "min-width:auto empêche de rétrécir".
+- **`box-sizing: border-box` global** (`src/styles.css`) : sans ça, `width` sur les inputs ne compte pas le padding ni la bordure, ce qui rendait les calculs de largeur (viser "tout tient dans 375px") imprévisibles - chaque input rendait plusieurs pixels plus large que sa largeur déclarée.
+
+**Piège de mesure à connaître si ces largeurs sont retouchées à la main dans le navigateur** : ce composant tourne sans zone.js (Angular zoneless), donc après avoir modifié un signal depuis la console (`ng.getComponent(...)`), lire `scrollWidth`/`clientWidth` **immédiatement** peut renvoyer des valeurs d'avant le rendu - le changement de vue est planifié, pas synchrone. Attendre deux `requestAnimationFrame` avant de mesurer (ou simplement re-régarder après une capture d'écran suivante) évite de conclure à tort qu'une ligne "tient" alors que le DOM n'avait pas encore rattrapé le nouvel état.
 
 ## PWA
 

@@ -29,44 +29,45 @@ Les résultats se recalculent **instantanément** à chaque modification d'un ch
 
 ## Écran principal
 
-L'écran se divise en trois zones :
+L'écran se divise en trois zones empilées verticalement : **Target** en haut, **Attack sequence** au milieu, **Results** tout en bas. Le titre, Target et Results sont **fixes à l'écran** (Results reste collé en bas) ; seule la partie Attack sequence défile verticalement si la séquence contient beaucoup d'attaques, sans faire bouger le reste de l'écran.
+
+Tous les champs numériques sont des **listes déroulantes** (`<select>`) plutôt que des champs de saisie libre — sur mobile, ça ouvre un sélecteur natif au lieu du clavier, ce qui est nettement plus rapide pour choisir une valeur dans une plage connue à l'avance. Les valeurs sont centrées dans chaque champ, avec un espacement généreux entre les champs. Le Target et chaque ligne d'attaque tiennent sur **une seule ligne, y compris sur mobile** ; si un écran est vraiment trop étroit pour tout afficher, la ligne défile horizontalement plutôt que de passer à la ligne suivante — sans barre de défilement visible (pour ne pas empiéter sur les chiffres), le défilement au doigt/trackpad reste possible.
 
 ### 1. Target (cible)
 
-Caractéristiques de la cible visée, partagées par toute la séquence d'attaques :
-- **DEF**, **ARM**
-- **Boxes remaining** : capacité de dégâts restante avant destruction
-- **Tough** : case à cocher ; si activée, un champ **"Tough succeeds on"** apparaît (valeur du d6 à partir de laquelle le jet de Tough réussit — 5 par défaut, correspond à une réussite sur 5 ou 6)
-- **Focus points** / **Fury points** : réserve de points que la cible peut dépenser pendant la séquence (voir "Focus et Fury" plus bas).
+Une seule ligne de champs, partagée par toute la séquence d'attaques :
+- **DEF** : `KD` (la cible est Knocked Down / incapable de se défendre dès le début de la séquence — **toutes** les attaques, quel que soit leur type, touchent alors automatiquement), puis de 5 à 25.
+- **ARM** : de 1 à 35.
+- **Boxes** (capacité de dégâts restante) : de 1 à 99.
+- **Focus** / **Fury** : de 0 à 15 (voir "Focus et Fury" plus bas).
+- Une case à cocher **Tough** — réussit toujours sur 5+, il n'y a pas de seuil configurable.
 
 ### 2. Attack sequence (séquence d'attaques)
 
-Liste ordonnée de cartes "attaque". Chaque carte représente **une attaque** et porte :
-- **Nom de l'attaquant** (éditable en tête de carte) — permet de regrouper visuellement les attaques d'un même modèle quand plusieurs attaquants sont impliqués.
-- **↑ / ↓** : réordonner l'attaque dans la séquence.
-- **✕** : supprimer l'attaque (au moins une attaque reste toujours présente).
-- **Attack label** : libellé libre (ex. "Weapon Master swing", "Focus-boosted spell").
-- **Type** : `melee` / `ranged` / `arcane` — détermine si un **Knockdown** déclenché plus tôt dans la séquence profite à cette attaque (voir plus bas).
-- **MAT / RAT** : caractéristique de tir/mêlée utilisée pour le jet pour toucher.
-- **Boost (to hit)** : nombre de dés de boost ajoutés au jet pour toucher (0 à 4).
-- **Auto-hit (target Stationary)** : force la réussite automatique du jet pour toucher (cible Stationary, ou toute autre raison de toucher automatiquement), indépendamment de DEF.
-- **POW** : puissance de l'arme/du sort.
-- **Boost (damage)** : dés de boost ajoutés au jet de dégâts.
-- **Crit: Knockdown** : si cette attaque inflige un critique (double au jet pour toucher), la cible devient *Knocked Down* pour le **reste de la séquence**.
-- **Crit: Brutal Damage (extra dice)** : nombre de dés supplémentaires ajoutés au jet de dégâts, **uniquement** si l'attaque est critique.
+Liste ordonnée de lignes "attaque". Chaque ligne représente **une attaque** et porte :
+- Un numéro d'ordre, et le bouton **✕** (supprimer, au moins une attaque reste toujours présente). Il n'y a pas de bouton pour réordonner les lignes : l'ordre se construit en ajoutant les attaques dans l'ordre voulu.
+- **Type** : `melee` / `ranged` / `arcane` — détermine si un **Knockdown** déclenché plus tôt dans la séquence profite à cette attaque (voir plus bas), et change le label du champ suivant.
+- **MAT / RAT / AAT** (le libellé s'adapte au type choisi) : de 0 à 20.
+- **Dice** : nombre total de dés lancés pour toucher, de 1 à 6 (2 par défaut ; le joueur choisit directement ce nombre pour représenter un boost plutôt que de saisir un nombre de dés de boost séparément).
+- **POW** : `-` (l'attaque ne fait aucun dégât — utile pour une attaque dont le seul but est un effet critique comme Knockdown ; un critique reste possible puisque le jet pour toucher a bien lieu), puis de 0 à 30.
+- **Dice** (deuxième occurrence) : nombre total de dés lancés pour les dégâts, de 1 à 6.
+- **Effects** : bouton qui ouvre une pop-up regroupant les effets spéciaux de cette attaque — un point apparaît sur le bouton dès qu'au moins un effet est actif. Contenu de la pop-up :
+  - **Auto-hit (target Stationary)** : force la réussite automatique du jet pour toucher, indépendamment de DEF.
+  - **Crit: Knockdown** : si cette attaque inflige un critique (double au jet pour toucher), la cible devient *Knocked Down* pour le **reste de la séquence**.
+  - **Crit: Brutal Damage (extra dice)** : nombre de dés supplémentaires ajoutés au jet de dégâts, **uniquement** si l'attaque est critique.
 
-Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste (le nom d'attaquant de la dernière carte est repris par défaut, pour enchaîner rapidement plusieurs attaques du même modèle).
+Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste, en **recopiant les valeurs de la dernière attaque de la liste** (type, stats, dés, effets) — le cas le plus courant étant d'enchaîner des attaques similaires, il suffit d'ajuster les quelques champs qui changent plutôt que de tout ressaisir.
 
-**L'ordre des cartes est l'ordre de résolution.** L'application ne cherche pas automatiquement le meilleur ordre possible : c'est un choix assumé (voir "Choix produit" ci-dessous) — c'est au joueur de définir l'ordre qu'il compte jouer, comme il le ferait à la table.
+**L'ordre des lignes est l'ordre de résolution.** L'application ne cherche pas automatiquement le meilleur ordre possible : c'est un choix assumé (voir "Choix produit" ci-dessous) — c'est au joueur de définir l'ordre qu'il compte jouer, comme il le ferait à la table.
 
 ### 3. Results (résultats)
 
+Par défaut, seuls deux chiffres sont affichés :
 - **Chance to destroy** : probabilité totale de détruire la cible sur l'ensemble de la séquence.
 - **Expected boxes left** : espérance du nombre de boîtes restantes après la dernière attaque (0 si détruite).
-- **Step by step** : tableau détaillant, pour chaque attaque de la séquence, dans l'ordre :
-  - *Hit* : chance de toucher, **sachant que la cible est encore vivante** à ce moment de la séquence.
-  - *Destroy (step)* : probabilité que la cible soit détruite **exactement** à cette attaque (pas avant, pas après).
-  - *Cumulative* : probabilité que la cible soit détruite par cette attaque ou une précédente.
+
+Le bouton **"Show details"** ouvre une pop-up avec le détail complet :
+- **Step by step** : pour chaque attaque de la séquence, dans l'ordre : *Hit* (chance de toucher), *Crit* (chance de critique, un double au jet pour toucher), *Avg damage* (dégâts moyens infligés par le jet de dégâts de cette attaque, dés + POW − ARM). Les trois sont conditionnels au fait que la cible soit encore vivante à ce moment de la séquence, et ne tiennent pas compte d'une éventuelle mitigation Focus/Fury (ce sont des propriétés de l'attaque elle-même, pas de l'issue de la séquence).
 - **Boxes remaining if it survives** : histogramme de la distribution des boîtes restantes, conditionnelle au fait que la cible ait survécu à toute la séquence. Si la cible est détruite dans 100% des cas, un message l'indique à la place du graphique.
 
 ## Règles modélisées
@@ -77,7 +78,8 @@ Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste (le nom
 - **Tough** : à chaque fois que des dégâts seraient létaux, un jet de Tough est tenté ; en cas de réussite, la cible survit avec 1 boîte restante et devient Knocked Down (comportement standard de la règle Tough) plutôt que d'être détruite.
 - **Knockdown** (effet critique) : persiste pour le reste de la séquence une fois déclenché. Seules les attaques de **mêlée** ultérieures dans la séquence touchent automatiquement une cible Knocked Down ; les attaques de **tir** et de **magie** n'en tirent aucun bénéfice dans le modèle actuel.
 - **Brutal Damage** (effet critique) : dés de dégâts supplémentaires, mais uniquement sur la branche critique du jet (une attaque qui touche sans critique n'en bénéficie pas).
-- **Auto-hit** (cible Stationary ou équivalent) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
+- **Auto-hit** (cible Stationary ou équivalent, `Effects > Auto-hit`, ou `DEF: KD`) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
+- **DEF: KD** (cible Knocked Down dès le début de la séquence) diffère du Knockdown déclenché en cours de séquence par un critique : `DEF: KD` fait toucher automatiquement **toutes** les attaques de la séquence, quel que soit leur type (mêlée, tir, magie), alors qu'un Knockdown déclenché par un critique ne profite qu'aux attaques de **mêlée** qui suivent (voir ci-dessus). C'est un raccourci pour "la cible ne peut absolument pas se défendre pendant toute la séquence", pas juste un état Knocked Down normal.
 
 ### Focus et Fury (points de ressource de la cible)
 

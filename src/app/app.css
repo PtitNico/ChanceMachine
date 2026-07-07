@@ -1,8 +1,8 @@
 .page {
-  min-height: 100vh;
-  padding: 2rem 1rem;
+  height: 100vh;
+  height: 100dvh; /* dvh accounts for mobile browser chrome (address bar) so the fixed
+                     header/target/results never end up partly hidden behind it */
   background: #1a1c1f;
   display: flex;
-  align-items: flex-start;
   justify-content: center;
 }
