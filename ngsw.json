@@ -1,6 +1,6 @@
 {
   "configVersion": 1,
-  "timestamp": 1783435254317,
+  "timestamp": 1783436665371,
   "index": "/ChanceMachine/index.html",
   "assetGroups": [
     {
@@ -13,7 +13,7 @@
       "urls": [
         "/ChanceMachine/favicon.ico",
         "/ChanceMachine/index.html",
-        "/ChanceMachine/main-MR2SLCK4.js",
+        "/ChanceMachine/main-DXBL4KFF.js",
         "/ChanceMachine/manifest.webmanifest",
         "/ChanceMachine/styles-4AAQQ372.css"
       ],
@@ -50,8 +50,8 @@
     "/ChanceMachine/icons/icon-512x512.png": "1de182f76f7329dfa8f9fcdd1fdcdd695bea6a99",
     "/ChanceMachine/icons/icon-72x72.png": "aa88a6096bd973be7f6d7a5489bfa6bc2463f8c4",
     "/ChanceMachine/icons/icon-96x96.png": "7fb8f59c30ce2ff12c700321a0b39e14b3dc8f95",
-    "/ChanceMachine/index.html": "55daa3798a928e328ddb0049fc49309d77e71b6a",
-    "/ChanceMachine/main-MR2SLCK4.js": "931e7593505df45af5de61db50a22bafe320dd9b",
+    "/ChanceMachine/index.html": "e0c6f2a34e7b42b894bf610fc36191b2d7af18bb",
+    "/ChanceMachine/main-DXBL4KFF.js": "7f67007dc59f8ff7049b4907de1156d536b3b923",
     "/ChanceMachine/manifest.webmanifest": "c5d1f49056d359e13c13164039fc31814d8c32ce",
     "/ChanceMachine/styles-4AAQQ372.css": "51b12bad22cb596951afad3f1457032fe9c2bf92"
   },
