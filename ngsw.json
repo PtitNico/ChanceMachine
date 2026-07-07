@@ -1,6 +1,6 @@
 {
   "configVersion": 1,
-  "timestamp": 1783434321120,
+  "timestamp": 1783434475721,
   "index": "/chancemachine/index.html",
   "assetGroups": [
     {
@@ -52,7 +52,7 @@
     "/chancemachine/icons/icon-96x96.png": "7fb8f59c30ce2ff12c700321a0b39e14b3dc8f95",
     "/chancemachine/index.html": "6a3aa49d3f1f165fbb37e7d1b049afd308215829",
     "/chancemachine/main-YNOFLCRL.js": "bd3b9f04c07b8772cfc03516d9b631e104b9c1f2",
-    "/chancemachine/manifest.webmanifest": "a94cfa059eac3d81989de2ec9e365bc886145c1f",
+    "/chancemachine/manifest.webmanifest": "c5d1f49056d359e13c13164039fc31814d8c32ce",
     "/chancemachine/styles-4AAQQ372.css": "51b12bad22cb596951afad3f1457032fe9c2bf92"
   },
   "navigationUrls": [
