@@ -1,5 +1,8 @@
 <section class="readout" aria-label="Results">
-  <h2 class="console__title">Results</h2>
+  <h2 class="console__title console__title--with-action">
+    Results
+    <button type="button" class="icon-btn" (click)="showDetails.emit()" aria-label="Show details">+</button>
+  </h2>
 
   <div class="readout__grid">
     <div class="gauge gauge--highlight">
@@ -7,12 +10,10 @@
       <span class="gauge__label">Chance to destroy</span>
     </div>
     <div class="gauge">
-      <span class="gauge__value">{{ sequence().steps.at(-1)?.expectedBoxesRemaining?.toFixed(1) ?? '—' }}</span>
-      <span class="gauge__label">Expected boxes left</span>
+      <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
+      <span class="gauge__label">Average damage</span>
     </div>
   </div>
-
-  <button type="button" class="details-btn" (click)="showDetails.emit()">Show details</button>
 
   <div class="support">
     <a href="https://ko-fi.com/ptitnico" target="_blank" rel="noopener noreferrer"> ☕ Support this project on Ko-fi </a>

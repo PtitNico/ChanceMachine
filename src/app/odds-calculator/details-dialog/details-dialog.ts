@@ -7,7 +7,8 @@ import { DamagePoint } from './details-dialog.model';
   selector: 'app-details-dialog',
   standalone: true,
   templateUrl: './details-dialog.html',
-  styleUrls: ['./details-dialog.css', '../shared/dialog.css', '../shared/icon-btn.css'],
+  // Shared partials first, this component's own file last - see target-panel.ts for why.
+  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './details-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DetailsDialog {

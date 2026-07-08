@@ -33,6 +33,8 @@ The screen is split into three vertically stacked zones: **Target** at the top, 
 
 All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each attack row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
 
+**Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attack rows — this matters most on short mobile screens. Section titles (Target/Attack sequence/Results) are kept small, and Results uses a small **"+"** icon next to its title instead of a full-width button (see below) to leave as much room as possible for the attack list.
+
 ### 1. Target
 
 A single row of fields, shared across the whole attack sequence:
@@ -69,9 +71,9 @@ The **"+ Add attack"** button adds a new attack at the bottom of the list, **cop
 
 By default, only two figures are shown:
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
-- **Expected boxes left**: expected number of boxes remaining after the last attack (0 if destroyed).
+- **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
-The **"Show details"** button opens a pop-up with the full breakdown:
+A small **"+"** icon next to the "Results" title (rather than a full-width button, to keep this fixed section as compact as possible — see "Compact layout" below) opens a pop-up with the full breakdown:
 - **Step by step**: for each attack in the sequence, in order: *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). All three are conditional on the target still being alive at that point in the sequence, and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome).
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 

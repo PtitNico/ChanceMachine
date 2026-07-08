@@ -15,7 +15,10 @@ import { TargetState, createTargetState } from './target-panel/target-panel.mode
   standalone: true,
   imports: [TargetPanel, AttackRowComponent, ResultsPanel, EffectsDialog, DetailsDialog],
   templateUrl: './odds-calculator.html',
-  styleUrls: ['./odds-calculator.css', './shared/section.css'],
+  // Shared partials first, this component's own file last: `.console--attacks` here must
+  // win its `flex-shrink` tie-break against shared/section.css's `.console` (equal
+  // specificity, same element - both classes are on the Attack sequence <section>).
+  styleUrls: ['./shared/section.css', './odds-calculator.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OddsCalculator {

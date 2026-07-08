@@ -16,7 +16,8 @@ import { toNumber } from '../select.util';
   standalone: true,
   imports: [FormsModule],
   templateUrl: './effects-dialog.html',
-  styleUrls: ['./effects-dialog.css', '../shared/dialog.css', '../shared/icon-btn.css'],
+  // Shared partials first, this component's own file last - see target-panel.ts for why.
+  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './effects-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EffectsDialog {

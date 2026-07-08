@@ -24,7 +24,11 @@
       <button type="button" class="add-attack-btn" (click)="addAttack()">+ Add attack</button>
     </section>
 
-    <app-results-panel [sequence]="sequence()" (showDetails)="detailsDialogRef.open()" />
+    <app-results-panel
+      [sequence]="sequence()"
+      [boxesInitial]="target.boxes()"
+      (showDetails)="detailsDialogRef.open()"
+    />
   </div>
 
   <app-effects-dialog #effectsDialogRef />

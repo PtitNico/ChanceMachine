@@ -6,19 +6,31 @@
 .readout {
   flex-shrink: 0;
   background: var(--panel);
-  padding: 1rem 0.85rem;
+  padding: 0.65rem 0.85rem;
   min-width: 0;
 }
 
+/* Kept small so the fixed Target/Results chrome takes up as little vertical space
+   as possible, leaving more room for .attack-list (the one section that scrolls)
+   to show several attack rows at once, especially on short mobile screens. */
 .console__title {
   flex-shrink: 0;
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--brass-bright);
-  margin: 0 0 1.1rem;
-  padding-bottom: 0.5rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.3rem;
   border-bottom: 1px solid var(--line);
+}
+
+/* Modifier for a title that also carries an inline action (e.g. Results' "+" button) -
+   lays the title text and the action out on the same line instead of stacking them. */
+.console__title--with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
