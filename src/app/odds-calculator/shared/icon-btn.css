@@ -1,0 +1,26 @@
+.icon-btn {
+  flex-shrink: 0;
+  width: var(--control-h);
+  height: var(--control-h);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--brass-bright);
+  border-color: var(--brass);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.icon-btn--danger:hover:not(:disabled) {
+  color: #d97a6a;
+  border-color: #d97a6a;
+}

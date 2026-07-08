@@ -1,0 +1,77 @@
+<section class="console" aria-label="Target">
+  <h2 class="console__title">Target</h2>
+
+  <div class="target-row">
+    <label class="mini-field">
+      <span class="mini-field__label">DEF</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="target().def()"
+        (ngModelChange)="target().def.set(parseDef($event))"
+      >
+        @for (v of defOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">ARM</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="target().arm()"
+        (ngModelChange)="target().arm.set(toNumber($event))"
+      >
+        @for (v of armOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Boxes</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="target().boxes()"
+        (ngModelChange)="target().boxes.set(toNumber($event))"
+      >
+        @for (v of boxesOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Focus</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="target().focus()"
+        (ngModelChange)="target().focus.set(toNumber($event))"
+      >
+        @for (v of resourceOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Fury</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="target().fury()"
+        (ngModelChange)="target().fury.set(toNumber($event))"
+      >
+        @for (v of resourceOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field mini-field--check" title="Tough (succeeds on 5+)">
+      <span class="mini-field__label">Tough</span>
+      <span class="mini-field__control">
+        <input type="checkbox" [ngModel]="target().tough()" (ngModelChange)="target().tough.set($event)" />
+      </span>
+    </label>
+  </div>
+</section>

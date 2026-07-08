@@ -1,0 +1,72 @@
+/* This component's host element is itself the flex item inside .attack-list (a flex
+   column) - it must not shrink below its natural height, or .attack-list would never
+   have anything to scroll past. */
+:host {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Groups one attack row with its (optional) effects-summary tags underneath, so the
+   separator border sits below the whole group instead of between the row and its tags. */
+.attack-row-group {
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+:host(:last-child) .attack-row-group {
+  border-bottom: none;
+}
+
+.attack-row__effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-left: 1.4rem;
+}
+
+.effect-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--steel);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}
+
+.attack-row__index {
+  flex-shrink: 0;
+  align-self: center;
+  min-width: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--brass);
+}
+
+.effects-btn {
+  flex-shrink: 0;
+  align-self: flex-end;
+  height: var(--control-h);
+  padding: 0 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.effects-btn:hover {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+
+.attack-row .icon-btn {
+  align-self: flex-end;
+}
