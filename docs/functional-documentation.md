@@ -1,156 +1,156 @@
-# ChanceMachine — Documentation fonctionnelle
+# ChanceMachine — Functional documentation
 
-## Objectif
+## Purpose
 
-ChanceMachine est un calculateur de probabilités pour les jeux de figurines **Warmachine / Hordes**. Il répond à la question qu'un joueur se pose en préparant son tour : *"si j'enchaîne ces attaques dans cet ordre, quelle est ma chance de détruire cette cible ?"*
+ChanceMachine is a probability calculator for the **Warmachine / Hordes** tabletop miniatures games. It answers the question a player asks while planning their turn: *"if I chain these attacks in this order, what's my chance of destroying this target?"*
 
-C'est le successeur d'**OddsMachine**, une application Android qui n'est plus disponible/fonctionnelle sur les smartphones récents. ChanceMachine reprend le même besoin sous forme de PWA (Progressive Web App), installable sur Android **et** iOS, sans passer par un store.
+It's the successor to **OddsMachine**, an Android app that's no longer available/working on modern smartphones. ChanceMachine covers the same need as a PWA (Progressive Web App), installable on Android **and** iOS, without going through a store.
 
-Édition de règles ciblée : **Warmachine MK4**.
+Targeted rules edition: **Warmachine MK4**.
 
-## Pour qui ?
+## Who is it for?
 
-La communauté de joueurs Warmachine/Hordes, internationale — c'est pourquoi l'interface est en anglais.
+The international Warmachine/Hordes player community — which is why the interface is in English.
 
-## Ce que l'application calcule
+## What the app calculates
 
-À partir :
-- d'une **cible unique** (DEF, ARM, boîtes de dégâts restantes, Tough ou non),
-- d'une **séquence d'attaques ordonnée** (un ou plusieurs attaquants, chacun avec une ou plusieurs attaques),
+Given:
+- a **single target** (DEF, ARM, remaining damage boxes, Tough or not),
+- an **ordered attack sequence** (one or more attackers, each with one or more attacks),
 
-l'application calcule, par **énumération exacte** des jets de dés (pas d'approximation ni de simulation aléatoire) :
-- la chance de toucher de chaque attaque de la séquence,
-- la chance de détruire la cible à *chaque étape* de la séquence,
-- la chance cumulée de détruire la cible après N attaques,
-- le nombre de boîtes restantes espéré si la cible survit,
-- la distribution complète des boîtes restantes en cas de survie.
+the app calculates, via **exact enumeration** of dice rolls (no approximation or random simulation):
+- the chance to hit for each attack in the sequence,
+- the chance to destroy the target at *each step* of the sequence,
+- the cumulative chance to destroy the target after N attacks,
+- the expected number of boxes remaining if the target survives,
+- the full distribution of boxes remaining in case of survival.
 
-Les résultats se recalculent **instantanément** à chaque modification d'un champ, sans bouton "Calculer".
+Results recompute **instantly** on every field change, with no "Calculate" button.
 
-## Écran principal
+## Main screen
 
-L'écran se divise en trois zones empilées verticalement : **Target** en haut, **Attack sequence** au milieu, **Results** tout en bas. Le titre, Target et Results sont **fixes à l'écran** (Results reste collé en bas) ; seule la partie Attack sequence défile verticalement si la séquence contient beaucoup d'attaques, sans faire bouger le reste de l'écran.
+The screen is split into three vertically stacked zones: **Target** at the top, **Attack sequence** in the middle, **Results** at the bottom. The title, Target, and Results are **fixed on screen** (Results stays pinned to the bottom); only the Attack sequence part scrolls vertically if the sequence has many attacks, without moving the rest of the screen.
 
-Tous les champs numériques sont des **listes déroulantes** (`<select>`) plutôt que des champs de saisie libre — sur mobile, ça ouvre un sélecteur natif au lieu du clavier, ce qui est nettement plus rapide pour choisir une valeur dans une plage connue à l'avance. Les valeurs sont centrées dans chaque champ, avec un espacement généreux entre les champs. Le Target et chaque ligne d'attaque tiennent sur **une seule ligne, y compris sur mobile** ; si un écran est vraiment trop étroit pour tout afficher, la ligne défile horizontalement plutôt que de passer à la ligne suivante — sans barre de défilement visible (pour ne pas empiéter sur les chiffres), le défilement au doigt/trackpad reste possible.
+All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each attack row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
 
-### 1. Target (cible)
+### 1. Target
 
-Une seule ligne de champs, partagée par toute la séquence d'attaques :
-- **DEF** : `KD` (la cible est Knocked Down dès le début de la séquence — les attaques de **mêlée** touchent alors automatiquement pour toute la séquence, mais les attaques de **tir** et de **magie** continuent de lancer un jet normal contre une DEF de 5), puis de 5 à 25.
-- **ARM** : de 1 à 35.
-- **Boxes** (capacité de dégâts restante) : de 1 à 99.
-- **Focus** / **Fury** : de 0 à 15 (voir "Focus et Fury" plus bas).
-- Une case à cocher **Tough** — réussit toujours sur 5+, il n'y a pas de seuil configurable.
+A single row of fields, shared across the whole attack sequence:
+- **DEF**: `KD` (the target is Knocked Down from the start of the sequence — **melee** attacks then automatically hit for the whole sequence, but **ranged** and **magic** attacks still roll normally against a DEF of 5), then 5 to 25.
+- **ARM**: 1 to 35.
+- **Boxes** (remaining damage capacity): 1 to 99.
+- **Focus** / **Fury**: 0 to 15 (see "Focus and Fury" below).
+- A **Tough** checkbox — always succeeds on 5+, no configurable threshold.
 
-### 2. Attack sequence (séquence d'attaques)
+### 2. Attack sequence
 
-Liste ordonnée de lignes "attaque". Chaque ligne représente **une attaque** et porte :
-- Un numéro d'ordre, et le bouton **✕** (supprimer, au moins une attaque reste toujours présente). Il n'y a pas de bouton pour réordonner les lignes : l'ordre se construit en ajoutant les attaques dans l'ordre voulu.
-- **Type** : `melee` / `ranged` / `arcane` — détermine si un **Knockdown** déclenché plus tôt dans la séquence profite à cette attaque (voir plus bas), et change le label du champ suivant.
-- **MAT / RAT / AAT** (le libellé s'adapte au type choisi) : de 0 à 20.
-- **Dice** : nombre total de dés lancés pour toucher, de 1 à 6 (2 par défaut ; le joueur choisit directement ce nombre pour représenter un boost plutôt que de saisir un nombre de dés de boost séparément).
-- **POW** : `-` (l'attaque ne fait aucun dégât — utile pour une attaque dont le seul but est un effet critique comme Knockdown ; un critique reste possible puisque le jet pour toucher a bien lieu), puis de 0 à 30.
-- **Dice** (deuxième occurrence) : nombre total de dés lancés pour les dégâts, de 1 à 6.
-- **Effects** : bouton qui ouvre une pop-up regroupant les effets spéciaux de cette attaque — un point apparaît sur le bouton dès qu'au moins un effet est actif. Une fois la pop-up fermée, un **résumé compact** des effets actifs de cette attaque s'affiche en petit **sous la ligne** (ex. `Discard highest (atk)`, `Trash`, `Ice Cage (crit)`), pour garder une vue d'ensemble de la séquence sans rouvrir chaque pop-up.
+An ordered list of "attack" rows. Each row represents **one attack** and carries:
+- An order number, and a **✕** button (remove — at least one attack always remains). There's no button to reorder rows: the order is built by adding attacks in the intended order.
+- **Type**: `melee` / `ranged` / `arcane` — determines whether a **Knockdown** triggered earlier in the sequence benefits this attack (see below), and changes the next field's label.
+- **MAT / RAT / AAT** (the label adapts to the chosen type): 0 to 20.
+- **Dice**: total number of dice rolled to hit, 1 to 6 (2 by default; the player directly picks this number to represent a boost, rather than entering a separate boost-dice count).
+- **POW**: `-` (the attack deals no damage at all — useful for an attack whose sole purpose is a critical effect like Knockdown; a critical hit is still possible since the to-hit roll still happens), then 0 to 30.
+- **Dice** (second occurrence): total number of dice rolled for damage, 1 to 6.
+- **Effects**: a button that opens a pop-up grouping this attack's special effects — a dot appears on the button as soon as at least one effect is active. Once the pop-up is closed, a **compact summary** of this attack's active effects is shown in small text **below the row** (e.g. `Discard highest (atk)`, `Trash`, `Ice Cage (crit)`), so the whole sequence stays scannable without reopening each pop-up.
 
-  Chaque effet de la pop-up est un **bouton "toggle" à bords arrondis** : gris/inactif par défaut, il se colore (fond brass) dès qu'il est activé — un simple clic l'active ou le désactive, sans passer par une case à cocher ou un menu déroulant. Les boutons sont regroupés par catégorie, chaque catégorie s'affichant sur sa propre ligne qui **passe à la ligne dès que nécessaire** plutôt que d'élargir la pop-up (le nombre d'effets actifs n'a donc aucun impact sur la largeur de l'application) :
-  - **Auto-hit** : bouton isolé en tête de pop-up — force la réussite automatique du jet pour toucher, indépendamment de DEF.
-  - **General** : Jump the Shark — s'applique **à la fois** au jet pour toucher et au jet de dégâts (un seul bouton pour les deux, plutôt qu'un réglage séparé par jet).
-  - **Attack** (modificateurs du jet pour toucher) : Discard lowest, Discard highest — défausser le plus bas et/ou le plus haut dé avant de sommer ; **les deux peuvent être actifs en même temps** sur le même jet —, Reroll (relance optionnelle si le jet raterait), Sanguine Fate.
-  - **Damage** (modificateurs du jet de dégâts) : Discard lowest, Discard highest (même règle : cumulables), Reroll (relance optionnelle si le jet est sous la moyenne), Trash, Shatter.
-  - **On hit** / **On crit** : tous les effets déclenchables sur une touche et/ou sur un critique (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM") apparaissent dans les deux catégories, une fois chacune. Activer le bouton d'un effet dans "On hit" le déclenche sur toute touche (crit compris) ; l'activer dans "On crit" le réserve au seul critique ; les deux boutons d'un même effet sont mutuellement exclusifs (en activer un désactive l'autre). Brutal Damage n'apparaît que dans "On crit" (il ne peut jamais se déclencher sur une touche normale). Quand **"-X ARM"** est actif (dans l'une ou l'autre catégorie), un sélecteur de montant (1 à 10) apparaît en bas de la pop-up.
-  - **Reset** : bouton en bas de la pop-up qui désactive d'un coup tous les effets de cette attaque (y compris Auto-hit), pour repartir d'une ligne "propre" sans les décocher un par un.
+  Each effect in the pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
+  - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
+  - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll).
+  - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
+  - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter.
+  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM") appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
+  - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" row instead of unchecking effects one by one.
 
-Le bouton **"+ Add attack"** ajoute une nouvelle attaque en bas de liste, en **recopiant les valeurs de la dernière attaque de la liste** (type, stats, dés, tous les effets) — le cas le plus courant étant d'enchaîner des attaques similaires, il suffit d'ajuster les quelques champs qui changent plutôt que de tout ressaisir.
+The **"+ Add attack"** button adds a new attack at the bottom of the list, **copying the values of the last attack in the list** (type, stats, dice, every effect) — since chaining similar attacks is the most common case, the player only needs to adjust the few fields that change instead of re-entering everything.
 
-**L'ordre des lignes est l'ordre de résolution.** L'application ne cherche pas automatiquement le meilleur ordre possible : c'est un choix assumé (voir "Choix produit" ci-dessous) — c'est au joueur de définir l'ordre qu'il compte jouer, comme il le ferait à la table.
+**Row order is resolution order.** The app doesn't automatically search for the best possible order: this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table.
 
-### 3. Results (résultats)
+### 3. Results
 
-Par défaut, seuls deux chiffres sont affichés :
-- **Chance to destroy** : probabilité totale de détruire la cible sur l'ensemble de la séquence.
-- **Expected boxes left** : espérance du nombre de boîtes restantes après la dernière attaque (0 si détruite).
+By default, only two figures are shown:
+- **Chance to destroy**: total probability of destroying the target over the whole sequence.
+- **Expected boxes left**: expected number of boxes remaining after the last attack (0 if destroyed).
 
-Le bouton **"Show details"** ouvre une pop-up avec le détail complet :
-- **Step by step** : pour chaque attaque de la séquence, dans l'ordre : *Hit* (chance de toucher), *Crit* (chance de critique, un double au jet pour toucher), *Avg damage* (dégâts moyens infligés par le jet de dégâts de cette attaque, dés + POW − ARM). Les trois sont conditionnels au fait que la cible soit encore vivante à ce moment de la séquence, et ne tiennent pas compte d'une éventuelle mitigation Focus/Fury (ce sont des propriétés de l'attaque elle-même, pas de l'issue de la séquence).
-- **Boxes remaining if it survives** : histogramme de la distribution des boîtes restantes, conditionnelle au fait que la cible ait survécu à toute la séquence. Si la cible est détruite dans 100% des cas, un message l'indique à la place du graphique.
+The **"Show details"** button opens a pop-up with the full breakdown:
+- **Step by step**: for each attack in the sequence, in order: *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). All three are conditional on the target still being alive at that point in the sequence, and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome).
+- **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 
-## Règles modélisées
+## Modeled rules
 
-- Jet pour toucher : 2d6 + boosts éventuels ≥ (DEF − MAT/RAT).
-- Double sur le jet pour toucher = critique.
-- **Un jet pour toucher où tous les dés affichent 1 est toujours un échec**, quels que soient MAT/RAT/AAT et DEF.
-- **Un jet pour toucher où tous les dés affichent 6 est toujours une réussite** (et donc aussi un critique, puisqu'un jet où tous les dés sont identiques comporte forcément un double), quels que soient MAT/RAT/AAT et DEF — sauf si un seul dé est lancé, auquel cas un simple 6 ne bénéficie d'aucun bonus particulier.
-- Jet de dégâts : 2d6 + boosts éventuels + POW − ARM (minimum 0).
-- **Tough** : à chaque fois que des dégâts seraient létaux, un jet de Tough est tenté ; en cas de réussite, la cible survit avec 1 boîte restante et devient Knocked Down (comportement standard de la règle Tough) plutôt que d'être détruite.
-- **Auto-hit** (`Effects > Auto-hit`, ou cible Knocked Down/Stationary face à une attaque de mêlée, ou `DEF: KD`) : aucun jet pour toucher n'est effectué, donc un auto-hit ne peut jamais produire de critique (pas de dés de toucher lancés = pas de double possible).
-- **DEF: KD** (cible Knocked Down dès le début de la séquence) se comporte exactement comme un Knockdown déclenché en cours de séquence (voir ci-dessous), simplement actif dès la première attaque plutôt que déclenché par une attaque : seules les attaques de **mêlée** touchent automatiquement (pour toute la séquence, dès le début) ; les attaques de **tir** et de **magie** lancent un jet normal contre une DEF de 5.
+- To-hit roll: 2d6 + any boosts ≥ (DEF − MAT/RAT).
+- A double on the to-hit roll = critical hit.
+- **A to-hit roll where every die shows 1 is always a miss**, regardless of MAT/RAT/AAT and DEF.
+- **A to-hit roll where every die shows 6 is always a hit** (and therefore also a critical hit, since a roll where every die matches necessarily contains a double), regardless of MAT/RAT/AAT and DEF — unless only one die is rolled, in which case a lone 6 gets no special bonus.
+- Damage roll: 2d6 + any boosts + POW − ARM (minimum 0).
+- **Tough**: whenever damage would be lethal, a Tough roll is attempted; on success, the target survives with 1 box remaining and becomes Knocked Down (standard Tough rule behavior) instead of being destroyed.
+- **Auto-hit** (`Effects > Auto-hit`, or a Knocked Down/Stationary target facing a melee attack, or `DEF: KD`): no to-hit roll is made at all, so an auto-hit can never produce a critical hit (no to-hit dice rolled = no double possible).
+- **DEF: KD** (target starts the sequence Knocked Down) behaves exactly like a Knockdown triggered mid-sequence (see below), simply active from the first attack rather than triggered by one: only **melee** attacks auto-hit (for the whole sequence, from the start); **ranged** and **magic** attacks roll normally against a DEF of 5.
 
-### Effets pris en charge
+### Supported effects
 
-**Modificateurs de jet** (s'appliquent au jet lui-même, avant de déterminer le résultat) :
-- **Discard lowest** / **Discard highest** (attaque et/ou dégâts, indépendamment) : défausse le dé le plus bas et/ou le plus haut avant de sommer. **Les deux peuvent être actifs en même temps** sur le même jet (ex. un jet à 4 dés qui ne garde que les deux dés du milieu).
-- **Reroll** (attaque et/ou dégâts) : relance optionnelle unique. Sur le jet pour toucher, l'application relance systématiquement un jet qui **raterait** — c'est mathématiquement toujours au moins aussi bon que de garder le jet initial. Sur le jet de dégâts, elle relance un jet **sous la moyenne** (2d6 → en dessous de 7 typiquement) selon le même principe. Le joueur n'a donc rien à configurer : la case active simplement "relance optimale disponible" pour ce jet.
-- **Jump the Shark** : chaque dé montrant un 1 compte comme un 6 à la place — s'applique **à la fois** au jet pour toucher et au jet de dégâts (un seul réglage pour les deux, puisque l'effet en jeu concerne tous les dés lancés par l'attaque).
-- **Sanguine Fate** : un dé supplémentaire est lancé sur le jet pour toucher — il ne compte jamais dans la somme, mais peut créer un double (donc un critique) avec n'importe quel autre dé du jet.
+**Roll modifiers** (apply to the roll itself, before the outcome is determined):
+- **Discard lowest** / **Discard highest** (attack and/or damage, independently): discards the lowest and/or the highest die before summing. **Both can be active at the same time** on the same roll (e.g. a 4-dice roll that keeps only the two middle dice).
+- **Reroll** (attack and/or damage): a single optional reroll. On the to-hit roll, the app systematically rerolls a roll that **would miss** — this is always mathematically at least as good as keeping the original roll. On the damage roll, it rerolls a roll that's **below average** (2d6 → typically below 7) following the same principle. The player has nothing to configure: the toggle simply activates "the optimal reroll available" for that roll.
+- **Jump the Shark**: every die showing a 1 counts as a 6 instead — applies **to both** the to-hit roll and the damage roll (a single setting for both, since the in-game effect covers every die the attack rolls).
+- **Sanguine Fate**: an extra die is rolled alongside the to-hit roll — it never counts toward the sum, but can create a double (and therefore a critical hit) with any other die in the roll.
 
-**Effets propres à une seule attaque** (ne persistent pas sur la cible) :
-- **Brutal Damage** : sur critique, ajoute un dé supplémentaire au jet de dégâts.
-- **Armor Piercing** (déclenché sur touche ou sur critique, au choix) : divise par deux l'ARM **de base** de la cible (avant tout malus d'ARM déjà en cours — voir "-X ARM" ci-dessous), arrondi au supérieur, pour le jet de dégâts de cette seule attaque.
-- **Decapitation** (déclenché sur touche ou sur critique, au choix) : double les dégâts infligés par cette attaque.
-- **Trash** : dé de dégâts supplémentaire si la cible est **actuellement** Knocked Down au moment de cette attaque.
-- **Shatter** : dé de dégâts supplémentaire si la cible est **actuellement** Stationary au moment de cette attaque.
+**Effects scoped to a single attack** (don't persist on the target):
+- **Brutal Damage**: on a critical hit, adds an extra die to the damage roll.
+- **Armor Piercing** (triggered on a hit or on a critical hit, your choice): halves the target's **base** ARM (before any ARM debuff currently in play — see "-X ARM" below), rounded up, for this attack's damage roll only.
+- **Decapitation** (triggered on a hit or on a critical hit, your choice): doubles the damage dealt by this attack.
+- **Trash**: an extra damage die if the target is **currently** Knocked Down at the time of this attack.
+- **Shatter**: an extra damage die if the target is **currently** Stationary at the time of this attack.
 
-**Effets persistants sur la cible** (déclenchés sur touche ou sur critique, au choix par effet ; restent actifs pour **le reste de la séquence** une fois déclenchés — sauf mention contraire) :
-- **Knockdown** : la cible devient *Knocked Down*. Seules les attaques de **mêlée** ultérieures en profitent (auto-hit) ; le tir et la magie continuent de lancer un jet normal, mais contre une DEF plafonnée à 5 (voir "Stationary" ci-dessous pour le détail du plafond).
-- **Stationary** : se comporte **exactement comme Knockdown** pour le jet pour toucher (auto-hit en mêlée, DEF plafonnée à 5 pour tir/magie) — les deux sont suivis séparément uniquement parce que Trash (Knockdown) et Shatter (Stationary) doivent pouvoir les distinguer.
-- **Ice Cage** : −2 DEF, **cumulable** (chaque déclenchement s'ajoute aux précédents). À partir de 2 cumuls, la cible devient également Stationary (donc auto-hit en mêlée), en plus du malus de DEF qui continue de s'additionner.
-- **Shadowbind** : −3 DEF.
-- **Blind** : −4 DEF.
-- **Paralysis** : plafonne la DEF de la cible à 5 (comme Knocked Down/Stationary), et se cumule ensuite avec les autres malus de DEF actifs (Ice Cage, Shadowbind, Blind, Flare, Weaken) exactement comme s'il s'agissait d'un Knockdown.
-- **Flare** : −2 DEF.
-- **Weaken** : −2 DEF.
-- **-X ARM** (générique, montant réglable de 1 à 10) : réduit l'ARM de la cible pour le reste de la séquence, cumulable avec d'autres instances de cet effet. Armor Piercing ignore volontairement ce malus (il repart toujours de l'ARM de base).
+**Effects that persist on the target** (triggered on a hit or on a critical hit, chosen per effect; remain active for **the rest of the sequence** once triggered — unless stated otherwise):
+- **Knockdown**: the target becomes *Knocked Down*. Only later **melee** attacks benefit from it (auto-hit); ranged and magic attacks still roll normally, but against a DEF capped at 5 (see "Stationary" below for the details of that cap).
+- **Stationary**: behaves **exactly like Knockdown** for the to-hit roll (auto-hit in melee, DEF capped at 5 for ranged/magic) — the two are tracked separately only because Trash (Knockdown) and Shatter (Stationary) need to be able to distinguish them.
+- **Ice Cage**: −2 DEF, **stackable** (each trigger adds to the previous ones). From 2 stacks onward, the target also becomes Stationary (so it auto-hits in melee), on top of the DEF penalty which keeps stacking.
+- **Shadowbind**: −3 DEF.
+- **Blind**: −4 DEF.
+- **Paralysis**: caps the target's DEF at 5 (like Knocked Down/Stationary), and then stacks with the other active DEF penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) exactly as if it were a Knockdown.
+- **Flare**: −2 DEF.
+- **Weaken**: −2 DEF.
+- **-X ARM** (generic, amount configurable from 1 to 10): reduces the target's ARM for the rest of the sequence, stackable with other instances of this effect. Armor Piercing deliberately ignores this penalty (it always starts from base ARM).
 
-Tous les malus de DEF listés ci-dessus sont **additifs** entre eux (Ice Cage, Shadowbind, Blind, Flare, Weaken s'additionnent tous), à l'exception de Knocked Down/Stationary/Paralysis qui **plafonnent d'abord la DEF à 5** avant que les autres malus ne s'y ajoutent (donc potentiellement en dessous de 5 si plusieurs effets sont cumulés). Chaque effet nommé (hors Ice Cage et "-X ARM", explicitement cumulables) ne peut s'appliquer qu'une fois sur une même cible, même s'il est déclenché par plusieurs attaques différentes de la séquence — une deuxième occurrence n'a alors aucun effet supplémentaire.
+All the DEF penalties listed above are **additive** with each other (Ice Cage, Shadowbind, Blind, Flare, Weaken all stack), except Knocked Down/Stationary/Paralysis, which **cap DEF at 5 first** before the other penalties are added on top (so DEF can potentially drop below 5 if several effects stack). Each named effect (other than Ice Cage and "-X ARM", which are explicitly stackable) can only apply once on a given target, even if triggered by several different attacks in the sequence — a second occurrence then has no further effect.
 
-**Effet réservé pour une prochaine itération : Shred** (attaque gratuite supplémentaire sur critique, avec le même profil que l'attaque qui l'a déclenché) — volontairement pas encore implémenté (voir "Ce qui n'est pas encore implémenté").
+**Effect reserved for a future iteration: Shred** (an extra free attack on a critical hit, with the same profile as the attack that triggered it) — deliberately not implemented yet (see "Not yet implemented").
 
-### Focus et Fury (points de ressource de la cible)
+### Focus and Fury (target resource points)
 
-Si la cible dispose de points de **Focus** et/ou de **Fury** (champs de la section Target), elle peut en dépenser **au plus un par attaque**, **après le jet de dégâts** de cette attaque :
-- **1 point de Focus** réduit les dégâts de cette attaque de 5 (plancher à 0).
-- **1 point de Fury** annule intégralement les dégâts de cette attaque (dans le jeu : transfert vers une warbeast — ici simplifié en "dégâts ignorés").
+If the target has **Focus** and/or **Fury** points (fields in the Target section), it can spend **at most one per attack**, **after that attack's damage roll**:
+- **1 Focus point** reduces this attack's damage by 5 (floored at 0).
+- **1 Fury point** completely negates this attack's damage (in the game: transferred to a warbeast — simplified here to "damage ignored").
 
-Ces points sont supposés **dépensés de façon optimale** par la cible. "Optimale" signifie ici : l'application calcule, en remontant toute la séquence d'attaques depuis la fin (induction arrière), la politique de dépense qui maximise la probabilité de survie de la cible sur l'ensemble de la séquence — pas seulement une réaction "je dépense si ce coup-ci serait autrement fatal". Concrètement, cela permet à l'application de reconnaître qu'il peut parfois valoir mieux mitiger un coup non-fatal maintenant (pour préserver des boîtes utiles plus tard) plutôt que de garder le point pour un coup futur.
+These points are assumed to be **spent optimally** by the target. "Optimally" means: the app computes, by working back through the whole attack sequence from the end (backward induction), the spending policy that maximizes the target's probability of surviving the entire sequence — not just a reaction of "spend if this hit would otherwise be fatal". In practice, this lets the app recognize that mitigating a non-fatal hit now (to preserve boxes useful later) can sometimes be worth more than saving the point for a future hit.
 
-En cas d'égalité stricte entre plusieurs choix vis-à-vis de cet objectif (ex. la cible est de toute façon condamnée quelle que soit la décision), l'application privilégie, dans l'ordre : survivre à l'attaque en cours, puis préserver le plus de boîtes restantes — plutôt que de "gâcher" arbitrairement un point sans aucun bénéfice, ni à l'inverse refuser de s'en servir alors que cela ne coûte rien.
+In the event of a strict tie between several choices with respect to this objective (e.g. the target is doomed either way), the app prioritizes, in order: surviving the current hit, then preserving the most boxes remaining — rather than "wasting" a point arbitrarily with no benefit, or conversely refusing to use one when it costs nothing.
 
-## Hypothèses à vérifier (édition MK4)
+## Assumptions to verify (MK4 edition)
 
-Certains points de règles ont été implémentés selon la formulation la plus communément admise à travers les éditions de Warmachine/Hordes, faute de certitude absolue sur la formulation exacte en MK4 (édition récente, 2023) :
-- Le fait que **seule la mêlée** bénéficie de l'auto-hit sur cible Knocked Down (pas de bonus/malus chiffré pour le tir/la magie contre une cible à terre).
-- Le comportement de Tough (survie à 1 boîte + Knocked Down).
+Some rules points were implemented using the most commonly accepted formulation across Warmachine/Hordes editions, for lack of absolute certainty about the exact MK4 wording (a recent edition, 2023):
+- The fact that **only melee** benefits from auto-hit against a Knocked Down target (no numeric bonus/penalty for ranged/magic against a downed target).
+- Tough's behavior (surviving at 1 box + Knocked Down).
 
-**À vérifier avec le livre de règles MK4** et à corriger si besoin — ce sont des hypothèses de modélisation, pas des règles copiées du livre.
+**To be checked against the MK4 rulebook** and corrected if needed — these are modeling assumptions, not rules copied from the book.
 
-## Ce qui n'est pas encore implémenté
+## Not yet implemented
 
-- **Shred** (attaque gratuite supplémentaire sur critique, même profil que l'attaque qui l'a déclenché, pouvant elle-même redéclencher un nouveau Shred) : reportée à une prochaine itération — c'est le seul effet de la liste fournie par l'utilisateur encore non implémenté.
-- **Optimisation automatique de l'ordre des attaques** : décision produit — l'ordre reste défini manuellement par l'utilisateur (voir "Choix produit").
-- Gestion des unités (plusieurs modèles identiques dans une même attaque de groupe) — non traitée, le moteur raisonne modèle par modèle.
+- **Shred** (an extra free attack on a critical hit, same profile as the attack that triggered it, itself able to re-trigger a new Shred): postponed to a future iteration — it's the only effect from the list provided by the user that's still not implemented.
+- **Automatic optimization of attack order**: a product decision — the order remains manually defined by the user (see "Product choices").
+- Unit handling (several identical models in a single group attack) — not handled, the engine reasons model by model.
 
-## Choix produit (validés avec l'utilisateur)
+## Product choices (validated with the user)
 
-- **Édition de règles : MK4** — plutôt que MK2/MK3, en cohérence avec l'édition actuellement jouée par la communauté.
-- **Ordre des attaques défini par l'utilisateur**, plutôt qu'une optimisation automatique : plus simple à utiliser, correspond à la façon dont un joueur planifie réellement son tour (il sait déjà dans quel ordre il compte jouer ses attaques), et évite l'explosion combinatoire d'une recherche exhaustive sur l'ordre à mesure que le nombre d'attaques augmente.
-- **Effets : liste courte et exacte plutôt qu'un système générique** configurable "à la carte" — priorité à la justesse des règles implémentées sur la couverture large mais approximative. La liste s'est étoffée (modificateurs de jet, effets propres à une attaque, effets persistants sur la cible) mais reste une liste nommée et fermée, pas un moteur d'effets arbitraires.
-- **Relance (Reroll) sans seuil configurable** : plutôt que de demander au joueur de choisir un seuil de relance, l'application applique toujours la politique optimale (relancer un jet pour toucher raté, ou un jet de dégâts sous la moyenne) — évite un champ de configuration supplémentaire pour un résultat mathématiquement équivalent ou meilleur.
-- **Malus de DEF additifs, avec Knocked Down/Stationary/Paralysis comme plancher** : les malus nommés (Ice Cage, Shadowbind, Blind, Flare, Weaken) s'additionnent tous entre eux ; Knocked Down/Stationary/Paralysis plafonnent d'abord la DEF à 5 plutôt que de s'additionner comme les autres, ce qui reflète leur formulation en jeu ("DEF réduite à 5" et non "−X DEF").
-- **Effets persistants non stackables sauf mention contraire** : un même effet nommé ne peut s'appliquer qu'une fois sur une cible (Ice Cage et le "-X ARM" générique étant les seules exceptions explicitement cumulables), pour rester fidèle à la formulation "sauf si précisé" fournie par l'utilisateur.
+- **Rules edition: MK4** — rather than MK2/MK3, in line with the edition currently played by the community.
+- **Attack order defined by the user**, rather than automatic optimization: simpler to use, matches how a player actually plans their turn (they already know the order they intend to play their attacks in), and avoids the combinatorial explosion of an exhaustive search over ordering as the number of attacks grows.
+- **Effects: a short, exact list rather than a generic, fully configurable system** — priority given to the correctness of implemented rules over broad but approximate coverage. The list has grown (roll modifiers, per-attack effects, persistent target effects) but remains a named, closed list, not an engine for arbitrary effects.
+- **Reroll with no configurable threshold**: rather than asking the player to pick a reroll threshold, the app always applies the optimal policy (reroll a missed to-hit roll, or a below-average damage roll) — avoiding an extra configuration field for a mathematically equivalent or better result.
+- **Additive DEF penalties, with Knocked Down/Stationary/Paralysis as a floor**: the named penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) all stack with each other; Knocked Down/Stationary/Paralysis cap DEF at 5 first rather than stacking like the others, reflecting their in-game wording ("DEF reduced to 5" rather than "−X DEF").
+- **Persistent effects don't stack unless stated otherwise**: a given named effect can only apply once to a target (Ice Cage and the generic "-X ARM" being the only explicitly stackable exceptions), staying faithful to the "unless specified" wording provided by the user.
 
-## Feuille de route
+## Roadmap
 
-- Implémenter Shred (attaque gratuite récursive sur critique).
-- Icônes et configuration finale du manifest PWA.
-- Vérification de l'affichage sur smartphone (en cours).
+- Implement Shred (recursive free attack on a critical hit).
+- Icons and final PWA manifest configuration.
+- Verification of the display on smartphones (in progress).

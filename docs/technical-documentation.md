@@ -1,301 +1,306 @@
-# ChanceMachine — Documentation technique
+# ChanceMachine — Technical documentation
 
-## Vue d'ensemble
+## Overview
 
-ChanceMachine est une PWA (Progressive Web App) Angular qui calcule, par énumération exacte (pas de Monte Carlo), les probabilités de toucher/détruire une cible dans Warmachine/Hordes, pour une séquence d'attaques (plusieurs attaquants, plusieurs attaques chacun) enchaînée sur une même cible.
+ChanceMachine is an Angular PWA (Progressive Web App) that computes, via exact enumeration (no Monte Carlo), the hit/destroy probabilities against a target in Warmachine/Hordes, for a sequence of attacks (several attackers, several attacks each) chained against a single shared target.
 
-- **Stack** : Angular 21 (standalone components, signals), TypeScript, Vitest.
-- **Aucune dépendance runtime au-delà d'Angular** : le moteur de calcul (`src/app/engine/`) est du TypeScript pur, sans dépendance Angular, testable isolément.
-- **PWA** : `@angular/service-worker`, installable sur mobile (Android/iOS via "Ajouter à l'écran d'accueil"), fonctionne hors-ligne (aucun appel réseau applicatif).
+- **Stack**: Angular 21 (standalone components, signals), TypeScript, Vitest.
+- **No runtime dependency beyond Angular**: the calculation engine (`src/app/engine/`) is pure TypeScript with no Angular dependency, testable in isolation.
+- **PWA**: `@angular/service-worker`, installable on mobile (Android/iOS via "Add to Home Screen"), works offline (no application network calls).
 
-## Structure du projet
+## Project structure
 
 ```
 src/
   app/
-    engine/                 # Moteur de calcul, pur TypeScript, sans dépendance Angular
-      dice-pool.ts           # Énumération exacte des jets de dés d6
-      attack-model.ts        # Modèle d'une attaque unique (toucher + dégâts + Tough)
-      sequence.ts            # Enchaînement de plusieurs attaques sur une cible partagée
-      odds-engine.ts          # Wrapper @Injectable exposant le moteur aux composants
-      engine.spec.ts          # Tests unitaires du moteur (Vitest)
-    odds-calculator/         # Composant UI principal (formulaire + résultats)
-    app.ts / app.html / app.css   # Coquille de l'application
+    engine/                 # Calculation engine, pure TypeScript, no Angular dependency
+      dice-pool.ts           # Exact enumeration of d6 dice rolls
+      attack-model.ts        # Model of a single attack (to-hit + damage + Tough)
+      sequence.ts            # Chaining several attacks against a shared target
+      odds-engine.ts          # @Injectable wrapper exposing the engine to components
+      engine.spec.ts          # Engine unit tests (Vitest)
+    odds-calculator/         # Main UI component (form + results)
+    app.ts / app.html / app.css   # Application shell
   index.html
   main.ts
 public/
-  manifest.webmanifest, icons/   # Assets PWA
-ngsw-config.json             # Configuration du service worker (cache des assets)
-angular.json                 # Configuration du build/serve/test Angular CLI
+  manifest.webmanifest, icons/   # PWA assets
+ngsw-config.json             # Service worker configuration (asset caching)
+angular.json                 # Angular CLI build/serve/test configuration
 ```
 
-## Le moteur de calcul (`src/app/engine/`)
+## The calculation engine (`src/app/engine/`)
 
-### Principe général : énumération exacte, pas de simulation
+### General principle: exact enumeration, no simulation
 
-Les jets de dés dans Warmachine/Hordes portent sur des pools de d6 petits (2 à ~8 dés avec boosts). L'espace des résultats (6^n) reste donc minuscule (6^8 ≈ 1,68 million de cas, bien en dessous de la seconde de calcul). Le moteur énumère donc **tous** les résultats possibles et agrège leurs probabilités exactes, plutôt que de faire des tirages aléatoires (Monte Carlo). Cela donne des résultats déterministes, instantanés, sans scintillement à l'affichage.
+Dice rolls in Warmachine/Hordes involve small d6 pools (2 to ~8 dice with boosts). The outcome space (6^n) therefore stays tiny (6^8 ≈ 1.68 million cases, well under a second of computation). The engine therefore enumerates **every** possible outcome and aggregates their exact probabilities, rather than doing random draws (Monte Carlo). This gives deterministic, instant results, with no flicker in the display.
 
-### `dice-pool.ts` — la brique de base
+### `dice-pool.ts` — the base building block
 
-- `rollDicePool({ diceCount, discard?, treatOnesAsSixes?, extraCritDice? })` : énumère tous les jets de `diceCount` d6 (plus, le cas échéant, `extraCritDice` dés supplémentaires), applique dans l'ordre `treatOnesAsSixes` (Jump the Shark — chaque 1 devient un 6 avant tout le reste), puis l'éventuelle défausse (garder les plus hauts/bas), puis calcule la somme et retourne la distribution agrégée `{ sum, hasDouble, probability }[]`.
-  - `discard?: { highest?: number; lowest?: number }` : les deux comptes sont indépendants et **peuvent être actifs simultanément** sur le même jet (ex. `{ highest: 1, lowest: 1 }` sur 4 dés garde les deux dés du milieu). `applyDiscard(dice, highestCount, lowestCount)` trie les dés puis découpe `sorted.slice(lowestCount, Math.max(lowestCount, sorted.length - highestCount))` — le `Math.max` évite un `slice` avec une borne de fin inférieure à la borne de départ si la somme des deux dépasse le nombre de dés disponibles (auquel cas le résultat est simplement une liste vide, sommant à 0, plutôt qu'une erreur).
-  - `treatOnesAsSixes` (Jump the Shark) : transforme chaque dé montrant 1 en 6 avant la défausse/somme/détection de double — implémenté au plus bas niveau (sur chaque face individuelle) pour que la défausse et la détection de double voient déjà les faces transformées.
-  - `extraCritDice` (Sanguine Fate) : `N` dés supplémentaires lancés en même temps que le pool, qui comptent pour la détection de `hasDouble` (un double avec un dé "extra" déclenche bien un critique) mais ne sont **jamais** inclus dans `sum` — implémenté en itérant `diceCount + extraCritDice` dés au total, dont seuls les `diceCount` premiers alimentent la défausse/somme.
-- `hasDouble` : vrai si au moins deux dés lancés (avant défausse, en comptant les dés Sanguine Fate) affichent la même face — c'est le déclencheur de critique (double) dans WM/H.
-- `rerollPoolOnceIf(outcomes, isBad)` : modélise une relance unique et optionnelle des jets flagués `isBad`, en conservant correctement la corrélation `(sum, hasDouble)` : chaque issue conservée garde son propre `hasDouble`, et la masse de probabilité relancée se redistribue sur **toute** la distribution d'origine (y compris ses valeurs de `hasDouble`) plutôt que d'écraser `hasDouble` à `false`. C'est la version corrigée d'un bug antérieur (voir plus bas) : l'ancienne implémentation mettait `hasDouble: false` sur tous les jets relancés, ce qui annulait silencieusement toute chance de critique sur une attaque avec relance.
-- `rerollPoolOnceIfBelow(outcomes, threshold)` : enrobage pratique de `rerollPoolOnceIf` pour le cas "relancer si la somme est sous un seuil" (jet de dégâts sous la moyenne).
-- `probabilityAtLeast`, `probabilityOfDouble` : utilitaires d'agrégation.
-- Garde-fou : lève une erreur au-delà de 8 dés au total (`diceCount + extraCritDice`), largement au-dessus de ce que le jeu produit.
+- `rollDicePool({ diceCount, discard?, treatOnesAsSixes?, extraCritDice? })`: enumerates every roll of `diceCount` d6 (plus, if configured, `extraCritDice` extra dice), applies `treatOnesAsSixes` first (Jump the Shark — every 1 becomes a 6 before anything else), then any discard (keep the highest/lowest), then computes the sum and returns the aggregated distribution `{ sum, hasDouble, probability }[]`.
+  - `discard?: { highest?: number; lowest?: number }`: the two counts are independent and **can be active at the same time** on the same roll (e.g. `{ highest: 1, lowest: 1 }` on 4 dice keeps the two middle dice). `applyDiscard(dice, highestCount, lowestCount)` sorts the dice then slices `sorted.slice(lowestCount, Math.max(lowestCount, sorted.length - highestCount))` — the `Math.max` avoids a `slice` whose end bound is below its start bound if the sum of the two exceeds the number of available dice (in which case the result is simply an empty list, summing to 0, rather than an error).
+  - `treatOnesAsSixes` (Jump the Shark): turns every die showing 1 into a 6 before discard/sum/double detection — implemented at the lowest level (on each individual face) so that discard and double detection already see the transformed faces.
+  - `extraCritDice` (Sanguine Fate): `N` extra dice rolled alongside the pool, which count toward `hasDouble` detection (a double with an "extra" die does trigger a critical hit) but are **never** included in `sum` — implemented by iterating over `diceCount + extraCritDice` dice in total, of which only the first `diceCount` feed the discard/sum.
+- `hasDouble`: true if at least two rolled dice (before discard, counting Sanguine Fate dice) show the same face — that's the critical (double) trigger in WM/H.
+- `rerollPoolOnceIf(outcomes, isBad)`: models a single, optional reroll of outcomes flagged `isBad`, correctly preserving the `(sum, hasDouble)` correlation: each kept outcome keeps its own `hasDouble`, and the rerolled probability mass is redistributed across **the entire** original distribution (including its `hasDouble` values) rather than overwriting `hasDouble` to `false`. This is the fixed version of an earlier bug (see below): the old implementation set `hasDouble: false` on every rerolled roll, which silently killed any chance of a critical hit on an attack with reroll active.
+- `rerollPoolOnceIfBelow(outcomes, threshold)`: convenience wrapper around `rerollPoolOnceIf` for the "reroll if the sum is below a threshold" case (a below-average damage roll).
+- `probabilityAtLeast`, `probabilityOfDouble`: aggregation utilities.
+- Safety guard: throws an error beyond 8 dice total (`diceCount + extraCritDice`), well above anything the game produces.
 
-**Bug corrigé : `hasDouble` écrasé par une relance.** La première implémentation de la relance (`rerollPoolOnceIfBelow`) forçait `hasDouble: false` sur *tous* les jets après relance, y compris les jets conservés sans être relancés — un jet naturellement critique pouvait donc perdre son statut de critique simplement parce que la relance était activée sur cette attaque. Corrigé en généralisant vers `rerollPoolOnceIf(outcomes, isBad)`, qui ne touche `hasDouble` que via la redistribution correcte décrite ci-dessus.
+**Bug fixed: `hasDouble` overwritten by a reroll.** The first implementation of reroll (`rerollPoolOnceIfBelow`) forced `hasDouble: false` on *every* roll after a reroll, including rolls that were kept without being rerolled — a naturally critical roll could therefore lose its critical status simply because reroll was enabled on that attack. Fixed by generalizing to `rerollPoolOnceIf(outcomes, isBad)`, which only touches `hasDouble` via the correct redistribution described above.
 
-### `attack-model.ts` — une attaque unique
+### `attack-model.ts` — a single attack
 
-Le calcul est scindé en deux étapes pour des raisons de performance (voir `sequence.ts`) :
+The calculation is split into two steps for performance reasons (see `sequence.ts`):
 
 1. **`buildAttackProfile(attack, damage, target, effects, autoHit)` → `AttackProfile`**
-   Construit le profil probabiliste complet d'une attaque — indépendant du nombre de boîtes restantes de la cible :
+   Builds an attack's full probabilistic profile — independent of the target's remaining box count:
    - `missChance`, `hitNonCritChance`, `hitCritChance`
-   - `nonCritDamage` / `critDamage` : distributions `dégâts → probabilité`, conditionnelles à un coup non-critique / critique.
-   - Si `autoHit` est vrai (cible Stationary/Knocked Down face à une attaque de mêlée, ou `forceAutoHit` explicite), aucun jet de toucher n'est fait : `hitChance = 1`, `critChance = 0` (pas de dés de toucher lancés, donc pas de double possible).
-   - Si **Brutal Damage** (`effects.brutalDamageDice`) est actif, la distribution de dégâts critique utilise un pool de dés plus grand (dés supplémentaires) que la distribution non-critique.
-   - **Armor Piercing** (`effects.armorPiercing: EffectTrigger`) : l'ARM utilisée pour le jet de dégâts (non-critique et/ou critique, selon `appliesOnNonCritHit`/`appliesOnCritHit`) est remplacée par `Math.ceil(target.baseArm / 2)` — `baseArm` est l'ARM **avant** tout malus persistant (voir `sequence.ts`), volontairement distincte de `target.arm` (l'ARM effective, malus compris) pour que l'effet ignore bien les malus déjà en cours, comme spécifié.
-   - **Decapitation** (`effects.decapitation: EffectTrigger`) : la distribution de dégâts concernée est doublée après coup via `doubleDamageValues` (chaque `(dégâts, p)` devient `(dégâts × 2, p)`).
-   - **Trash** / **Shatter** (`effects.trash` / `effects.shatter`, booléens) : un dé de dégâts supplémentaire est ajouté si `target.knockedDown` / `target.stationary` est vrai **au moment de cette attaque** — ces deux flags sont des booléens simples passés par `sequence.ts`, qui est seul responsable de savoir si la cible est actuellement dans cet état.
-   - C'est la partie coûteuse du calcul (énumération de dés) : elle n'est faite **qu'une seule fois par attaque** (par contexte DEF/ARM/statut distinct, voir `sequence.ts`).
+   - `nonCritDamage` / `critDamage`: `damage → probability` distributions, conditional on a non-critical / critical hit.
+   - If `autoHit` is true (a Stationary/Knocked Down target facing a melee attack, or an explicit `forceAutoHit`), no to-hit roll is made: `hitChance = 1`, `critChance = 0` (no to-hit dice rolled, so no double possible).
+   - If **Brutal Damage** (`effects.brutalDamageDice`) is active, the critical damage distribution uses a larger dice pool (extra dice) than the non-critical distribution.
+   - **Armor Piercing** (`effects.armorPiercing: EffectTrigger`): the ARM used for the damage roll (non-critical and/or critical, depending on `appliesOnNonCritHit`/`appliesOnCritHit`) is replaced by `Math.ceil(target.baseArm / 2)` — `baseArm` is the ARM **before** any persistent penalty (see `sequence.ts`), deliberately distinct from `target.arm` (the effective ARM, penalties included) so the effect properly ignores penalties already in play, as specified.
+   - **Decapitation** (`effects.decapitation: EffectTrigger`): the relevant damage distribution is doubled afterward via `doubleDamageValues` (each `(damage, p)` becomes `(damage × 2, p)`).
+   - **Trash** / **Shatter** (`effects.trash` / `effects.shatter`, booleans): an extra damage die is added if `target.knockedDown` / `target.stationary` is true **at the time of this attack** — these two flags are plain booleans passed in by `sequence.ts`, which alone is responsible for knowing whether the target is currently in that state.
+   - This is the expensive part of the calculation (dice enumeration): it's only done **once per attack** (per distinct DEF/ARM/status context, see `sequence.ts`).
 
 2. **`applyProfile(profile)` → `AppliedOutcome[]`**
-   Éclate un profil en une liste plate `{ probability, isHit, isCrit, damageDealt }` (peu coûteux, itère juste sur les entrées des maps de distribution).
+   Flattens a profile into a plain list `{ probability, isHit, isCrit, damageDealt }` (cheap, just iterates over the distribution maps' entries).
 
 3. **`computeAttackOdds(input)` → `AttackOdds`**
-   Fonction de haut niveau pour une attaque isolée (utilisée par les tests et conceptuellement par tout composant qui n'a besoin que d'une seule attaque) : construit le profil, l'applique, agrège en `hitChance`, `missChance`, `critOnHitChance`, `damageDistribution`, `expectedDamage`, `destroyChance` (avec prise en compte de Tough), `chanceOfAtLeast(n)`.
+   High-level function for a single, isolated attack (used by tests and, conceptually, by any component that only needs a single attack): builds the profile, applies it, aggregates into `hitChance`, `missChance`, `critOnHitChance`, `damageDistribution`, `expectedDamage`, `destroyChance` (accounting for Tough), `chanceOfAtLeast(n)`.
 
-**Modificateurs de jet (`RollModifiers`)**, appliqués sur le jet pour toucher et/ou le jet de dégâts indépendamment (chacun a ses propres `modifiers`/`damageModifiers`) :
-- `boostDice` : dés supplémentaires ajoutés au pool de base (2d6).
-- `discard` : défausse `{ highest?: number; lowest?: number }` avant de sommer - les deux peuvent être définis en même temps (voir `dice-pool.ts` ci-dessus).
-- `reroll` : relance optionnelle unique — voir `applyRerollIfConfigured` ci-dessous.
-- `treatOnesAsSixes` (Jump the Shark), `extraCritDice` (Sanguine Fate) : transmis tels quels à `rollDicePool` (voir `dice-pool.ts`).
+**Roll modifiers (`RollModifiers`)**, applied independently to the to-hit roll and/or the damage roll (each has its own `modifiers`/`damageModifiers`):
+- `boostDice`: extra dice added to the base pool (2d6).
+- `discard`: `{ highest?: number; lowest?: number }` discard before summing — both can be set at once (see `dice-pool.ts` above).
+- `reroll`: a single, optional reroll — see `applyRerollIfConfigured` below.
+- `treatOnesAsSixes` (Jump the Shark), `extraCritDice` (Sanguine Fate): passed through as-is to `rollDicePool` (see `dice-pool.ts`).
 
-**Relance (`applyRerollIfConfigured` + `isBadDamageRoll`)** : quand `modifiers.reroll` est actif, le pool est relancé via `rerollPoolOnceIf` avec un critère "mauvais jet" différent selon le contexte :
-- Jet pour toucher : "mauvais" = `!isHitOutcome(...)` (le jet raterait réellement — pas une simple comparaison `sum < neededDiceSum`, voir plus bas pourquoi).
-- Jet de dégâts : "mauvais" = `isBadDamageRoll`, c'est-à-dire une somme strictement sous la moyenne (`sum < 3.5 × diceCount`) — relancer un jet sous la moyenne maximise strictement l'espérance de dégâts, donc aucun seuil configurable n'est nécessaire côté UI.
+**Reroll (`applyRerollIfConfigured` + `isBadDamageRoll`)**: when `modifiers.reroll` is active, the pool is rerolled via `rerollPoolOnceIf` with a "bad roll" criterion that differs by context:
+- To-hit roll: "bad" = `!isHitOutcome(...)` (the roll would genuinely miss — not a simple `sum < neededDiceSum` comparison, see below for why).
+- Damage roll: "bad" = `isBadDamageRoll`, i.e. a sum strictly below average (`sum < 3.5 × diceCount`) — rerolling a below-average roll strictly maximizes expected damage, so no configurable threshold is needed on the UI side.
 
-**Effets pris en charge (`AttackEffects`, ex-`CriticalEffects`)** — liste volontairement courte et précise plutôt qu'un système générique flou, mais qui a grandi par rapport à sa première version (qui ne contenait que Knockdown et Brutal Damage — Knockdown a depuis été déplacé dans le système générique `StatEffect` de `sequence.ts`, voir plus bas) :
+**Supported effects (`AttackEffects`, formerly `CriticalEffects`)** — a deliberately short, precise list rather than a vague, generic system, though it has grown since its first version (which only contained Knockdown and Brutal Damage — Knockdown has since been moved into `sequence.ts`'s generic `StatEffect` system, see below):
 ```ts
-type EffectTrigger = 'hit' | 'crit'; // 'hit' se déclenche sur n'importe quelle touche (crit compris) ; 'crit' uniquement sur critique
+type EffectTrigger = 'hit' | 'crit'; // 'hit' fires on any hit (crits included); 'crit' only on a critical hit
 
 interface AttackEffects {
-  brutalDamageDice?: number;      // crit only, pas de trigger configurable
+  brutalDamageDice?: number;      // crit only, no configurable trigger
   armorPiercing?: EffectTrigger;
   decapitation?: EffectTrigger;
   trash?: boolean;
   shatter?: boolean;
 }
 ```
-`appliesOnNonCritHit(trigger)` (`=== 'hit'`) et `appliesOnCritHit(trigger)` (`=== 'hit' || === 'crit'`) centralisent cette logique de déclenchement — un effet à `trigger: 'hit'` s'applique donc aussi sur un critique (un critique est un cas particulier de touche), alors que `trigger: 'crit'` ne s'applique que sur critique.
+`appliesOnNonCritHit(trigger)` (`=== 'hit'`) and `appliesOnCritHit(trigger)` (`=== 'hit' || === 'crit'`) centralize this triggering logic — an effect with `trigger: 'hit'` therefore also applies on a critical hit (a crit is a special case of a hit), whereas `trigger: 'crit'` only applies on a critical hit.
 
-**Type d'attaque (`AttackType`)** : `'melee' | 'ranged' | 'arcane'`. Sert actuellement à conditionner l'auto-hit sur cible Knocked Down/Stationary (seule la mêlée touche automatiquement une cible immobilisée ; tir et magie lancent un jet normal contre une DEF plafonnée à 5 dans ce cas, voir `sequence.ts`).
+**Attack type (`AttackType`)**: `'melee' | 'ranged' | 'arcane'`. Currently used to condition auto-hit against a Knocked Down/Stationary target (only melee automatically hits an immobilized target; ranged and magic roll normally against a DEF capped at 5 in that case, see `sequence.ts`).
 
-**Jets extrêmes (`isHitOutcome`).** En dehors du cas `autoHit`, le jet pour toucher applique une règle supplémentaire avant la comparaison classique somme-vs-DEF : tous les dés **conservés** (après défausse éventuelle) à 1 est toujours un échec, et tous à 6 est toujours une réussite (sauf si un seul dé est conservé). Comme la face d'un dé est toujours ≥ 1, la somme de N dés ne peut valoir exactement N que si chacun affiche 1, et ne peut valoir 6N que si chacun affiche 6 - `isHitOutcome` détecte donc ces deux cas uniquement à partir de `outcome.sum` et du nombre de dés conservés (`keptDiceCount`), sans avoir besoin d'inspecter chaque face individuellement ni de faire remonter une information supplémentaire depuis `dice-pool.ts`. Une réussite forcée par "tous 6" avec 2+ dés est nécessairement aussi un double, donc un critique (`hasDouble` est vrai dès que ≥2 dés affichent la même face) - aucun traitement spécial n'est nécessaire pour que `hitCritChance` la compte correctement.
+**Extreme rolls (`isHitOutcome`).** Outside the `autoHit` case, the to-hit roll applies an extra rule before the classic sum-vs-DEF comparison: every **kept** die (after any discard) showing 1 is always a miss, and every one showing 6 is always a hit (unless only one die is kept). Since a die's face is always ≥ 1, the sum of N dice can only equal exactly N if every one shows 1, and can only equal 6N if every one shows 6 — `isHitOutcome` therefore detects both cases purely from `outcome.sum` and the number of kept dice (`keptDiceCount`), with no need to inspect each face individually or surface extra information from `dice-pool.ts`. A hit forced by "all 6s" with 2+ dice is necessarily also a double, and therefore a critical hit (`hasDouble` is true as soon as ≥2 dice show the same face) — no special handling is needed for `hitCritChance` to count it correctly.
 
-### `sequence.ts` — enchaînement de plusieurs attaques
+### `sequence.ts` — chaining several attacks
 
 `computeSequenceOdds(attacks: SequencedAttack[], target: SequenceTarget) → SequenceResult`
 
-Calcule la probabilité de détruire une cible au fil d'une séquence d'attaques **ordonnée par l'utilisateur** (pas d'optimisation automatique de l'ordre — décision produit : voir documentation fonctionnelle).
+Computes the probability of destroying a target over the course of an attack sequence **ordered by the user** (no automatic ordering optimization — a product decision: see the functional documentation).
 
-**Modèle de calcul — distribution d'état, pas d'arbre combinatoire :**
+**Calculation model — a state distribution, not a combinatorial tree:**
 
-Plutôt que de brancher un arbre de probabilités par attaque (explosion combinatoire), le moteur maintient une distribution de probabilité sur un **état de cible**, dont la partie "malus persistants" est regroupée dans `DebuffState` :
+Rather than branching a probability tree per attack (combinatorial explosion), the engine maintains a probability distribution over a **target state**, whose "persistent penalties" part is grouped into `DebuffState`:
 
 ```ts
 interface DebuffState {
   knockedDown: boolean;
-  stationary: boolean;   // Ice Cage à 2+ cumuls rend aussi la cible Stationary, voir isStationary
-  iceCageStacks: number; // seul malus explicitement cumulable en dehors de armPenalty
+  stationary: boolean;   // Ice Cage at 2+ stacks also makes the target Stationary, see isStationary
+  iceCageStacks: number; // the only penalty explicitly stackable besides armPenalty
   shadowbind: boolean;
   blind: boolean;
   paralyzed: boolean;
   flare: boolean;
   weaken: boolean;
-  armPenalty: number;    // "-X ARM" générique, cumulatif
+  armPenalty: number;    // generic "-X ARM", cumulative
 }
 ```
 
-... combinée avec `boxes` (boîtes restantes), `focusLeft`/`furyLeft` (points de ressource restants) et `destroyed` (état absorbant) dans le reste du calcul. Pour chaque attaque de la séquence, on "replie" (fold) son profil dans la distribution d'états courante :
-- Pour chaque état vivant, on calcule la DEF/ARM effectives (`effectiveDef`/`baseArm - debuffState.armPenalty`) et si l'attaque doit être auto-hit (mêlée + `isKnockedDownOrStationary`, ou `forceAutoHit` explicite), on choisit le bon profil pré-calculé, et on répartit la probabilité de chaque issue vers les nouveaux états (boîtes réduites et/ou nouveaux malus, ou détruit) — après application, le cas échéant, de la dépense **optimale** d'un point de Focus/Fury par la cible (voir plus bas).
-- Un jet de Tough est retenté à chaque fois que des dégâts (après mitigation Focus/Fury éventuelle) seraient létaux (pas de limite "une fois par tour" dans cette modélisation — simplification documentée dans le code).
-- Si Tough réussit, la cible est simplifiée à 1 boîte restante et Knocked Down (comportement standard de la règle Tough), pas de re-modélisation fine d'une grille de dégâts partielle — cette règle est ce qui couple le sous-problème "malus persistants" au sous-problème "boîtes/ressources" (voir plus bas).
+... combined with `boxes` (boxes remaining), `focusLeft`/`furyLeft` (remaining resource points) and `destroyed` (absorbing state) in the rest of the calculation. For each attack in the sequence, its profile is "folded" into the current state distribution:
+- For each living state, the effective DEF/ARM are computed (`effectiveDef`/`baseArm - debuffState.armPenalty`) and whether the attack should auto-hit (melee + `isKnockedDownOrStationary`, or an explicit `forceAutoHit`), the right precomputed profile is chosen, and each outcome's probability is distributed across the new states (reduced boxes and/or new penalties, or destroyed) — after applying, if applicable, the target's **optimal** spend of a Focus/Fury point (see below).
+- A Tough roll is retried every time damage (after any Focus/Fury mitigation) would be lethal (no "once per turn" limit in this model — a documented simplification in the code).
+- If Tough succeeds, the target is simplified to 1 box remaining and Knocked Down (standard Tough rule behavior), with no fine-grained re-modeling of a partial damage grid — this rule is what couples the "persistent penalties" sub-problem to the "boxes/resources" sub-problem (see below).
 
-**Effets persistants (`StatEffect` / `StatEffectType`)** : chaque attaque porte une liste optionnelle `statEffects: StatEffect[]`, chacun `{ type, trigger, amount? }` (`amount` uniquement pour `'armPenalty'`). `applyStatEffectsForOutcome(state, statEffects, isCrit)` applique, pour une issue (touche ou critique) donnée, tous les effets dont le trigger correspond (`'hit'` se déclenche sur n'importe quelle touche y compris critique ; `'crit'` uniquement sur critique) via `applyStatEffect` :
-- Tous les flags booléens (`knockedDown`, `stationary`, `shadowbind`, `blind`, `paralyzed`, `flare`, `weaken`) sont **idempotents** — les redéclencher n'a aucun effet supplémentaire, conformément à la règle "un effet ne s'applique qu'une fois sauf mention contraire".
-- `iceCageStacks` s'incrémente à chaque déclenchement (seul flag explicitement cumulable avec les booléens), `armPenalty` s'additionne à chaque déclenchement (comme spécifié pour le "-X ARM" générique).
-- `isStationary(s)` = `s.stationary || s.iceCageStacks >= 2` ; `isKnockedDownOrStationary(s)` = `s.knockedDown || isStationary(s)` — c'est cette dernière fonction qui détermine l'auto-hit en mêlée et le plafond de DEF à 5, exactement la même logique pour Knockdown et Stationary (ils ne sont distingués que parce que Trash/Shatter doivent pouvoir les différencier).
-- `effectiveDef(baseDef, s)` : plafonne d'abord la DEF à `DEF_FLOOR = 5` si `s.paralyzed || isKnockedDownOrStationary(s)`, puis soustrait le malus plat cumulé (`iceCageStacks × 2 + shadowbind×3 + blind×4 + flare×2 + weaken×2`) — reproduit la règle "additifs, Paralysis/Knockdown/Stationary comme plancher" validée avec l'utilisateur.
+**Persistent effects (`StatEffect` / `StatEffectType`)**: each attack carries an optional `statEffects: StatEffect[]` list, each `{ type, trigger, amount? }` (`amount` only for `'armPenalty'`). `applyStatEffectsForOutcome(state, statEffects, isCrit)` applies, for a given outcome (hit or critical hit), every effect whose trigger matches (`'hit'` fires on any hit including a critical one; `'crit'` only on a critical hit) via `applyStatEffect`:
+- Every boolean flag (`knockedDown`, `stationary`, `shadowbind`, `blind`, `paralyzed`, `flare`, `weaken`) is **idempotent** — re-triggering it has no further effect, in line with the "an effect only applies once unless stated otherwise" rule.
+- `iceCageStacks` is incremented on every trigger (the only flag explicitly stackable among the booleans), `armPenalty` is added to on every trigger (as specified for the generic "-X ARM").
+- `isStationary(s)` = `s.stationary || s.iceCageStacks >= 2`; `isKnockedDownOrStationary(s)` = `s.knockedDown || isStationary(s)` — it's this last function that determines auto-hit in melee and the DEF cap of 5, exactly the same logic for Knockdown and Stationary (they're only distinguished because Trash/Shatter need to be able to tell them apart).
+- `effectiveDef(baseDef, s)`: first caps DEF at `DEF_FLOOR = 5` if `s.paralyzed || isKnockedDownOrStationary(s)`, then subtracts the cumulative flat penalty (`iceCageStacks × 2 + shadowbind×3 + blind×4 + flare×2 + weaken×2`) — reproduces the "additive, with Paralysis/Knockdown/Stationary as a floor" rule validated with the user.
 
-**Éviter l'explosion combinatoire d'une table dense à 9 dimensions de malus (`computeReachableDebuffStates` + `Map<string, ValueTable>`) :**
+**Avoiding the combinatorial explosion of a dense 9-dimension penalty table (`computeReachableDebuffStates` + `Map<string, ValueTable>`):**
 
-Ajouter naïvement les 9 dimensions de `DebuffState` à l'ancienne table de valeurs dense `number[boxes][focus][fury]` (déjà utilisée pour Focus/Fury, voir plus bas) l'aurait transformée en table à ~12 dimensions, dont la taille exploserait combinatoirement même pour une poignée d'effets configurés. La clé de la solution : **les transitions de `DebuffState` ne dépendent ni des boîtes restantes, ni des points de Focus/Fury restants** (seul le couplage Tough → Knockdown fait exception, voir ci-dessous), donc l'ensemble des états de malus *réellement atteignables* à chaque étape peut être précalculé **séparément**, une fois, avant le calcul principal :
+Naively adding `DebuffState`'s 9 dimensions to the old dense value table `number[boxes][focus][fury]` (already used for Focus/Fury, see below) would have turned it into a ~12-dimension table, whose size would explode combinatorially even for a handful of configured effects. The key to the solution: **`DebuffState` transitions depend neither on the remaining boxes nor on the remaining Focus/Fury points** (the only exception being the Tough → Knockdown coupling, see below), so the set of penalty states *actually reachable* at each step can be precomputed **separately**, once, before the main calculation:
 
-- `computeReachableDebuffStates(attacks, startsKnockedDown, hasTough)` fait un parcours "avant" (forward) léger : pour chaque attaque, à partir de l'ensemble des états atteignables à l'étape précédente, calcule les états atteignables après une touche non-critique, une touche critique, ou un raté — et ajoute, si `hasTough` est vrai, la variante "Knocked Down" de chaque état candidat (couplage Tough/Knockdown, voir plus bas). Le résultat est volontairement une **sur-approximation** : peu importe qu'un état listé se révèle finalement de probabilité nulle une fois les seuils/auto-hit pris en compte, tant qu'aucun état réellement atteignable n'est jamais oublié.
-- Le calcul principal (passe arrière + passe avant, voir plus bas) ne construit alors une table de valeurs `(boxes × focus × fury)` (`ValueTable`, désormais 3D et non plus 4D) que **pour chaque état de malus effectivement retourné par `computeReachableDebuffStates`**, indexée par une clé compacte (`debuffKey(state)`) dans une `Map<string, ValueTable>` — une par étape `k` de la séquence (`valueTables: Map<string, ValueTable>[]`). Le coût reste ainsi proportionnel à ce qui est *réellement atteignable* pour cette séquence précise (en pratique quelques états, bornés par le nombre d'effets persistants réellement configurés), jamais au produit combinatoire des 9 dimensions possibles.
-- **Couplage Tough ↔ Knockdown.** Le reste des transitions de malus est indépendant du sous-problème boîtes/Focus/Fury, à une exception près : la règle "survivre à un jet de Tough rend aussi la cible Knocked Down" fait dépendre un changement de `DebuffState` d'un jet de dés qui appartient au sous-problème ressources. `computeReachableDebuffStates` en tient compte en ajoutant systématiquement la variante Knocked Down de chaque état candidat dès que `hasTough` est vrai (que ce jet réussisse ou non n'a pas d'importance pour cette passe de sur-approximation) ; `damageBranches` (voir plus bas) calcule ensuite, au moment voulu, quelle branche (survie-Tough vs autre) obtient réellement quel `DebuffState`.
-- **Cache des profils d'attaque (`profileCache` / `profileFor`)** : comme la DEF/ARM/statut effectifs d'une attaque dépendent maintenant du `DebuffState` courant (qui peut varier au sein d'une même étape `k` si plusieurs états de malus sont atteignables à ce point), le profil n'est plus mis en cache seulement par indice d'attaque `k` mais par la clé complète `` `${k}|${usesAutoHit}|${def}|${arm}|${knockedDown}|${isStationary(debuffState)}` `` — le nombre de contextes distincts réellement rencontrés reste faible en pratique (borné par les effets configurés sur la séquence), donc l'énumération de dés (partie coûteuse) n'est jamais refaite pour un contexte déjà vu.
+- `computeReachableDebuffStates(attacks, startsKnockedDown, hasTough)` does a light "forward" pass: for each attack, starting from the set of states reachable at the previous step, it computes the states reachable after a non-critical hit, a critical hit, or a miss — and adds, if `hasTough` is true, the "Knocked Down" variant of every candidate state (Tough/Knockdown coupling, see below). The result is deliberately an **over-approximation**: it doesn't matter if a listed state turns out to have zero probability once thresholds/auto-hit are accounted for, as long as no state that's actually reachable is ever missed.
+- The main calculation (backward pass + forward pass, see below) then only builds a `(boxes × focus × fury)` value table (`ValueTable`, now 3D instead of 4D) **for each penalty state actually returned by `computeReachableDebuffStates`**, indexed by a compact key (`debuffKey(state)`) in a `Map<string, ValueTable>` — one per step `k` of the sequence (`valueTables: Map<string, ValueTable>[]`). The cost therefore stays proportional to what's *actually reachable* for this specific sequence (in practice a handful of states, bounded by the number of persistent effects actually configured), never to the combinatorial product of the 9 possible dimensions.
+- **Tough ↔ Knockdown coupling.** The rest of the penalty transitions are independent of the boxes/Focus/Fury sub-problem, with one exception: the rule "surviving a Tough roll also knocks the target down" makes a `DebuffState` change depend on a dice roll that belongs to the resource sub-problem. `computeReachableDebuffStates` accounts for this by systematically adding the Knocked Down variant of every candidate state whenever `hasTough` is true (whether that roll succeeds or not doesn't matter for this over-approximation pass); `damageBranches` (see below) then computes, at the right moment, which branch (Tough-survival vs. other) actually gets which `DebuffState`.
+- **Attack profile cache (`profileCache` / `profileFor`)**: since an attack's effective DEF/ARM/status now depend on the current `DebuffState` (which can vary within a single step `k` if several penalty states are reachable at that point), the profile is no longer cached solely by attack index `k` but by the full key `` `${k}|${usesAutoHit}|${def}|${arm}|${knockedDown}|${isStationary(debuffState)}` `` — the number of distinct contexts actually encountered stays low in practice (bounded by the effects configured on the sequence), so the dice enumeration (the expensive part) is never redone for a context already seen.
 
-**Pourquoi c'est rapide même à ~10 attaques :**
+**Why it's fast even at ~10 attacks:**
 
-Le profil d'une attaque (`buildAttackProfile`, la partie qui énumère les dés — coûteuse) ne dépend **pas** du nombre de boîtes restantes de la cible. Il est donc mis en cache par contexte distinct (voir `profileCache` ci-dessus, en pratique un tout petit nombre par séquence), puis réappliqué à moindre coût contre chaque état rencontré. Un test de performance (`engine.spec.ts`) vérifie qu'une séquence de 10 attaques (avec ou sans points de ressource, avec ou sans effets persistants) s'exécute en moins de 2 secondes (en pratique quasi instantané).
+An attack's profile (`buildAttackProfile`, the part that enumerates dice — expensive) does **not** depend on the target's remaining box count. It's therefore cached per distinct context (see `profileCache` above, in practice a small handful per sequence), then reapplied cheaply against every state encountered. A performance test (`engine.spec.ts`) verifies that a sequence of 10 attacks (with or without resource points, with or without persistent effects) runs in under 2 seconds (in practice near-instant).
 
-**Dépense optimale de Focus/Fury — induction arrière (`valueTables`) :**
+**Optimal Focus/Fury spending — backward induction (`valueTables`):**
 
-La cible peut dépenser, une fois par attaque et après le jet de dégâts, un point de Focus (réduit les dégâts de 5) ou un point de Fury (annule intégralement les dégâts), jamais les deux à la fois. On suppose qu'elle joue **de façon optimale**, ce qui veut dire : maximiser sa probabilité de survivre au **reste de la séquence**, pas seulement réagir au coup en cours. Comme la décision est prise avant de connaître les jets de dés futurs, mais avec une séquence d'attaques connue à l'avance, ce problème se résout par **induction arrière** (programmation dynamique) plutôt que par simulation forward pure :
+The target may spend, once per attack and after the damage roll, a Focus point (reduces damage by 5) or a Fury point (fully negates damage), never both at once. It's assumed to play **optimally**, meaning: maximizing its probability of surviving the **rest of the sequence**, not just reacting to the current hit. Since the decision is made before knowing future dice rolls, but with a known attack sequence ahead of time, this problem is solved via **backward induction** (dynamic programming) rather than pure forward simulation:
 
-1. **Passe arrière** : pour chaque attaque `k` (de la dernière à la première) et pour **chaque état de malus atteignable à cette étape** (`debuffStatesPerStep[k]`, voir ci-dessus), on construit une table `valueTables[k].get(debuffKey(state))[boxes][focusLeft][furyLeft]` = probabilité de survivre aux attaques `k..n-1` en jouant optimalement **sachant qu'on est dans cet état de malus**, calculée à partir de `valueTables[k+1]` (déjà connue) et du profil de l'attaque `k` pour ce contexte. Le cas de base `valueTables[n]` vaut 1 partout, pour chaque état de malus atteignable en fin de séquence (plus d'attaque = déjà survécu).
-2. Pour chaque état et chaque issue de l'attaque `k`, `bestAction` (dans `sequence.ts`) compare les 3 choix possibles (ne rien dépenser / dépenser Focus / dépenser Fury) et retient celui qui maximise cette valeur de survie future.
-3. **Passe avant** : on rejoue exactement la même politique (via les mêmes `valueTables`, déjà calculées) pour produire la distribution d'états réelle et les statistiques affichées (`hitChance`, `destroyChanceAtThisStep`, etc.).
+1. **Backward pass**: for each attack `k` (from the last to the first) and for **each penalty state reachable at that step** (`debuffStatesPerStep[k]`, see above), a table `valueTables[k].get(debuffKey(state))[boxes][focusLeft][furyLeft]` is built = probability of surviving attacks `k..n-1` while playing optimally **given that we're in this penalty state**, computed from `valueTables[k+1]` (already known) and attack `k`'s profile for that context. The base case `valueTables[n]` is 1 everywhere, for every penalty state reachable at the end of the sequence (no attacks left = already survived).
+2. For each state and each outcome of attack `k`, `bestAction` (in `sequence.ts`) compares the 3 possible choices (spend nothing / spend Focus / spend Fury) and keeps the one that maximizes this future survival value.
+3. **Forward pass**: the exact same policy is replayed (via the same already-computed `valueTables`) to produce the actual state distribution and the displayed statistics (`hitChance`, `destroyChanceAtThisStep`, etc.).
 
-**Départage des égalités.** Comparer uniquement "probabilité de survie du reste de la séquence" peut faire naître des égalités strictes (ex. la cible est de toute façon condamnée quelle que soit la décision, ou plus aucune attaque future ne dépend du nombre exact de boîtes restantes). Une comparaison naïve (`>` strict) résoudrait alors systématiquement ces égalités vers "ne rien dépenser", ce qui se traduit par un comportement contre-intuitif (la cible refuse de se défendre sur le coup en cours alors que cela ne lui coûterait rien). `bestAction` utilise donc un score **lexicographique à 3 niveaux** (voir `outcomeScore`/`isBetterScore`) : (1) probabilité de survie du reste de la séquence — le vrai objectif ; (2) à égalité, probabilité de survivre **à ce coup précis** ; (3) à égalité sur les deux, nombre de boîtes préservées. Ce n'est qu'en cas d'égalité totale sur les 3 niveaux que le point n'est pas dépensé (comportement par défaut : conserver la ressource).
+**Tie-breaking.** Comparing only "probability of surviving the rest of the sequence" can produce strict ties (e.g. the target is doomed either way, or no future attack depends on the exact remaining box count anymore). A naive comparison (strict `>`) would then systematically resolve these ties toward "spend nothing", which reads as counter-intuitive behavior (the target refuses to defend itself on the current hit even though doing so would cost it nothing). `bestAction` therefore uses a **3-level lexicographic score** (see `outcomeScore`/`isBetterScore`): (1) probability of surviving the rest of the sequence — the real objective; (2) as a tiebreaker, probability of surviving **this specific hit**; (3) as a further tiebreaker, number of boxes preserved. Only when all 3 levels are fully tied does the point go unspent (default behavior: keep the resource).
 
-**Résultat retourné (`SequenceResult`)** :
-- `steps[]` : pour chaque attaque, `hitChance`, `critChance` et `averageDamage` (les trois conditionnels à la cible encore vivante à ce moment de la séquence - mêmes accumulateurs `hitMass`/`critMass`/`damageMass` que la boucle de simulation forward existante, juste normalisés par `aliveMass`), ainsi que `destroyChanceAtThisStep` (probabilité de destruction *exactement* à cette étape), `cumulativeDestroyChance`, `expectedBoxesRemaining`. `averageDamage` est le dégât **brut** du jet (dés + POW − ARM), avant toute mitigation Focus/Fury - une propriété de l'attaque, pas de l'état de la cible à cet instant (ces deux derniers champs, avec `destroyChanceAtThisStep`/`cumulativeDestroyChance`, restent calculés en interne mais ne sont plus affichés dans la pop-up Details - voir doc fonctionnelle).
-- `finalDestroyChance` : probabilité totale de destruction sur l'ensemble de la séquence.
-- `survivalDistribution` : distribution des boîtes restantes, conditionnelle à la survie de la cible.
+**Returned result (`SequenceResult`)**:
+- `steps[]`: for each attack, `hitChance`, `critChance`, and `averageDamage` (all three conditional on the target still being alive at that point in the sequence — the same `hitMass`/`critMass`/`damageMass` accumulators as the existing forward simulation loop, just normalized by `aliveMass`), plus `destroyChanceAtThisStep` (probability of destruction *exactly* at this step), `cumulativeDestroyChance`, `expectedBoxesRemaining`. `averageDamage` is the **raw** damage from the roll (dice + POW − ARM), before any Focus/Fury mitigation — a property of the attack itself, not of the target's state at that instant (these last two fields, along with `destroyChanceAtThisStep`/`cumulativeDestroyChance`, are still computed internally but are no longer shown in the Details pop-up — see the functional documentation).
+- `finalDestroyChance`: total probability of destruction over the whole sequence.
+- `survivalDistribution`: distribution of remaining boxes, conditional on the target's survival.
 
-**Garde-fou** : `focusPoints`/`furyPoints` sont plafonnés à 10 (`MAX_RESOURCE_POINTS`) — au-delà, `computeSequenceOdds` lève une erreur plutôt que de construire une table de valeurs disproportionnée. L'UI clampe silencieusement la saisie dans cette plage avant d'appeler le moteur.
+**Safety guard**: `focusPoints`/`furyPoints` are capped at 10 (`MAX_RESOURCE_POINTS`) — beyond that, `computeSequenceOdds` throws an error rather than building a disproportionately large value table. The UI silently clamps input to this range before calling the engine.
 
-**`SequenceTarget.def: number | 'KD'`.** Si `def === 'KD'`, la cible commence toute la séquence Knocked Down. C'est géré en réutilisant **exactement** le mécanisme déjà en place pour un Knockdown déclenché en cours de séquence :
-- `startsKnockedDown` (booléen, `target.def === 'KD'`) sert uniquement à initialiser le `DebuffState` du tout premier pas (backward et forward) à `{ ...INITIAL_DEBUFFS, knockedDown: true }` au lieu de `INITIAL_DEBUFFS` - la logique `isKnockedDownOrStationary` (mêlée uniquement) qui décide de l'auto-hit à chaque étape est totalement inchangée et ne sait même pas si la cible a démarré à terre ou l'est devenue en cours de route.
-- `baseDef` retombe sur `DEF_FLOOR` (5, au lieu d'une valeur factice jamais lue) quand `def === 'KD'`, puisque les attaques de tir/magie en ont réellement besoin pour leur jet normal contre la DEF au sol.
+**`SequenceTarget.def: number | 'KD'`.** If `def === 'KD'`, the target starts the whole sequence Knocked Down. This is handled by reusing **exactly** the mechanism already in place for a Knockdown triggered mid-sequence:
+- `startsKnockedDown` (boolean, `target.def === 'KD'`) is only used to initialize the very first step's `DebuffState` (both backward and forward) to `{ ...INITIAL_DEBUFFS, knockedDown: true }` instead of `INITIAL_DEBUFFS` - the `isKnockedDownOrStationary` logic (melee only) that decides auto-hit at every step is completely unchanged and doesn't even know whether the target started downed or became so along the way.
+- `baseDef` falls back to `DEF_FLOOR` (5, instead of a dummy value that's never read) when `def === 'KD'`, since ranged/magic attacks now genuinely need it for their normal roll against the downed DEF.
 
-**`AttackRow.pow: number | '-'`** (composant UI) : `'-'` représente une attaque qui ne fait jamais de dégâts (mais peut toujours critiquer, un effet critique comme Knockdown restant possible). Traduit en `NO_DAMAGE_POW = -9999` avant d'atteindre le moteur (`resolvePow` dans `odds-calculator.ts`) — un POW aussi négatif garantit `max(0, dés + pow - arm) === 0` quels que soient les dés ou l'ARM, sans qu'aucun changement du moteur ne soit nécessaire.
+**`AttackRow.pow: number | '-'`** (UI component): `'-'` represents an attack that never deals damage (but can still critical hit, a critical effect like Knockdown remaining possible). Translated to `NO_DAMAGE_POW = -9999` before reaching the engine (`resolvePow` in `odds-calculator.ts`) — a POW that negative guarantees `max(0, dice + pow - arm) === 0` regardless of dice or ARM, with no engine change required.
 
-### `odds-engine.ts` — pont avec Angular
+### `odds-engine.ts` — bridge to Angular
 
-`@Injectable({ providedIn: 'root' })` — expose `compute()` (attaque unique) et `computeSequence()` (séquence complète) aux composants via injection de dépendances. Ne contient aucune logique : c'est uniquement un point d'entrée DI, qui laisse la porte ouverte à du cache ou des profils sauvegardés plus tard sans toucher au moteur.
+`@Injectable({ providedIn: 'root' })` — exposes `compute()` (single attack) and `computeSequence()` (full sequence) to components via dependency injection. Contains no logic: it's purely a DI entry point, leaving the door open for caching or saved profiles later without touching the engine.
 
-## Le composant UI (`src/app/odds-calculator/`)
+## The UI component (`src/app/odds-calculator/`)
 
-Composant standalone (`OddsCalculator`), `ChangeDetectionStrategy.OnPush`, entièrement piloté par des **signals** Angular (recalcul automatique, aucun bouton "calculer").
+Standalone component (`OddsCalculator`), `ChangeDetectionStrategy.OnPush`, entirely driven by Angular **signals** (automatic recalculation, no "calculate" button).
 
-### Modèle de données du formulaire
+### Form data model
 
-- **Cible partagée** (`targetDef`, `targetArm`, `targetBoxes`, `tough`, `toughOn`, `targetFocus`, `targetFury`) : signals simples au niveau du composant, affichés sur une seule ligne (`.target-row`).
-- **Séquence d'attaques** (`rows: WritableSignal<AttackRow[]>`) : chaque ligne (`AttackRow`) est un objet dont **chaque champ est lui-même un signal**. Pas de nom d'attaquant ni de libellé éditable : le libellé affiché dans les résultats (`Attack N`) est généré à partir de la position de la ligne. Champs de base : `type`, `stat`, `diceCount`, `forceAutoHit`, `pow`, `damageDiceCount`. Champs d'effets (voir "Pop-ups" plus bas pour leur usage) :
-  - Général : `jumpTheShark` (booléen) - un seul signal pour l'attaque ET les dégâts (voir plus bas).
-  - Jet pour toucher : `discardAttackLowest`/`discardAttackHighest` (booléens indépendants, peuvent être vrais tous les deux), `rerollAttack` (booléen), `sanguineFate` (booléen).
-  - Jet de dégâts : `discardDamageLowest`/`discardDamageHighest` (booléens indépendants), `rerollDamage`, `trash`, `shatter` (booléens).
-  - Crit uniquement : `brutalDamage` (booléen).
-  - Effets déclenchables sur touche/critique : `triggerEffects: TriggerEffectRow[]` - voir ci-dessous.
+- **Shared target** (`targetDef`, `targetArm`, `targetBoxes`, `tough`, `toughOn`, `targetFocus`, `targetFury`): simple component-level signals, shown on a single row (`.target-row`).
+- **Attack sequence** (`rows: WritableSignal<AttackRow[]>`): each row (`AttackRow`) is an object whose **every field is itself a signal**. No attacker name or editable label: the label shown in the results (`Attack N`) is generated from the row's position. Base fields: `type`, `stat`, `diceCount`, `forceAutoHit`, `pow`, `damageDiceCount`. Effect fields (see "Pop-ups" below for how they're used):
+  - General: `jumpTheShark` (boolean) - a single signal for both the attack and damage rolls (see below).
+  - To-hit roll: `discardAttackLowest`/`discardAttackHighest` (independent booleans, can both be true), `rerollAttack` (boolean), `sanguineFate` (boolean).
+  - Damage roll: `discardDamageLowest`/`discardDamageHighest` (independent booleans), `rerollDamage`, `trash`, `shatter` (booleans).
+  - Crit only: `brutalDamage` (boolean).
+  - Effects triggerable on a hit/critical hit: `triggerEffects: TriggerEffectRow[]` - see below.
 
-  **`TriggerEffectRow` : un ensemble FIXE plutôt qu'une liste dynamique.** Contrairement à une première version qui gérait les effets persistants comme une liste `WritableSignal<StatEffectRow[]>` extensible (bouton "+ Add effect", suppression par `id`), la version actuelle donne à chaque ligne un tableau `triggerEffects` de taille fixe et connue à l'avance - un `TriggerEffectRow` par clé de `TRIGGER_EFFECT_KEYS` (`'armorPiercing' | 'decapitation' | StatEffectType`, 11 entrées), créé une fois par `createTriggerEffects()` et jamais recréé pendant la vie de la ligne :
+  **`TriggerEffectRow`: a FIXED set rather than a dynamic list.** Unlike an earlier version that managed persistent effects as an extensible `WritableSignal<StatEffectRow[]>` list ("+ Add effect" button, removal by `id`), the current version gives each row a `triggerEffects` array of fixed, known-in-advance size - one `TriggerEffectRow` per key of `TRIGGER_EFFECT_KEYS` (`'armorPiercing' | 'decapitation' | StatEffectType`, 11 entries), created once by `createTriggerEffects()` and never recreated during the row's lifetime:
     ```ts
     interface TriggerEffectRow {
       readonly key: TriggerEffectKey;
       readonly trigger: WritableSignal<EffectTrigger | 'off'>;
-      readonly amount: WritableSignal<number>; // uniquement lu pour 'armPenalty'
+      readonly amount: WritableSignal<number>; // only read for 'armPenalty'
     }
     ```
-    Puisque chaque effet a un slot fixe, plus besoin de logique d'ajout/suppression avec identifiants : la pop-up Effects se contente d'itérer sur ce tableau et de basculer `trigger` entre `'off'`, `'hit'` et `'crit'`. `toggleTriggerEffect(effect, trigger)` implémente le comportement "bouton toggle" : cliquer le bouton du trigger déjà actif repasse l'effet à `'off'` ; cliquer l'autre trigger y bascule directement (jamais besoin d'éteindre explicitement avant de rallumer sur l'autre déclencheur - un effet n'a jamais les deux triggers actifs en même temps, conformément à la règle "un effet, un déclencheur").
+    Since each effect has a fixed slot, there's no more add/remove logic with identifiers needed: the Effects pop-up simply iterates over this array and toggles `trigger` between `'off'`, `'hit'`, and `'crit'`. `toggleTriggerEffect(effect, trigger)` implements the "toggle button" behavior: clicking the button for the already-active trigger switches the effect back to `'off'`; clicking the other trigger switches straight to it (never a need to explicitly turn it off before switching to the other trigger - an effect never has both triggers active at once, in line with the "one effect, one trigger" rule).
 
-  **Pourquoi cette structure et pas un simple tableau d'objets JS ?** Avec les signals Angular, muter un objet imbriqué dans un tableau signal ne déclenche pas de recalcul (le signal ne détecte que le remplacement de sa propre valeur). Deux options : (a) cloner tout le tableau à chaque frappe clavier, ou (b) donner à chaque champ son propre signal, que `computed()` lira individuellement et pourra donc suivre finement. L'option (b) est retenue ici : ajouter/retirer une **ligne d'attaque** remplace le tableau `rows` (`rows.update(...)`), mais éditer un effet (fixe) ou tout autre champ ne touche que son propre signal — pas de clonage profond nécessaire, et plus aucun tableau interne mutable une fois `triggerEffects` créé.
+  **Why this structure instead of a plain array of JS objects?** With Angular signals, mutating a nested object inside a signal array doesn't trigger recalculation (a signal only detects the replacement of its own value). Two options: (a) clone the whole array on every keystroke, or (b) give each field its own signal, which `computed()` will read individually and can therefore track finely. Option (b) is chosen here: adding/removing an **attack row** replaces the `rows` array (`rows.update(...)`), but editing an effect (fixed) or any other field only touches its own signal — no deep cloning needed, and no mutable internal array left once `triggerEffects` is created.
 
-- **`diceCount` / `damageDiceCount`** : l'utilisateur choisit directement le **nombre total** de dés lancés (2 par défaut), pas un nombre de dés de boost. `toBoostDice(diceCount)` fait la conversion (`max(0, diceCount - 2)`) au moment de construire l'objet `SequencedAttack` envoyé au moteur, qui raisonne en base 2d6 + boost. `discardModifier(lowest, highest)` traduit la paire de booléens vers `{ highest?: 1, lowest?: 1 } | undefined` (toujours au plus un dé par extrémité — aucun effet du jeu n'en défausse plus d'un par côté, mais les deux côtés peuvent être actifs ensemble, voir `dice-pool.ts`).
-- `sequencedAttacks` (computed, annoté explicitement `computed<SequencedAttack[]>` avec un retour de callback `.map((r, i): SequencedAttack => ({...}))`) : projette `rows()` vers `SequencedAttack[]` (le type attendu par le moteur), génère le libellé `Attack ${i+1}` à partir de l'index, convertit `pow` via `resolvePow`, applique `r.jumpTheShark()` à la fois à `modifiers.treatOnesAsSixes` et `damageModifiers.treatOnesAsSixes`, assemble `effects: { brutalDamageDice, armorPiercing, decapitation, trash, shatter }` (via `triggerOf(row, key)` pour lire le trigger d'un effet donné dans `triggerEffects` et transformer `'off'`/absent en `undefined`) et `statEffects: StatEffect[]` en filtrant `triggerEffects` sur `isStatEffectKey(key) && trigger !== 'off'`.
+- **`diceCount` / `damageDiceCount`**: the user directly picks the **total** number of dice rolled (2 by default), not a boost-dice count. `toBoostDice(diceCount)` performs the conversion (`max(0, diceCount - 2)`) when building the `SequencedAttack` object sent to the engine, which reasons in terms of a base 2d6 + boost. `discardModifier(lowest, highest)` translates the pair of booleans into `{ highest?: 1, lowest?: 1 } | undefined` (always at most one die per side — no in-game effect discards more than one per side, but both sides can be active together, see `dice-pool.ts`).
+- `sequencedAttacks` (computed, explicitly annotated `computed<SequencedAttack[]>` with a `.map((r, i): SequencedAttack => ({...}))` callback return type): projects `rows()` into `SequencedAttack[]` (the type expected by the engine), generates the `Attack ${i+1}` label from the index, converts `pow` via `resolvePow`, applies `r.jumpTheShark()` to both `modifiers.treatOnesAsSixes` and `damageModifiers.treatOnesAsSixes`, assembles `effects: { brutalDamageDice, armorPiercing, decapitation, trash, shatter }` (via `triggerOf(row, key)` to read a given effect's trigger from `triggerEffects` and turn `'off'`/absent into `undefined`) and `statEffects: StatEffect[]` by filtering `triggerEffects` on `isStatEffectKey(key) && trigger !== 'off'`.
 
-  **Piège TypeScript évité : le vérificateur de "propriétés en excès" ne s'applique pas à un littéral objet retourné par une callback `.map()` sans annotation de type explicite sur cette callback**, même si le `computed(...)` englobant porte un type générique explicite. Un ancien champ renommé/supprimé (`criticalEffects`, remplacé par `effects`/`statEffects`) était donc resté silencieusement accepté par le compilateur dans un littéral `{ ...criticalEffects: {...} }` alors que `SequencedAttack` ne l'avait plus - la valeur était simplement ignorée à l'exécution. Corrigé en annotant explicitement le type de retour de la callback (`(r, i): SequencedAttack => ({...})`), ce qui réactive la vérification stricte. À retenir pour tout futur champ ajouté/renommé sur `SequencedAttack`.
-- `sequence` (computed) : appelle `engine.computeSequence(...)` — recalculé automatiquement dès qu'un signal lu à l'intérieur change (cible ou n'importe quel champ, y compris chaque `trigger`/`amount` de `triggerEffects`, de n'importe quelle ligne).
-- `effectsSummary(row): string[]` : construit la liste de libellés courts ("Discard highest (atk)", "Trash", "Ice Cage (crit)"...) affichée sous chaque ligne d'attaque, à partir de tous les champs d'effets actifs de la ligne (booléens simples, puis un tour de `triggerEffects` en ignorant les entrées à `'off'`).
-- `resetEffects(row)` : remet à zéro tous les champs d'effets de la ligne (`forceAutoHit`, chaque booléen, et `trigger.set('off')`/`amount.set(2)` pour chaque `TriggerEffectRow`) — les champs "de base" (type, stat, dés, POW) ne sont volontairement pas touchés, seul le bouton "✕" de la ligne entière les réinitialiserait.
+  **TypeScript pitfall avoided: the "excess property" checker doesn't apply to an object literal returned by a `.map()` callback without an explicit type annotation on that callback**, even if the enclosing `computed(...)` carries an explicit generic type. An old renamed/removed field (`criticalEffects`, replaced by `effects`/`statEffects`) had therefore remained silently accepted by the compiler in a `{ ...criticalEffects: {...} }` literal even though `SequencedAttack` no longer had it - the value was simply ignored at runtime. Fixed by explicitly annotating the callback's return type (`(r, i): SequencedAttack => ({...})`), which re-enables strict checking. Worth remembering for any future field added/renamed on `SequencedAttack`.
+- `sequence` (computed): calls `engine.computeSequence(...)` — recomputed automatically whenever any signal read inside changes (target or any field, including every `trigger`/`amount` in `triggerEffects`, of any row).
+- `effectsSummary(row): string[]`: builds the list of short labels ("Discard highest (atk)", "Trash", "Ice Cage (crit)"...) shown under each attack row, from every active effect field on the row (plain booleans, then a pass over `triggerEffects` skipping entries at `'off'`).
+- `resetEffects(row)`: resets every effect field on the row to its default (`forceAutoHit`, each boolean, and `trigger.set('off')`/`amount.set(2)` for every `TriggerEffectRow`) — the "base" fields (type, stat, dice, POW) are deliberately left untouched; only the whole row's "✕" button would reset those.
 
-### Champs numériques en `<select>` plutôt qu'en `<input type="number">`
+### Numeric fields as `<select>` rather than `<input type="number">`
 
-Tous les champs à plage connue (DEF, ARM, Boxes, Focus, Fury, MAT/RAT/AAT, POW, Dice) sont des `<select>` plutôt que des `<input type="number">`, pour que le choix d'une valeur ouvre un sélecteur natif sur mobile plutôt que le clavier. Les listes d'options (`DEF_OPTIONS`, `ARM_OPTIONS`, etc., en tête de `odds-calculator.ts`) sont générées une fois via `range(start, end)`.
+Every field with a known range (DEF, ARM, Boxes, Focus, Fury, MAT/RAT/AAT, POW, Dice) is a `<select>` rather than an `<input type="number">`, so that picking a value opens a native picker on mobile instead of the keyboard. The option lists (`DEF_OPTIONS`, `ARM_OPTIONS`, etc., at the top of `odds-calculator.ts`) are generated once via `range(start, end)`.
 
-Le seuil de réussite de Tough n'est plus configurable (retiré : `toughOn`) - la règle reste toujours 5+, qui est aussi la valeur par défaut de `SequenceTarget.toughOn` côté moteur (`target.toughOn ?? 5`), donc le composant n'a plus besoin de la transmettre du tout.
+Tough's success threshold is no longer configurable (removed: `toughOn`) - the rule is always 5+, which is also the default value of `SequenceTarget.toughOn` on the engine side (`target.toughOn ?? 5`), so the component no longer needs to pass it at all.
 
-**Piège à connaître : `<select>` + `ngModel` communique toujours en chaînes de caractères.** Un `<select>` natif ne connaît que des valeurs `value` de type `string` ; `(ngModelChange)` émet donc systématiquement une chaîne, jamais un nombre, même quand `[ngModel]` reçoit un nombre en entrée. Chaque binding reconvertit explicitement : `toNumber(raw)` pour les champs numériques classiques, et `parseDef`/`parsePow` pour DEF/POW qui acceptent en plus une valeur sentinelle (`'KD'`, `'-'`) à ne surtout pas convertir en nombre.
+**Pitfall to know about: `<select>` + `ngModel` always communicates in strings.** A native `<select>` only ever knows `value`s of type `string`; `(ngModelChange)` therefore always emits a string, never a number, even when `[ngModel]` is fed a number. Each binding explicitly converts back: `toNumber(raw)` for regular numeric fields, and `parseDef`/`parsePow` for DEF/POW, which additionally accept a sentinel value (`'KD'`, `'-'`) that must absolutely not be converted to a number.
 
 ### Actions
 
-- `addAttack()` : ajoute une ligne en clonant les valeurs de la dernière ligne (`cloneAttackRow`, nouveaux signals initialisés à la même valeur - pas de référence partagée avec la ligne source), ou une ligne par défaut (`createAttackRow`) s'il n'y en a pas encore.
-- `removeAttack(id)` : retire une ligne (au moins 1 ligne toujours présente).
+- `addAttack()`: adds a row by cloning the last row's values (`cloneAttackRow`, fresh signals initialized to the same value - no shared reference with the source row), or a default row (`createAttackRow`) if there isn't one yet.
+- `removeAttack(id)`: removes a row (at least 1 row always remains).
 
-Pas de bouton pour réordonner les lignes (retiré : voir doc fonctionnelle) - l'ordre se construit uniquement en ajoutant les attaques dans l'ordre voulu.
+No button to reorder rows (removed: see functional documentation) - the order is built solely by adding attacks in the intended order.
 
 ### Pop-ups (Effects / Details)
 
-Les effets spéciaux par attaque et le détail des résultats (step-by-step, distribution des boîtes restantes) sont déplacés dans des pop-ups plutôt qu'affichés en permanence, pour garder la ligne d'attaque et le résumé des résultats compacts.
+Per-attack special effects and the results breakdown (step-by-step, remaining-box distribution) are moved into pop-ups rather than shown permanently, to keep the attack row and results summary compact.
 
-Implémentation : élément HTML natif **`<dialog>`** (pas de librairie de modal/CDK) avec `@ViewChild` + `.showModal()` :
-- `editingRow: WritableSignal<AttackRow | null>` retient la ligne actuellement éditée ; `openEffects(row)` la renseigne puis ouvre la pop-up, dont le contenu (`@if (editingRow(); as row)`) se lie directement aux signals de cette ligne.
-- Une seule pop-up "Effects" est réutilisée pour toutes les lignes (plutôt qu'une pop-up par ligne), et une seule pop-up "Details" pour les résultats.
-- `closeOnBackdropClick(event, dialog)` ferme la pop-up au clic en dehors de son contenu : pour un `<dialog>` ouvert en mode modal, un clic sur le `::backdrop` remonte un événement `click` dont la `target` est l'élément `dialog` lui-même (pas un enfant) — cette propriété permet de distinguer "clic sur le fond" de "clic à l'intérieur du contenu" sans `stopPropagation()`. La touche Échap ferme nativement la pop-up sans code additionnel.
+Implementation: the native HTML **`<dialog>`** element (no modal/CDK library) with `@ViewChild` + `.showModal()`:
+- `editingRow: WritableSignal<AttackRow | null>` holds the row currently being edited; `openEffects(row)` sets it then opens the pop-up, whose content (`@if (editingRow(); as row)`) binds directly to that row's signals.
+- A single "Effects" pop-up is reused for every row (rather than one pop-up per row), and a single "Details" pop-up for the results.
+- `closeOnBackdropClick(event, dialog)` closes the pop-up on a click outside its content: for a `<dialog>` opened in modal mode, a click on the `::backdrop` bubbles up a `click` event whose `target` is the `dialog` element itself (not a child) — this property lets us distinguish "click on the backdrop" from "click inside the content" without `stopPropagation()`. The Escape key closes the pop-up natively, with no extra code.
 
-**Contenu de la pop-up Effects**, organisé en boutons "toggle" (`.toggle-btn` / `.toggle-btn--active`, voir CSS plus bas) regroupés en sections (voir doc fonctionnelle pour le détail de chaque effet) :
-- Auto-hit (un seul bouton, en tête, hors de toute section).
-- "General" : Jump the Shark (un seul bouton pour `row.jumpTheShark`, qui pilote à la fois le jet pour toucher et le jet de dégâts).
-- "Attack" : Discard lowest, Discard highest, Reroll, Sanguine Fate — chaque bouton bascule un booléen indépendant (`(click)="row.discardAttackLowest.set(!row.discardAttackLowest())"`), donc Discard lowest et Discard highest peuvent être actifs ensemble sans logique de coordination particulière.
-- "Damage" : Discard lowest, Discard highest, Reroll, Trash, Shatter — même principe côté dégâts.
-- "On hit" : un bouton par entrée de `row.triggerEffects` (`@for (effect of row.triggerEffects; track effect.key)`), actif quand `effect.trigger() === 'hit'`, `(click)="toggleTriggerEffect(effect, 'hit')"`.
-- "On crit" : la même boucle sur `row.triggerEffects`, actif quand `effect.trigger() === 'crit'`, plus un bouton dédié pour Brutal Damage (booléen simple, hors de `triggerEffects` puisqu'il n'a pas de variante "On hit").
-- Amount pour `-X ARM` : `@let armPenalty = armPenaltyEffect(row);` puis `@if (armPenalty.trigger() !== 'off')` affiche un `<select>` classique (pas un bouton toggle - c'est un montant, pas un booléen) lié à `armPenalty.amount`. `armPenaltyEffect(row)` fait un `.find(e => e.key === 'armPenalty')` sur le tableau fixe - toujours présent, d'où le `!` non-null dans sa signature de retour.
-- "Reset" (`resetEffects(row)`) et "Done" (`closeEffects()`) côte à côte en pied de pop-up (`.dialog__actions`, `flex: 1 1 0` chacun).
+**Content of the Effects pop-up**, organized as "toggle" buttons (`.toggle-btn` / `.toggle-btn--active`, see CSS below) grouped into sections (see the functional documentation for the details of each effect):
+- Auto-hit (a single button, at the top, outside any section).
+- "General": Jump the Shark (a single button for `row.jumpTheShark`, which drives both the to-hit roll and the damage roll).
+- "Attack": Discard lowest, Discard highest, Reroll, Sanguine Fate — each button toggles an independent boolean (`(click)="row.discardAttackLowest.set(!row.discardAttackLowest())"`), so Discard lowest and Discard highest can be active together with no special coordination logic.
+- "Damage": Discard lowest, Discard highest, Reroll, Trash, Shatter — same principle on the damage side.
+- "On hit": one button per entry of `row.triggerEffects` (`@for (effect of row.triggerEffects; track effect.key)`), active when `effect.trigger() === 'hit'`, `(click)="toggleTriggerEffect(effect, 'hit')"`.
+- "On crit": the same loop over `row.triggerEffects`, active when `effect.trigger() === 'crit'`, plus a dedicated button for Brutal Damage (a plain boolean, outside `triggerEffects` since it has no "On hit" variant).
+- Amount for `-X ARM`: `@let armPenalty = armPenaltyEffect(row);` then `@if (armPenalty.trigger() !== 'off')` shows a regular `<select>` (not a toggle button - it's an amount, not a boolean) bound to `armPenalty.amount`. `armPenaltyEffect(row)` does a `.find(e => e.key === 'armPenalty')` on the fixed array - always present, hence the non-null `!` in its return type signature.
+- "Reset" (`resetEffects(row)`) and "Done" (`closeEffects()`) side by side at the bottom of the pop-up (`.dialog__actions`, `flex: 1 1 0` each).
 
-**Les boutons d'une même catégorie sont dans un conteneur `flex-wrap: wrap` (`.toggle-group`)**, plutôt que `nowrap` comme les lignes Target/Attack : contrairement à ces dernières (nombre de champs fixe et connu), le nombre d'effets actifs sur une attaque est ouvert, donc la pop-up doit pouvoir accueillir n'importe quelle combinaison en passant à la ligne, sans jamais élargir le `<dialog>` (dont la largeur reste plafonnée par `width: min(90vw, 480px)`, inchangée).
+**Buttons within a given category sit in a `flex-wrap: wrap` container (`.toggle-group`)**, rather than `nowrap` like the Target/Attack rows: unlike those (a fixed, known number of fields), the number of active effects on an attack is open-ended, so the pop-up needs to be able to accommodate any combination by wrapping, without ever widening the `<dialog>` (whose width stays capped at `width: min(90vw, 480px)`, unchanged).
 
-`cloneAttackRow` clone aussi `row.triggerEffects` (via `cloneTriggerEffects`, qui crée un nouveau tableau de nouveaux `TriggerEffectRow` avec des signals frais mais les mêmes valeurs) plutôt que de partager les mêmes objets entre la ligne source et la copie créée par "+ Add attack".
+`cloneAttackRow` also clones `row.triggerEffects` (via `cloneTriggerEffects`, which creates a new array of new `TriggerEffectRow`s with fresh signals but the same values) rather than sharing the same objects between the source row and the copy created by "+ Add attack".
 
-### App shell : titre/Target/Results fixes, seule Attack sequence défile
+**Fixed header/footer, scrolling body (`.dialog__content--framed` + `.dialog__body`).** The Effects pop-up's header (title + close button) and footer (Reset/Done) stay put while only the effect sections in between scroll:
+- `.dialog__content--framed` (a modifier applied only to the Effects dialog's `.dialog__content`, so the plain Details dialog is unaffected) turns the container into a `display: flex; flex-direction: column; overflow: hidden;` box; its direct-child header and `.dialog__actions` footer get `flex-shrink: 0`.
+- The middle content (every section + the ARM-amount field) is wrapped in a `.dialog__body` div with `flex: 1 1 auto; min-height: 0; overflow-y: auto;`, so it's the only part that scrolls once it overflows the dialog's `max-height: 80vh`.
+- Since the first section title now sits inside `.dialog__body` right after the header rather than directly after it, `.dialog__body > .dialog__section-title:first-child` removes that first title's own top border/margin/padding — otherwise it would show its own separator line just below the header's bottom border, reading as a doubled line a few pixels apart.
 
-Le composant est structuré comme un app shell en trois zones empilées dans un conteneur de hauteur fixe (`height: 100dvh` sur `.page`, propagé via `display:flex; flex-direction:column; height:100%` sur `:host` puis `.panel`, `.panel__body`) : `.console`/`.readout` (Target et Results) ont `flex-shrink: 0` (taille naturelle, jamais compressés), et seule `.console--attacks` porte `flex: 1 1 auto; min-height: 0`, ce qui lui fait occuper tout l'espace restant entre Target et Results. À l'intérieur, c'est `.attack-list` (pas toute la section) qui a `overflow-y: auto` - le titre "Attack sequence" et le bouton "+ Add attack" restent donc visibles au-dessus et en dessous de la liste qui défile.
+### App shell: title/Target/Results fixed, only Attack sequence scrolls
 
-**`min-height: 0` est essentiel à chaque niveau de cette chaîne flexbox.** Sans lui, un flex item en colonne refuse par défaut de rétrécir en dessous de la hauteur de son contenu (même piège `min-*:auto` que pour la largeur des lignes compactes, voir plus bas) - ce qui aurait empêché `.attack-list` d'être jamais plus petit que son contenu, et donc de jamais scroller : toute la page aurait poussé en hauteur à la place.
+The component is structured as a three-zone app shell stacked in a fixed-height container (`height: 100dvh` on `.page`, propagated via `display:flex; flex-direction:column; height:100%` on `:host` then `.panel`, `.panel__body`): `.console`/`.readout` (Target and Results) have `flex-shrink: 0` (natural size, never compressed), and only `.console--attacks` carries `flex: 1 1 auto; min-height: 0`, which makes it occupy all the remaining space between Target and Results. Inside it, it's `.attack-list` (not the whole section) that has `overflow-y: auto` - the "Attack sequence" title and the "+ Add attack" button therefore stay visible above and below the scrolling list.
 
-`100dvh` plutôt que `100vh` sur `.page` (`app.css`) : sur mobile, la barre d'adresse du navigateur apparaît/disparaît en défilant, ce qui fait varier la hauteur réellement visible. `100vh` est calculé sur la hauteur maximale (barre cachée), ce qui peut laisser le bas de l'écran (ici, Results) partiellement caché derrière la barre d'adresse quand elle est visible ; `dvh` (*dynamic* viewport height) suit la hauteur réellement visible à tout instant. `100vh` reste écrit en premier comme repli pour les navigateurs qui ne supportent pas `dvh`.
+**`min-height: 0` is essential at every level of this flexbox chain.** Without it, a flex item in a column refuses by default to shrink below its content's height (the same `min-*:auto` pitfall as for the width of compact rows, see below) - which would have prevented `.attack-list` from ever being smaller than its content, and therefore from ever scrolling: the whole page would have grown taller instead.
 
-### Barres de défilement masquées
+`100dvh` rather than `100vh` on `.page` (`app.css`): on mobile, the browser's address bar appears/disappears while scrolling, which changes the actually visible height. `100vh` is computed against the maximum height (bar hidden), which can leave the bottom of the screen (here, Results) partially hidden behind the address bar when it's visible; `dvh` (*dynamic* viewport height) tracks the actually visible height at all times. `100vh` is kept as the first-written fallback for browsers that don't support `dvh`.
 
-`.target-row`, `.attack-row` (défilement horizontal) et `.attack-list` (défilement vertical) masquent leur barre de défilement (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`) tout en restant défilables (souris/trackpad/tactile) - une barre visible se serait retrouvée juste sous/à côté des chiffres des champs et les aurait visuellement encombrés.
+### Hidden scrollbars
 
-### Lignes compactes, centrées et espacées, tenant sur une seule ligne (mobile inclus)
+`.target-row`, `.attack-row` (horizontal scrolling) and `.attack-list` (vertical scrolling) hide their scrollbar (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`) while remaining scrollable (mouse/trackpad/touch) - a visible scrollbar would have ended up right under/next to the fields' digits and visually cluttered them.
 
-Le Target et chaque ligne d'attaque utilisent `flex-wrap: nowrap` plutôt que `wrap` : l'objectif est que tout tienne sur une seule ligne même sur un téléphone étroit, quitte à défiler horizontalement plutôt que de passer à la ligne suivante. Les champs sont centrés horizontalement sur la ligne (`justify-content: safe center` sur `.target-row`/`.attack-row`) avec un `gap` généreux entre eux ; les valeurs à l'intérieur de chaque champ sont elles-mêmes centrées (`text-align`/`text-align-last: center` sur `.mini-field__input`, `align-items: center` sur `.mini-field`).
+### Compact rows, centered and spaced, fitting on a single line (mobile included)
 
-Le mot-clé `safe` dans `justify-content: safe center` évite un piège connu : avec un simple `center`, si la ligne finit par déborder (viewport très étroit, ou davantage de champs ajoutés plus tard), le début du contenu peut devenir inatteignable au défilement dans certains navigateurs - `safe` retombe sur un alignement de type `start` dans ce cas précis, pour que le défilement horizontal (`overflow-x: auto`) reste toujours capable de tout montrer.
+The Target row and each attack row use `flex-wrap: nowrap` rather than `wrap`: the goal is for everything to fit on a single line even on a narrow phone, scrolling horizontally rather than wrapping to a new line if needed. Fields are centered horizontally on the row (`justify-content: safe center` on `.target-row`/`.attack-row`) with generous `gap` between them; the values inside each field are themselves centered (`text-align`/`text-align-last: center` on `.mini-field__input`, `align-items: center` on `.mini-field`).
 
-**Alignement vertical des contrôles (`--control-h`).** Tous les contrôles d'une ligne (`<select>`, boutons Effects/✕, case Tough) partagent la même hauteur explicite via la variable `--control-h` (définie dans `:host`), plutôt que de compter sur `align-items: flex-end` seul pour les aligner visuellement. Avant cette variable, chaque contrôle avait une hauteur légèrement différente (padding/bordure propres à chaque type d'élément), et même si `flex-end` alignait mathématiquement leurs bas de boîte au pixel près, les tailles visuellement différentes donnaient une impression de désalignement. La case à cocher Tough est en plus enveloppée dans un `<span class="mini-field__control">` (`height: var(--control-h)`, centré) : ça réserve la même hauteur de "ligne de contrôle" que les autres champs sans agrandir la case à cocher elle-même (qui reste à sa taille native habituelle).
+The `safe` keyword in `justify-content: safe center` avoids a known pitfall: with a plain `center`, if the row ends up overflowing (a very narrow viewport, or more fields added later), the start of the content can become unreachable by scrolling in some browsers - `safe` falls back to `start`-like alignment in that specific case, so horizontal scrolling (`overflow-x: auto`) can always reveal everything.
 
-**Flèche de `<select>` personnalisée, minimaliste.** La flèche native d'un `<select>` réserve un espace dépendant du navigateur/OS (souvent 20px+), ce qui laissait peu de marge pour tenir sur une ligne une fois les champs numériques convertis en `<select>`. `.mini-field__input--select` désactive le rendu natif (`appearance: none`) et dessine une flèche minuscule via `background-image` (deux dégradés linéaires formant un chevron), ce qui permet de maîtriser exactement l'espace qu'elle occupe - et laisse la valeur réellement centrée plutôt que décalée par une flèche large.
+**Vertical alignment of controls (`--control-h`).** Every control on a row (`<select>`, Effects/✕ buttons, the Tough checkbox) shares the same explicit height via the `--control-h` variable (defined on `:host`), rather than relying on `align-items: flex-end` alone to align them visually. Before this variable, each control had a slightly different height (padding/border specific to each element type), and even though `flex-end` mathematically aligned their box bottoms pixel-perfectly, the visually different sizes still read as misaligned. The Tough checkbox is additionally wrapped in a `<span class="mini-field__control">` (`height: var(--control-h)`, centered): this reserves the same "control row" height as the other fields without enlarging the checkbox itself (which stays at its usual native size).
 
-Deux pièges CSS rencontrés en implémentant le "tient sur une seule ligne", à garder en tête si ces règles sont retouchées :
-- **`min-width: 0` sur `:host`** : ce composant est lui-même un item flexbox du conteneur `.page` (`app.css`). Par défaut, un item flexbox refuse de rétrécir en dessous de la largeur minimale de son contenu (`min-width: auto`) - avec des lignes en `nowrap`, ce contenu minimal peut dépasser la largeur de l'écran, ce qui aurait fait déborder **toute la page** (et pas juste défiler dans la ligne) sans ce `min-width: 0`. C'est le piège flexbox classique "min-width:auto empêche de rétrécir".
-- **`box-sizing: border-box` global** (`src/styles.css`) : sans ça, `width` sur les inputs ne compte pas le padding ni la bordure, ce qui rendait les calculs de largeur (viser "tout tient dans 375px") imprévisibles - chaque input rendait plusieurs pixels plus large que sa largeur déclarée.
+**Custom, minimal `<select>` arrow.** A `<select>`'s native arrow reserves a browser/OS-dependent amount of space (often 20px+), which left little room to fit everything on one line once numeric fields became `<select>`s. `.mini-field__input--select` disables native rendering (`appearance: none`) and draws a tiny arrow via `background-image` (two linear gradients forming a chevron), which lets it control exactly how much space the arrow takes up - and keeps the value genuinely centered rather than offset by a wide arrow.
 
-**Piège de mesure à connaître si ces largeurs sont retouchées à la main dans le navigateur** : ce composant tourne sans zone.js (Angular zoneless), donc après avoir modifié un signal depuis la console (`ng.getComponent(...)`), lire `scrollWidth`/`clientWidth` **immédiatement** peut renvoyer des valeurs d'avant le rendu - le changement de vue est planifié, pas synchrone. Attendre deux `requestAnimationFrame` avant de mesurer (ou simplement re-régarder après une capture d'écran suivante) évite de conclure à tort qu'une ligne "tient" alors que le DOM n'avait pas encore rattrapé le nouvel état.
+Two CSS pitfalls hit while implementing "fits on a single line", worth keeping in mind if these rules are ever revisited:
+- **`min-width: 0` on `:host`**: this component is itself a flexbox item of the `.page` container (`app.css`). By default, a flexbox item refuses to shrink below its content's minimum width (`min-width: auto`) - with `nowrap` rows, this minimum content can exceed the screen's width, which would have made **the whole page** overflow (not just scroll within the row) without this `min-width: 0`. The classic flexbox pitfall of "min-width:auto prevents shrinking".
+- **Global `box-sizing: border-box`** (`src/styles.css`): without it, `width` on inputs doesn't count padding or border, which made width calculations (aiming for "everything fits within 375px") unpredictable - each input rendered several pixels wider than its declared width.
+
+**Measurement pitfall to know about if these widths are tweaked by hand in the browser**: this component runs without zone.js (Angular zoneless), so after modifying a signal from the console (`ng.getComponent(...)`), reading `scrollWidth`/`clientWidth` **immediately** can return pre-render values - the view update is scheduled, not synchronous. Waiting for two `requestAnimationFrame`s before measuring (or simply re-checking after a following screenshot) avoids wrongly concluding that a row "fits" when the DOM hadn't yet caught up with the new state.
 
 ## PWA
 
-- `@angular/service-worker` activé uniquement hors mode dev (`enabled: !isDevMode()`), stratégie d'enregistrement `registerWhenStable:30000`.
-- `ngsw-config.json` : préfetch des fichiers applicatifs (HTML/CSS/JS/manifest), cache lazy des icônes.
-- `public/manifest.webmanifest` + `public/icons/*` : icônes multi-résolutions pour l'installation sur écran d'accueil (Android et iOS).
-- Aucun appel réseau applicatif : l'app fonctionne entièrement hors-ligne une fois chargée/installée.
+- `@angular/service-worker` enabled only outside dev mode (`enabled: !isDevMode()`), `registerWhenStable:30000` registration strategy.
+- `ngsw-config.json`: prefetches application files (HTML/CSS/JS/manifest), lazy-caches icons.
+- `public/manifest.webmanifest` + `public/icons/*`: multi-resolution icons for home-screen installation (Android and iOS).
+- No application network calls: the app works fully offline once loaded/installed.
 
-## Commandes
+## Commands
 
 ```bash
-npm start        # ng serve — serveur de dev sur http://localhost:4200
-npm run build     # ng build — build de production dans dist/
-npm test          # ng test — exécute les tests Vitest via le builder Angular
+npm start        # ng serve — dev server at http://localhost:4200
+npm run build     # ng build — production build in dist/
+npm test          # ng test — runs Vitest tests via the Angular builder
 ```
 
-⚠️ Exécuter `npx vitest run` directement (sans passer par `ng test`) fait échouer `app.spec.ts` (`describe is not defined`) car les globals de test Angular ne sont pas injectés hors du builder `@angular/build:unit-test`. Toujours utiliser `npm test` / `ng test` pour une exécution fiable.
+⚠️ Running `npx vitest run` directly (bypassing `ng test`) makes `app.spec.ts` fail (`describe is not defined`) because Angular's test globals aren't injected outside the `@angular/build:unit-test` builder. Always use `npm test` / `ng test` for a reliable run.
 
-## Décisions de conception à retenir
+## Design decisions worth remembering
 
-- **Édition de règles ciblée : Warmachine MK4** (choix utilisateur). Les mécaniques de base (2d6, boost, double = critique, Tough) sont considérées stables et communes aux éditions ; les effets nommés spécifiques sont implémentés avec la formulation la plus largement admise, mais restent à vérifier/ajuster face au livre de règles MK4 exact — voir doc fonctionnelle pour le détail des hypothèses.
-- **Ordre des attaques dans une séquence : défini par l'utilisateur**, pas d'optimisation automatique (décision produit assumée, voir doc fonctionnelle pour la justification et les limites).
-- **Effets : liste courte et exacte plutôt qu'un système générique** — extensible dans `AttackEffects`/`RollModifiers` (`attack-model.ts`) et `StatEffect`/`StatEffectType` (`sequence.ts`) au fur et à mesure que de nouvelles règles sont confirmées, mais toujours un ensemble fermé et nommé de cas plutôt qu'un moteur d'expressions arbitraires.
-- **Relance (reroll) : politique optimale fixe, aucun seuil configurable côté UI** — relancer un jet pour toucher raté, ou un jet de dégâts sous la moyenne, maximise mathématiquement le résultat espéré ; demander un seuil au joueur n'aurait apporté aucune flexibilité utile pour un coût de complexité d'interface.
-- **Malus de cible persistants : état minimal typé (`DebuffState`) + précalcul des états atteignables, plutôt qu'une table dense multi-dimensionnelle** — voir `computeReachableDebuffStates` dans `sequence.ts` : le nombre de dimensions de malus (9) rendait une table dense combinatoirement intraitable, alors que le nombre d'états *réellement* atteignables pour une séquence donnée reste faible en pratique. Ce choix garde le calcul exact (aucune approximation sur le résultat final, seulement une sur-approximation sûre de l'ensemble des états à considérer).
-- **Dépense de Focus/Fury par la cible : optimale via induction arrière, pas un simple réflexe "je dépense si ce coup me tuerait sinon"** — pertinent car un point peut valoir mieux dépensé plus tôt (pour préserver des boîtes utiles à la survie d'un coup futur) que gardé "au cas où". Le calcul reste exact (pas d'heuristique), au prix d'une table de valeurs par attaque et par état de malus atteignable plutôt que d'une simple règle locale.
-- **Shred volontairement non implémenté** : nécessiterait de cloner et insérer dynamiquement une attaque dans la séquence pendant le calcul lui-même (une attaque de Shred peut redéclencher un nouveau Shred), ce qui change la nature du problème (la séquence n'est plus figée à l'avance) — reporté à une prochaine itération plutôt que précipité dans l'architecture actuelle.
+- **Targeted rules edition: Warmachine MK4** (user's choice). Base mechanics (2d6, boost, double = critical, Tough) are considered stable and shared across editions; specific named effects are implemented with the most widely accepted wording, but still need to be checked/adjusted against the exact MK4 rulebook — see the functional documentation for the details of these assumptions.
+- **Attack order within a sequence: defined by the user**, no automatic optimization (a deliberate product decision, see the functional documentation for the rationale and its limits).
+- **Effects: a short, exact list rather than a generic system** — extensible within `AttackEffects`/`RollModifiers` (`attack-model.ts`) and `StatEffect`/`StatEffectType` (`sequence.ts`) as new rules get confirmed, but always a closed, named set of cases rather than an engine for arbitrary expressions.
+- **Reroll: a fixed optimal policy, no configurable threshold on the UI side** — rerolling a missed to-hit roll, or a below-average damage roll, mathematically maximizes the expected result; asking the player for a threshold would have added no useful flexibility for the cost of extra interface complexity.
+- **Persistent target penalties: a minimal typed state (`DebuffState`) + precomputed reachable states, rather than a dense multi-dimensional table** — see `computeReachableDebuffStates` in `sequence.ts`: the number of penalty dimensions (9) made a dense table combinatorially intractable, while the number of states *actually* reachable for a given sequence stays low in practice. This choice keeps the calculation exact (no approximation on the final result, only a safe over-approximation of the set of states to consider).
+- **Target's Focus/Fury spending: optimal via backward induction, not a simple "spend if this hit would otherwise kill me" reflex** — relevant because a point can be worth more spent earlier (to preserve boxes useful for surviving a future hit) than kept "just in case". The calculation stays exact (no heuristic), at the cost of a value table per attack and per reachable penalty state rather than a simple local rule.
+- **Shred deliberately not implemented**: would require dynamically cloning and inserting an attack into the sequence during the calculation itself (a Shred attack can itself re-trigger a new Shred), which changes the nature of the problem (the sequence is no longer fixed ahead of time) — postponed to a future iteration rather than rushed into the current architecture.
