@@ -803,3 +803,166 @@ describe('sequence engine - persistent target debuffs', () => {
     expect(hitTrigger.steps[1].averageDamage).toBeGreaterThan(critTrigger.steps[1].averageDamage);
   });
 });
+
+describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carapace, spell/Shield bonuses)', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('plain Tough is negated once the target is Knocked Down (the tabletop rule the engine did not model before)', () => {
+    const target = { def: 13, arm: 0, boxes: 1, tough: true, toughOn: 5 };
+
+    const withoutKnockdownFirst = computeSequenceOdds([attack({ forceAutoHit: true, pow: 100 })], target);
+    // Tough on 5+ survives 2/6 of the time while NOT Knocked Down -> fails (destroyed) 4/6 of the time.
+    expect(withoutKnockdownFirst.finalDestroyChance).toBeCloseTo(4 / 6, 9);
+
+    // boxes=50 here (not 1): attack 1's own damage (pow 0, arm 0, 2d6 -> 2..12) must stay strictly
+    // non-lethal on its own, or its Tough roll would also be exercised and muddy the result - only
+    // attack 2's massive pow:100 hit (always >= 102) should ever be lethal in this scenario.
+    const withKnockdownFirst = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, pow: 0, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 100 }),
+      ],
+      { ...target, boxes: 50 }
+    );
+    // The target is already Knocked Down when attack 2's lethal damage lands, so plain Tough
+    // can't be attempted at all -> guaranteed destruction, not the usual 4/6.
+    expect(withKnockdownFirst.finalDestroyChance).toBeCloseTo(1, 9);
+  });
+
+  it('Tough Steady still applies even while Knocked Down, unlike plain Tough', () => {
+    const target = { def: 13, arm: 0, boxes: 50, toughSteady: true, toughOn: 5 }; // boxes=50: see comment above
+    const result = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, pow: 0, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+        attack({ id: '2', forceAutoHit: true, pow: 100 }),
+      ],
+      target
+    );
+    // Same 4/6 fail chance as plain Tough gets when NOT Knocked Down - Tough Steady is immune
+    // to the negation plain Tough just suffered in the previous test.
+    expect(result.finalDestroyChance).toBeCloseTo(4 / 6, 9);
+  });
+
+  it('Unyielding adds +2 ARM against melee attacks only', () => {
+    const withUnyielding = { def: 13, arm: 10, boxes: 1000, unyielding: true };
+    const plain = { def: 13, arm: 10, boxes: 1000 };
+
+    const meleeWith = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], withUnyielding);
+    const meleeWithout = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], plain);
+    expect(meleeWith.steps[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].averageDamage - 2, 9);
+
+    const rangedWith = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], withUnyielding);
+    const rangedWithout = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], plain);
+    expect(rangedWith.steps[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].averageDamage, 9); // no bonus vs ranged
+  });
+
+  it('Carapace adds +4 ARM against ranged attacks only', () => {
+    const withCarapace = { def: 13, arm: 10, boxes: 1000, carapace: true };
+    const plain = { def: 13, arm: 10, boxes: 1000 };
+
+    const rangedWith = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], withCarapace);
+    const rangedWithout = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], plain);
+    expect(rangedWith.steps[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].averageDamage - 4, 9);
+
+    const meleeWith = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], withCarapace);
+    const meleeWithout = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], plain);
+    expect(meleeWith.steps[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].averageDamage, 9); // no bonus vs melee
+  });
+
+  it('shieldArmBonus (Shield) is a flat, unconditional ARM bonus', () => {
+    const target = { def: 13, arm: 10, boxes: 1000, shieldArmBonus: 3 };
+    const base = { def: 13, arm: 10, boxes: 1000 };
+    const withBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], base);
+    expect(withBonus.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage - 3, 9);
+  });
+
+  it('spellArmBonus (generic spell ARM bonus) is a flat, unconditional ARM bonus', () => {
+    const target = { def: 13, arm: 10, boxes: 1000, spellArmBonus: 3 };
+    const base = { def: 13, arm: 10, boxes: 1000 };
+    const withBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], base);
+    expect(withBonus.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage - 3, 9);
+  });
+
+  it('defBonus (generic spell DEF bonus) is a flat, unconditional DEF bonus', () => {
+    const target = { def: 10, arm: 0, boxes: 1000, defBonus: 2 };
+    const result = computeSequenceOdds([attack({ type: 'ranged', stat: 0 })], target);
+    // Effective DEF = 10+2 = 12, RAT 0, needed sum = 12 -> P(2d6 = 12) = 1/36.
+    expect(result.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+  });
+
+  it('Armor Piercing ignores ARM buffs too (Shield/spell/Unyielding/Carapace), using the printed base ARM', () => {
+    const target = { def: 13, arm: 16, boxes: 1000, shieldArmBonus: 4, unyielding: true };
+    const result = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, effects: { armorPiercing: 'hit' } })],
+      target
+    );
+    // Armor Piercing uses ceil(16/2)=8 (printed base ARM only), ignoring the +4 shieldArmBonus and
+    // the +2 Unyielding bonus that would otherwise apply to this melee attack (effective ARM would be 22).
+    // averageDamage = E[2d6] + 12 - 8 = 7 + 4 = 11.
+    expect(result.steps[0].averageDamage).toBeCloseTo(11, 9);
+  });
+
+  it('Blessed ignores every Stat-type spell bonus (DEF and ARM), but not Shield', () => {
+    const target = { def: 10, arm: 10, boxes: 1000, spellArmBonus: 3, defBonus: 2, shieldArmBonus: 5 };
+    const blessed = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12, blessed: true })], target);
+    const notBlessed = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const shieldOnly = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, blessed: true })],
+      { def: 10, arm: 10, boxes: 1000, shieldArmBonus: 5 }
+    );
+    // Blessed drops the +3 spellArmBonus (only Shield's +5 ARM remains), and DEF has no effect on
+    // averageDamage with forceAutoHit - so a Blessed attack should match an attack against a target
+    // with Shield alone.
+    expect(blessed.steps[0].averageDamage).toBeCloseTo(shieldOnly.steps[0].averageDamage, 9);
+    expect(blessed.steps[0].averageDamage).not.toBeCloseTo(notBlessed.steps[0].averageDamage, 9);
+  });
+
+  it('Chain Weapon ignores Shield ARM bonus specifically, but not spell stat bonuses', () => {
+    const target = { def: 10, arm: 10, boxes: 1000, spellArmBonus: 3, shieldArmBonus: 5 };
+    const chainWeapon = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12, chainWeapon: true })], target);
+    const spellOnly = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12 })],
+      { def: 10, arm: 10, boxes: 1000, spellArmBonus: 3 }
+    );
+    expect(chainWeapon.steps[0].averageDamage).toBeCloseTo(spellOnly.steps[0].averageDamage, 9);
+  });
+
+  it('Dispel removes every currently-Dispellable spell bonus/rule for the rest of the sequence, but not innate ones', () => {
+    // Attack 1 knocks nothing down and never lethal (boxes far above its max damage); its own
+    // Dispel effect fires on hit and should only affect attack 2's resolution, not attack 1's own.
+    const attack1 = attack({ forceAutoHit: true, pow: 0, statEffects: [{ type: 'dispel', trigger: 'hit' }] });
+    const attack2 = attack({ forceAutoHit: true, pow: 12 });
+    const target = {
+      def: 10,
+      arm: 10,
+      boxes: 1000,
+      spellArmBonus: 3,
+      spellArmBonusPostDispel: 0,
+      defBonus: 2,
+      defBonusPostDispel: 0,
+      unyielding: true,
+      unyieldingPostDispel: false,
+      shieldArmBonus: 5, // innate - Dispel never touches shieldArmBonus (see SequenceTarget doc)
+    };
+    const result = computeSequenceOdds([attack1, attack2], target);
+    const withoutDispellables = computeSequenceOdds(
+      [attack1, attack({ forceAutoHit: true, pow: 12 })],
+      { def: 10, arm: 10, boxes: 1000, shieldArmBonus: 5 }
+    );
+    // Attack 2 sees only Shield's ARM bonus once Dispel has fired before it - matches a target that
+    // never had the dispellable spell ARM bonus or Unyielding in the first place.
+    expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
+  });
+});

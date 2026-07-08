@@ -17,6 +17,14 @@
           >
             Jump the Shark
           </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.blessed()"
+            (click)="row.blessed.set(!row.blessed())"
+          >
+            Blessed
+          </button>
         </div>
 
         <h3 class="dialog__section-title">Attack</h3>
@@ -99,6 +107,14 @@
             (click)="row.shatter.set(!row.shatter())"
           >
             Shatter
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.chainWeapon()"
+            (click)="row.chainWeapon.set(!row.chainWeapon())"
+          >
+            Chain Weapon
           </button>
         </div>
 

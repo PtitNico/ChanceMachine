@@ -43,6 +43,7 @@ const STAT_EFFECT_TYPES: StatEffectType[] = [
   'flare',
   'weaken',
   'armPenalty',
+  'dispel',
 ];
 
 export const TRIGGER_EFFECT_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
@@ -59,6 +60,7 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   flare: 'Flare (-2 DEF)',
   weaken: 'Weaken (-2 DEF)',
   armPenalty: '-X ARM',
+  dispel: 'Dispel',
 };
 
 function isStatEffectKey(key: TriggerEffectKey): key is StatEffectType {
@@ -102,6 +104,7 @@ export interface AttackRow {
 
   // General.
   readonly jumpTheShark: WritableSignal<boolean>;
+  readonly blessed: WritableSignal<boolean>;
 
   // Attack roll.
   readonly discardAttackLowest: WritableSignal<boolean>;
@@ -115,6 +118,7 @@ export interface AttackRow {
   readonly rerollDamage: WritableSignal<boolean>;
   readonly trash: WritableSignal<boolean>;
   readonly shatter: WritableSignal<boolean>;
+  readonly chainWeapon: WritableSignal<boolean>;
 
   // Crit only.
   readonly brutalDamage: WritableSignal<boolean>;
@@ -133,6 +137,7 @@ export function createAttackRow(): AttackRow {
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
     jumpTheShark: signal(false),
+    blessed: signal(false),
     discardAttackLowest: signal(false),
     discardAttackHighest: signal(false),
     rerollAttack: signal(false),
@@ -142,6 +147,7 @@ export function createAttackRow(): AttackRow {
     rerollDamage: signal(false),
     trash: signal(false),
     shatter: signal(false),
+    chainWeapon: signal(false),
     brutalDamage: signal(false),
     triggerEffects: createTriggerEffects(),
   };
@@ -158,6 +164,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
     jumpTheShark: signal(source.jumpTheShark()),
+    blessed: signal(source.blessed()),
     discardAttackLowest: signal(source.discardAttackLowest()),
     discardAttackHighest: signal(source.discardAttackHighest()),
     rerollAttack: signal(source.rerollAttack()),
@@ -167,6 +174,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     rerollDamage: signal(source.rerollDamage()),
     trash: signal(source.trash()),
     shatter: signal(source.shatter()),
+    chainWeapon: signal(source.chainWeapon()),
     brutalDamage: signal(source.brutalDamage()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
@@ -175,6 +183,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
 export function resetEffects(row: AttackRow): void {
   row.forceAutoHit.set(false);
   row.jumpTheShark.set(false);
+  row.blessed.set(false);
   row.discardAttackLowest.set(false);
   row.discardAttackHighest.set(false);
   row.rerollAttack.set(false);
@@ -184,6 +193,7 @@ export function resetEffects(row: AttackRow): void {
   row.rerollDamage.set(false);
   row.trash.set(false);
   row.shatter.set(false);
+  row.chainWeapon.set(false);
   row.brutalDamage.set(false);
   for (const effect of row.triggerEffects) {
     effect.trigger.set('off');
@@ -196,6 +206,7 @@ export function effectsSummary(row: AttackRow): string[] {
   const parts: string[] = [];
   if (row.forceAutoHit()) parts.push('Auto-hit');
   if (row.jumpTheShark()) parts.push('Jump the Shark');
+  if (row.blessed()) parts.push('Blessed');
   if (row.discardAttackLowest()) parts.push('Discard lowest (atk)');
   if (row.discardAttackHighest()) parts.push('Discard highest (atk)');
   if (row.rerollAttack()) parts.push('Reroll (atk)');
@@ -205,6 +216,7 @@ export function effectsSummary(row: AttackRow): string[] {
   if (row.rerollDamage()) parts.push('Reroll (dmg)');
   if (row.trash()) parts.push('Trash');
   if (row.shatter()) parts.push('Shatter');
+  if (row.chainWeapon()) parts.push('Chain Weapon');
   if (row.brutalDamage()) parts.push('Crit Brutal Damage');
   for (const effect of row.triggerEffects) {
     const trigger = effect.trigger();
@@ -274,5 +286,7 @@ export function toSequencedAttack(row: AttackRow, index: number): SequencedAttac
     },
     statEffects: statEffects.length > 0 ? statEffects : undefined,
     forceAutoHit: row.forceAutoHit(),
+    blessed: row.blessed() || undefined,
+    chainWeapon: row.chainWeapon() || undefined,
   };
 }

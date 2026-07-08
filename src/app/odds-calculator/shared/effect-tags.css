@@ -1,0 +1,20 @@
+/* Small pill tags summarizing active effects/capabilities under an attack row or the
+   Target row - shared since both need the exact same compact, wrapping presentation. */
+
+.effect-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-left: 1.4rem;
+}
+
+.effect-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--steel);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}

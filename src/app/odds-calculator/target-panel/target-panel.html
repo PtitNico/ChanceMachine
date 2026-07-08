@@ -41,37 +41,14 @@
       </select>
     </label>
 
-    <label class="mini-field">
-      <span class="mini-field__label">Focus</span>
-      <select
-        class="mini-field__input mini-field__input--select"
-        [ngModel]="target().focus()"
-        (ngModelChange)="target().focus.set(toNumber($event))"
-      >
-        @for (v of resourceOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-
-    <label class="mini-field">
-      <span class="mini-field__label">Fury</span>
-      <select
-        class="mini-field__input mini-field__input--select"
-        [ngModel]="target().fury()"
-        (ngModelChange)="target().fury.set(toNumber($event))"
-      >
-        @for (v of resourceOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-
-    <label class="mini-field mini-field--check" title="Tough (succeeds on 5+)">
-      <span class="mini-field__label">Tough</span>
-      <span class="mini-field__control">
-        <input type="checkbox" [ngModel]="target().tough()" (ngModelChange)="target().tough.set($event)" />
-      </span>
-    </label>
+    <button type="button" class="icon-btn" (click)="openProfile.emit()" aria-label="Target profile">⚙</button>
   </div>
+
+  @if (targetSummary(target()).length > 0) {
+    <div class="effect-tags">
+      @for (label of targetSummary(target()); track label) {
+        <span class="effect-tag">{{ label }}</span>
+      }
+    </div>
+  }
 </section>

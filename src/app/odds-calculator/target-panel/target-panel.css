@@ -9,3 +9,9 @@
   flex-shrink: 0;
   min-width: 0;
 }
+
+/* The cog button sits directly in .target-row (no .mini-field wrapper around it), so it
+   needs the same flex-end alignment AttackRow's own icon buttons get. */
+.target-row .icon-btn {
+  align-self: flex-end;
+}

@@ -1,6 +1,7 @@
-/* Effects dialog only: header and footer (.dialog__actions) stay put, and only
-   .dialog__body (the effect sections in between) scrolls - overrides the plain
-   .dialog__content's own overflow-y so the header/footer are never scrolled past. */
+/* Shared by every "framed" popup (Effects, Target profile): header and footer
+   (.dialog__actions) stay put, and only .dialog__body (the sections in between)
+   scrolls - overrides the plain .dialog__content's own overflow-y so the header/
+   footer are never scrolled past. */
 .dialog__content--framed {
   display: flex;
   flex-direction: column;
@@ -40,9 +41,10 @@
   border-top: none;
 }
 
-/* --- Toggle-pill buttons: the primary control for every effect in this dialog.
-   Grouped into flex-wrap rows (.toggle-group) so adding many effects wraps onto more
-   lines within the dialog's fixed max-width instead of ever widening the app. --- */
+/* --- Toggle-pill buttons: the primary control for every boolean effect/capability in
+   these dialogs. Grouped into flex-wrap rows (.toggle-group) so adding many of them
+   wraps onto more lines within the dialog's fixed max-width instead of ever widening
+   the app. --- */
 
 .toggle-group {
   display: flex;
@@ -126,7 +128,7 @@
   color: #d97a6a;
 }
 
-/* --- Field used for the -X ARM amount select (label + input side by side) --- */
+/* --- Label + <select>/<input> field row (e.g. the -X ARM amount, Focus/Fury) --- */
 
 .field {
   display: flex;

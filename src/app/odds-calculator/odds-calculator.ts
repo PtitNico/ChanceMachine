@@ -8,12 +8,24 @@ import { DetailsDialog } from './details-dialog/details-dialog';
 import { EffectsDialog } from './effects-dialog/effects-dialog';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
-import { TargetState, createTargetState } from './target-panel/target-panel.model';
+import {
+  TargetState,
+  createTargetState,
+  effectiveCarapace,
+  effectiveToughKind,
+  effectiveUnyielding,
+  shieldArmBonus,
+  spellArmBonus,
+  spellArmBonusPostDispel,
+  spellDefBonus,
+  spellDefBonusPostDispel,
+} from './target-panel/target-panel.model';
+import { TargetProfileDialog } from './target-profile-dialog/target-profile-dialog';
 
 @Component({
   selector: 'app-odds-calculator',
   standalone: true,
-  imports: [TargetPanel, AttackRowComponent, ResultsPanel, EffectsDialog, DetailsDialog],
+  imports: [TargetPanel, AttackRowComponent, ResultsPanel, EffectsDialog, DetailsDialog, TargetProfileDialog],
   templateUrl: './odds-calculator.html',
   // Shared partials first, this component's own file last: `.console--attacks` here must
   // win its `flex-shrink` tie-break against shared/section.css's `.console` (equal
@@ -46,9 +58,25 @@ export class OddsCalculator {
       def: this.target.def(),
       arm: this.target.arm(),
       boxes: this.target.boxes(),
-      tough: this.target.tough(),
-      focusPoints: OddsCalculator.clampResourcePoints(this.target.focus()),
-      furyPoints: OddsCalculator.clampResourcePoints(this.target.fury()),
+      tough: effectiveToughKind(this.target) === 'tough',
+      toughSteady: effectiveToughKind(this.target) === 'toughSteady',
+      toughPostDispel: this.target.toughKind() === 'tough',
+      toughSteadyPostDispel: this.target.toughKind() === 'toughSteady',
+      focusPoints: OddsCalculator.clampResourcePoints(
+        this.target.resourceKind() === 'focus' ? this.target.resourcePoints() : 0
+      ),
+      furyPoints: OddsCalculator.clampResourcePoints(
+        this.target.resourceKind() === 'fury' ? this.target.resourcePoints() : 0
+      ),
+      shieldArmBonus: shieldArmBonus(this.target),
+      spellArmBonus: spellArmBonus(this.target),
+      spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),
+      defBonus: spellDefBonus(this.target),
+      defBonusPostDispel: spellDefBonusPostDispel(this.target),
+      unyielding: effectiveUnyielding(this.target),
+      unyieldingPostDispel: this.target.unyielding(),
+      carapace: effectiveCarapace(this.target),
+      carapacePostDispel: this.target.carapace(),
     })
   );
 

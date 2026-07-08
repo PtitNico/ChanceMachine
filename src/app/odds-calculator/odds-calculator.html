@@ -4,7 +4,7 @@
   </header>
 
   <div class="panel__body">
-    <app-target-panel [target]="target" />
+    <app-target-panel [target]="target" (openProfile)="targetProfileDialogRef.open()" />
 
     <section class="console console--attacks" aria-label="Attack sequence">
       <h2 class="console__title">Attack sequence</h2>
@@ -32,6 +32,8 @@
   </div>
 
   <app-effects-dialog #effectsDialogRef />
+
+  <app-target-profile-dialog #targetProfileDialogRef [target]="target" />
 
   <app-details-dialog
     #detailsDialogRef

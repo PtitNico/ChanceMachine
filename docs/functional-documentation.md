@@ -15,7 +15,7 @@ The international Warmachine/Hordes player community — which is why the interf
 ## What the app calculates
 
 Given:
-- a **single target** (DEF, ARM, remaining damage boxes, Tough or not),
+- a **single target** (DEF, ARM, remaining damage boxes, plus an optional profile of resource points and capabilities — Focus/Fury, Tough, Shield, Unyielding, Carapace, spell bonuses),
 - an **ordered attack sequence** (one or more attackers, each with one or more attacks),
 
 the app calculates, via **exact enumeration** of dice rolls (no approximation or random simulation):
@@ -41,8 +41,13 @@ A single row of fields, shared across the whole attack sequence:
 - **DEF**: `KD` (the target is Knocked Down from the start of the sequence — **melee** attacks then automatically hit for the whole sequence, but **ranged** and **magic** attacks still roll normally against a DEF of 5), then 5 to 25.
 - **ARM**: 1 to 35.
 - **Boxes** (remaining damage capacity): 1 to 99.
-- **Focus** / **Fury**: 0 to 15 (see "Focus and Fury" below).
-- A **Tough** checkbox — always succeeds on 5+, no configurable threshold.
+- A **⚙ (cog)** icon button that opens the **Target profile** pop-up (see below). Once the pop-up is closed, a compact summary of every active item is shown in small text **below the row** (e.g. `Focus 2`, `Tough Steady`, `Shield +2 ARM`, `Arcane Shield (+3 ARM) [Dispellable]`), the same "tags under the row" presentation already used for each attack's active effects.
+
+The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, organized into toggle-button sections identical in style to the Effects pop-up (see "Attack sequence" below):
+- **Resources**: a **Focus / Fury** toggle (a model has one or the other, never both) plus a single point count, 0 to 15 (see "Focus and Fury" below).
+- **Special rules**: **Tough** / **Tough Steady** (mutually exclusive — activating one deactivates the other; see "Modeled rules" for the difference between them), **Shield** (a flat ARM bonus, amount 1 to 10, appears once Shield is active), **Unyielding** (+2 ARM against melee attacks only), **Carapace** (+4 ARM against ranged attacks only).
+- **Spells**: a repeatable list for spell-granted stat bonuses or capabilities that aren't worth naming individually (there are far too many to enumerate) — see "Spell bonuses" below.
+- **Reset**: clears every item in the pop-up at once (DEF/ARM/Boxes, which live outside the pop-up, are untouched).
 
 ### 2. Attack sequence
 
@@ -57,10 +62,10 @@ An ordered list of "attack" rows. Each row represents **one attack** and carries
 
   Each effect in the pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
   - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
-  - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll).
+  - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
   - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
-  - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter.
-  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM") appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
+  - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
+  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
   - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" row instead of unchecking effects one by one.
 
 The **"+ Add attack"** button adds a new attack at the bottom of the list, **copying the values of the last attack in the list** (type, stats, dice, every effect) — since chaining similar attacks is the most common case, the player only needs to adjust the few fields that change instead of re-entering everything.
@@ -84,7 +89,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **A to-hit roll where every die shows 1 is always a miss**, regardless of MAT/RAT/AAT and DEF.
 - **A to-hit roll where every die shows 6 is always a hit** (and therefore also a critical hit, since a roll where every die matches necessarily contains a double), regardless of MAT/RAT/AAT and DEF — unless only one die is rolled, in which case a lone 6 gets no special bonus.
 - Damage roll: 2d6 + any boosts + POW − ARM (minimum 0).
-- **Tough**: whenever damage would be lethal, a Tough roll is attempted; on success, the target survives with 1 box remaining and becomes Knocked Down (standard Tough rule behavior) instead of being destroyed.
+- **Tough**: whenever damage would be lethal, a Tough roll is attempted; on success, the target survives with 1 box remaining and becomes Knocked Down (standard Tough rule behavior) instead of being destroyed. **A Knocked Down or Stationary target cannot attempt a plain Tough roll at all** (the real tabletop rule — a downed model doesn't get to try) and is simply destroyed; **Tough Steady** is a separate capability that behaves exactly like Tough but is immune to that negation, so it always gets its roll regardless of the target's current state.
 - **Auto-hit** (`Effects > Auto-hit`, or a Knocked Down/Stationary target facing a melee attack, or `DEF: KD`): no to-hit roll is made at all, so an auto-hit can never produce a critical hit (no to-hit dice rolled = no double possible).
 - **DEF: KD** (target starts the sequence Knocked Down) behaves exactly like a Knockdown triggered mid-sequence (see below), simply active from the first attack rather than triggered by one: only **melee** attacks auto-hit (for the whole sequence, from the start); **ranged** and **magic** attacks roll normally against a DEF of 5.
 
@@ -102,6 +107,8 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Decapitation** (triggered on a hit or on a critical hit, your choice): doubles the damage dealt by this attack.
 - **Trash**: an extra damage die if the target is **currently** Knocked Down at the time of this attack.
 - **Shatter**: an extra damage die if the target is **currently** Stationary at the time of this attack.
+- **Blessed**: this attack ignores every **Stat**-type spell bonus on the target (both DEF and ARM) — Shield, Unyielding, Carapace, and any **Rule**-type spell grant are all unaffected, since those aren't Stat-type bonuses.
+- **Chain Weapon**: this attack ignores the target's **Shield** ARM bonus specifically — nothing else (not spell stat bonuses, not Unyielding/Carapace).
 
 **Effects that persist on the target** (triggered on a hit or on a critical hit, chosen per effect; remain active for **the rest of the sequence** once triggered — unless stated otherwise):
 - **Knockdown**: the target becomes *Knocked Down*. Only later **melee** attacks benefit from it (auto-hit); ranged and magic attacks still roll normally, but against a DEF capped at 5 (see "Stationary" below for the details of that cap).
@@ -113,10 +120,34 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Flare**: −2 DEF.
 - **Weaken**: −2 DEF.
 - **-X ARM** (generic, amount configurable from 1 to 10): reduces the target's ARM for the rest of the sequence, stackable with other instances of this effect. Armor Piercing deliberately ignores this penalty (it always starts from base ARM).
+- **Dispel**: removes every spell bonus/rule currently flagged **Dispellable** (see "Spell bonuses" below) from the target, for the rest of the sequence. A **Rule**-type spell entry is always Dispellable, so any Tough/Unyielding it grants goes away too; a **Stat**-type entry only goes away if its own Dispellable checkbox is still checked. Innate capabilities toggled directly in "Special rules" are never affected — only spell-granted ones can be dispelled. Like the other persistent effects, once triggered it applies to every later attack in the sequence, never the attack that triggered it.
 
 All the DEF penalties listed above are **additive** with each other (Ice Cage, Shadowbind, Blind, Flare, Weaken all stack), except Knocked Down/Stationary/Paralysis, which **cap DEF at 5 first** before the other penalties are added on top (so DEF can potentially drop below 5 if several effects stack). Each named effect (other than Ice Cage and "-X ARM", which are explicitly stackable) can only apply once on a given target, even if triggered by several different attacks in the sequence — a second occurrence then has no further effect.
 
 **Effect reserved for a future iteration: Shred** (an extra free attack on a critical hit, with the same profile as the attack that triggered it) — deliberately not implemented yet (see "Not yet implemented").
+
+### Target capabilities
+
+Set once in the Target profile pop-up (see "Target" above), these apply for the **whole sequence** rather than being triggered by a specific attack:
+- **Tough** / **Tough Steady**: see "Modeled rules" above for how they differ.
+- **Shield**: a flat ARM bonus (amount configurable from 1 to 10), applied against every attack regardless of type — unless that attack has **Chain Weapon**, which ignores Shield specifically.
+- **Unyielding**: +2 ARM, but only against **melee** attacks.
+- **Carapace**: +4 ARM, but only against **ranged** attacks.
+
+None of these stack with themselves (each is a simple on/off toggle), and Shield/Unyielding/Carapace/Tough Steady are all cumulative with each other and with the persistent DEF/ARM effects listed above (they're independent bonuses, not mutually exclusive with anything except Tough/Tough Steady with each other).
+
+**Rapid Healing** (the target recovers d3 boxes after being damaged by an attack) is a named capability from the same source list, but is **not implemented at all yet** — see "Not yet implemented" for why.
+
+### Spell bonuses
+
+Warmachine/Hordes has far too many spells to list individually, and each one either grants a flat stat bonus or a named capability for the rest of the game. Rather than trying to enumerate them, the Target profile pop-up's **Spells** section is a repeatable list: for each spell currently active on the target, add an entry with:
+- A **name** (free text, purely for the player's own reference — it doesn't affect the calculation).
+- A **type**, either:
+  - **Stat**: a single **DEF or ARM bonus** (0 to 10), applied unconditionally (regardless of attack type), added on top of everything else.
+  - **Rule**: **Tough** or **Unyielding** — granted to the target exactly as if it had been toggled directly in the "Special rules" section above, with the same conditions (Unyielding still only applies against melee attacks). Only these two are offered here (Tough Steady, Shield, and Carapace are almost always innate model rules rather than spell-granted in practice, so they're left off this list to keep it short). Only one rule per entry; a spell granting several needs one entry each.
+- A **Dispellable** checkbox, for spells that are Upkeep/animus effects (as opposed to a one-shot effect that still lasts the rest of the fight) — an attack's **Dispel** effect removes every entry still flagged Dispellable, for the rest of the sequence. A **Rule**-type entry is always Dispellable and the checkbox is locked on: a rule that's never meant to be dispelled should just be toggled directly in "Special rules" instead of modeled as a spell.
+
+As many spell entries as needed can be added at once (a caster can have several buffs active on the same model simultaneously) — each is removed individually with its own **✕** button.
 
 ### Focus and Fury (target resource points)
 
@@ -138,7 +169,8 @@ Some rules points were implemented using the most commonly accepted formulation 
 
 ## Not yet implemented
 
-- **Shred** (an extra free attack on a critical hit, same profile as the attack that triggered it, itself able to re-trigger a new Shred): postponed to a future iteration — it's the only effect from the list provided by the user that's still not implemented.
+- **Shred** (an extra free attack on a critical hit, same profile as the attack that triggered it, itself able to re-trigger a new Shred): postponed to a future iteration.
+- **Rapid Healing** (recover d3 boxes after being damaged): would need a genuine new probability branch in the engine (a d3 heal roll after every non-lethal hit), comparable in scope to the persistent-debuffs work — deliberately postponed rather than rushed in. No toggle is shown for it in the UI yet (unlike Shred, which is at least referenced in the effects list): a visible-but-inert toggle for a capability whose entire purpose is a numeric effect would silently mislead players into thinking it changes the result.
 - **Automatic optimization of attack order**: a product decision — the order remains manually defined by the user (see "Product choices").
 - Unit handling (several identical models in a single group attack) — not handled, the engine reasons model by model.
 
@@ -146,13 +178,16 @@ Some rules points were implemented using the most commonly accepted formulation 
 
 - **Rules edition: MK4** — rather than MK2/MK3, in line with the edition currently played by the community.
 - **Attack order defined by the user**, rather than automatic optimization: simpler to use, matches how a player actually plans their turn (they already know the order they intend to play their attacks in), and avoids the combinatorial explosion of an exhaustive search over ordering as the number of attacks grows.
-- **Effects: a short, exact list rather than a generic, fully configurable system** — priority given to the correctness of implemented rules over broad but approximate coverage. The list has grown (roll modifiers, per-attack effects, persistent target effects) but remains a named, closed list, not an engine for arbitrary effects.
+- **Effects: a short, exact list rather than a generic, fully configurable system** — priority given to the correctness of implemented rules over broad but approximate coverage. The list has grown (roll modifiers, per-attack effects, persistent target effects, target capabilities) but remains a named, closed list, not an engine for arbitrary effects.
+- **Spell bonuses are the one deliberate exception, by necessity**: since Warmachine/Hordes has far too many spells to name individually, the Target profile's Spells section is a small generic system (name + Stat-or-Rule + Dispellable tag) rather than a named list — the only place in the app where the player enters a raw stat bonus instead of picking a named, pre-validated effect. Reusing the same "Special rules" toggles for the Rule case keeps attack-type conditions (Unyielding/Carapace) and Tough/Tough Steady exclusivity correct for free, rather than reimplementing them a second time for the spell path. Blessed and Dispel then read the Dispellable/Stat-or-Rule tags directly, so this generic system pays off across both the Spells section itself and the two attack effects that interact with it.
 - **Reroll with no configurable threshold**: rather than asking the player to pick a reroll threshold, the app always applies the optimal policy (reroll a missed to-hit roll, or a below-average damage roll) — avoiding an extra configuration field for a mathematically equivalent or better result.
 - **Additive DEF penalties, with Knocked Down/Stationary/Paralysis as a floor**: the named penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) all stack with each other; Knocked Down/Stationary/Paralysis cap DEF at 5 first rather than stacking like the others, reflecting their in-game wording ("DEF reduced to 5" rather than "−X DEF").
 - **Persistent effects don't stack unless stated otherwise**: a given named effect can only apply once to a target (Ice Cage and the generic "-X ARM" being the only explicitly stackable exceptions), staying faithful to the "unless specified" wording provided by the user.
+- **Tough vs. Knocked Down is now correctly modeled**: an earlier version of the app let Tough succeed even while the target was already Knocked Down, which isn't how the tabletop rule works. Fixing this was necessary for Tough Steady (a capability that's specifically defined as "Tough, but immune to that negation") to mean anything at all.
 
 ## Roadmap
 
 - Implement Shred (recursive free attack on a critical hit).
+- Implement Rapid Healing (d3 box recovery after a non-lethal hit).
 - Icons and final PWA manifest configuration.
 - Verification of the display on smartphones (in progress).

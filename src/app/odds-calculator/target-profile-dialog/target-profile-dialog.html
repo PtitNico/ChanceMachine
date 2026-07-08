@@ -1,0 +1,182 @@
+<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
+  @let t = target();
+  <div class="dialog__content dialog__content--framed">
+    <header class="dialog__header">
+      <h2 class="dialog__title">Target profile</h2>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </header>
+
+    <div class="dialog__body">
+      <h3 class="dialog__section-title">Resources</h3>
+      <div class="resource-row">
+        <div class="toggle-group">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="t.resourceKind() === 'focus'"
+            (click)="t.resourceKind.set('focus')"
+          >
+            Focus
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="t.resourceKind() === 'fury'"
+            (click)="t.resourceKind.set('fury')"
+          >
+            Fury
+          </button>
+        </div>
+        <select
+          class="field__select field__select--narrow"
+          title="Points"
+          [ngModel]="t.resourcePoints()"
+          (ngModelChange)="t.resourcePoints.set(toNumber($event))"
+        >
+          @for (v of resourceOptions; track v) {
+            <option [value]="v">{{ v }}</option>
+          }
+        </select>
+      </div>
+
+      <h3 class="dialog__section-title">Special rules</h3>
+      <div class="toggle-group">
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.toughKind() === 'tough'"
+          (click)="toggleToughKind(t, 'tough')"
+        >
+          Tough
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.toughKind() === 'toughSteady'"
+          (click)="toggleToughKind(t, 'toughSteady')"
+        >
+          Tough Steady
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.shield()"
+          (click)="t.shield.set(!t.shield())"
+        >
+          Shield
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.unyielding()"
+          (click)="t.unyielding.set(!t.unyielding())"
+        >
+          Unyielding
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.carapace()"
+          (click)="t.carapace.set(!t.carapace())"
+        >
+          Carapace
+        </button>
+      </div>
+      @if (t.shield()) {
+        <label class="field">
+          <span class="field__label">Shield amount</span>
+          <select
+            class="field__select field__select--narrow"
+            [ngModel]="t.shieldAmount()"
+            (ngModelChange)="t.shieldAmount.set(toNumber($event))"
+          >
+            @for (v of shieldAmountOptions; track v) {
+              <option [value]="v">+{{ v }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      <h3 class="dialog__section-title">Spells</h3>
+      @for (spell of t.spellBonuses(); track spell.id) {
+        <div class="spell-row">
+          <div class="spell-row__line">
+            <input
+              type="text"
+              class="spell-row__name"
+              placeholder="Spell name"
+              [ngModel]="spell.name()"
+              (ngModelChange)="spell.name.set($event)"
+            />
+            <select
+              class="field__select field__select--narrow"
+              title="Bonus type"
+              [ngModel]="spell.kind()"
+              (ngModelChange)="setSpellKind(spell, $event)"
+            >
+              <option value="stat">Stat</option>
+              <option value="rule">Rule</option>
+            </select>
+          </div>
+          <div class="spell-row__line">
+            @if (spell.kind() === 'stat') {
+              <select
+                class="field__select field__select--narrow"
+                title="Bonus amount"
+                [ngModel]="spell.statAmount()"
+                (ngModelChange)="spell.statAmount.set(toNumber($event))"
+              >
+                @for (v of spellBonusOptions; track v) {
+                  <option [value]="v">+{{ v }}</option>
+                }
+              </select>
+              <select
+                class="field__select field__select--narrow"
+                title="Bonus stat"
+                [ngModel]="spell.statType()"
+                (ngModelChange)="spell.statType.set($event)"
+              >
+                <option value="def">DEF</option>
+                <option value="arm">ARM</option>
+              </select>
+            } @else {
+              <select
+                class="field__select field__select--narrow"
+                title="Granted rule"
+                [ngModel]="spell.ruleKind()"
+                (ngModelChange)="spell.ruleKind.set($event)"
+              >
+                @for (r of spellRuleOptions; track r) {
+                  <option [value]="r">{{ spellRuleLabels[r] }}</option>
+                }
+              </select>
+            }
+            <label class="spell-row__dispellable" title="Dispellable - removable by a future Dispel effect">
+              <input
+                type="checkbox"
+                [ngModel]="spell.dispellable()"
+                (ngModelChange)="spell.dispellable.set($event)"
+                [disabled]="spell.kind() === 'rule'"
+              />
+              Up
+            </label>
+            <button
+              type="button"
+              class="icon-btn icon-btn--danger spell-row__remove"
+              (click)="removeSpellBonus(t, spell.id)"
+              aria-label="Remove spell bonus"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      }
+      <button type="button" class="add-spell-btn" (click)="addSpellBonus(t)">+ Add spell</button>
+    </div>
+
+    <div class="dialog__actions">
+      <button type="button" class="dialog__reset-btn" (click)="resetProfile(t)">Reset</button>
+      <button type="button" class="dialog__done-btn" (click)="close()">Done</button>
+    </div>
+  </div>
+</dialog>

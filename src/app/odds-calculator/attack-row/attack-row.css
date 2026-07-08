@@ -17,24 +17,6 @@
   border-bottom: none;
 }
 
-.attack-row__effects {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.4rem;
-  padding-left: 1.4rem;
-}
-
-.effect-tag {
-  font-size: 0.62rem;
-  letter-spacing: 0.02em;
-  color: var(--steel);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  padding: 0.12rem 0.4rem;
-  white-space: nowrap;
-}
-
 .attack-row__index {
   flex-shrink: 0;
   align-self: center;

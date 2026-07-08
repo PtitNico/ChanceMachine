@@ -17,11 +17,25 @@
  *
  * On top of that, attacks can inflict PERSISTENT debuffs on the target
  * (Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare,
- * Weaken, a generic ARM debuff) that change its DEF/ARM for the REST of the
- * sequence - see `DebuffState` below. These evolve independently of the
- * Focus/Fury sub-problem (spending a resource point never changes DEF/ARM),
- * but they do interact at one point: surviving a Tough roll always also
- * knocks the target down.
+ * Weaken, a generic ARM debuff, Dispel) that change its DEF/ARM for the REST
+ * of the sequence - see `DebuffState` below. These evolve independently of
+ * the Focus/Fury sub-problem (spending a resource point never changes
+ * DEF/ARM), but they do interact at two points: surviving a Tough roll
+ * always also knocks the target down, and a Knocked Down/Stationary target
+ * can't attempt a plain Tough roll at all (Tough Steady is immune to that
+ * second coupling - see `damageBranches`).
+ *
+ * The target can also carry static, sequence-wide bonuses - Shield/Unyielding/
+ * Carapace/generic spell bonuses - resolved once per attack context in
+ * `profileFor`, same as the printed DEF/ARM stats they sit on top of. Some of
+ * these are spell-granted rather than innate to the model, which is why each
+ * one comes in a PRE-Dispel/POST-Dispel pair (`SequenceTarget.spellArmBonus`/
+ * `spellArmBonusPostDispel`, `unyielding`/`unyieldingPostDispel`, etc.) -
+ * `profileFor` picks whichever half of the pair matches `debuffState.dispelled`.
+ * Two more per-attack toggles narrow which of these a SPECIFIC attack sees at
+ * all, regardless of Dispel: Blessed (`SequencedAttack.blessed`) ignores every
+ * Stat-type spell bonus, and Chain Weapon (`SequencedAttack.chainWeapon`)
+ * ignores Shield's ARM bonus - see `profileFor`.
  *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
@@ -44,7 +58,11 @@ import {
   buildAttackProfile,
 } from './attack-model';
 
-/** Named persistent target debuffs an attack can inflict on a hit or a crit. See doc comments on each in `docs/`. */
+/** Named persistent target debuffs an attack can inflict on a hit or a crit. See doc comments on
+ *  each in `docs/`. 'dispel' is the odd one out - it doesn't debuff DEF/ARM directly, it strips
+ *  every currently-dispellable spell bonus/rule off the target (see `profileFor`) - but it's
+ *  modeled the same way (a `DebuffState` flag that, once set, persists for the rest of the
+ *  sequence) since it's exactly as "sticky" as the others. */
 export type StatEffectType =
   | 'knockdown'
   | 'stationary'
@@ -54,7 +72,8 @@ export type StatEffectType =
   | 'paralysis'
   | 'flare'
   | 'weaken'
-  | 'armPenalty';
+  | 'armPenalty'
+  | 'dispel';
 
 export interface StatEffect {
   type: StatEffectType;
@@ -79,6 +98,10 @@ export interface SequencedAttack {
   statEffects?: StatEffect[];
   /** Manual override: this attack automatically hits regardless of DEF (e.g. target is Stationary). */
   forceAutoHit?: boolean;
+  /** This attack ignores every Stat-type spell bonus (DEF and ARM alike) on the target. */
+  blessed?: boolean;
+  /** This attack ignores the target's Shield ARM bonus specifically (nothing else). */
+  chainWeapon?: boolean;
 }
 
 export interface SequenceTarget {
@@ -88,12 +111,46 @@ export interface SequenceTarget {
   def: number | 'KD';
   arm: number;
   boxes: number;
+  /** A Knocked Down or Stationary target cannot attempt a Tough roll (see `isKnockedDownOrStationary`)
+   *  - plain Tough is negated exactly like the tabletop rule. Mutually exclusive with `toughSteady`. */
   tough?: boolean;
+  /** Like `tough`, but the roll is never negated by Knocked Down/Stationary. Mutually exclusive with `tough`. */
+  toughSteady?: boolean;
+  /** `tough`/`toughSteady` as they'd read if Dispel had already fired - i.e. the target's INNATE
+   *  Tough/Tough Steady alone. A spell-granted Tough/Tough Steady is always Dispellable by
+   *  construction (see target-panel.model.ts), so it never survives past this point; an innate one
+   *  always does. `profileFor`/`damageBranches` pick this half of the pair once `DebuffState.dispelled`
+   *  is true. Leave unset (defaults to `false`) if Tough/Tough Steady is never spell-granted. */
+  toughPostDispel?: boolean;
+  toughSteadyPostDispel?: boolean;
   toughOn?: number;
   /** Focus points the target can spend, one per attack, after damage is rolled: reduces that hit's damage by 5. */
   focusPoints?: number;
   /** Fury points the target can spend, one per attack, after damage is rolled: negates that hit's damage entirely (transferred to a warbeast). */
   furyPoints?: number;
+  /** Flat ARM bonus from Shield specifically (kept apart from `spellArmBonus` so Chain Weapon can
+   *  ignore just this component) - added on top of `arm`, but deliberately NOT included in the
+   *  "base ARM" Armor Piercing halves (see `profileFor`). Not itself Dispel-aware: a spell-granted
+   *  Shield isn't reachable from the current UI, so this is always the innate capability's bonus. */
+  shieldArmBonus?: number;
+  /** Flat ARM bonus from every currently-active Stat-type spell (Dispellable or not) - kept apart
+   *  from `shieldArmBonus` so Blessed can ignore just this component. */
+  spellArmBonus?: number;
+  /** Same, but counting only the spells that are NOT flagged Dispellable - what's left of
+   *  `spellArmBonus` once Dispel has fired (see `toughPostDispel` for the same pattern). */
+  spellArmBonusPostDispel?: number;
+  /** Flat DEF bonus from every currently-active Stat-type spell (Dispellable or not). */
+  defBonus?: number;
+  /** Same, but counting only the spells that are NOT flagged Dispellable. */
+  defBonusPostDispel?: number;
+  /** +2 ARM against melee attacks specifically (innate or spell-granted). */
+  unyielding?: boolean;
+  /** `unyielding` as it'd read post-Dispel - see `toughPostDispel`. */
+  unyieldingPostDispel?: boolean;
+  /** +4 ARM against ranged attacks specifically (innate or spell-granted). */
+  carapace?: boolean;
+  /** `carapace` as it'd read post-Dispel - see `toughPostDispel`. */
+  carapacePostDispel?: boolean;
 }
 
 export interface SequenceStepResult {
@@ -140,6 +197,9 @@ interface DebuffState {
   weaken: boolean;
   /** Generic "-X ARM", cumulative across every instance that triggers. */
   armPenalty: number;
+  /** Once true, every currently-Dispellable spell bonus/rule on the target is gone for the rest
+   *  of the sequence - see `profileFor` and the `*PostDispel` fields on `SequenceTarget`. */
+  dispelled: boolean;
 }
 
 const INITIAL_DEBUFFS: DebuffState = {
@@ -152,6 +212,7 @@ const INITIAL_DEBUFFS: DebuffState = {
   flare: false,
   weaken: false,
   armPenalty: 0,
+  dispelled: false,
 };
 
 /** Ice Cage makes the target Stationary once it reaches 2 stacks, on top of an explicit Stationary effect. */
@@ -172,7 +233,7 @@ function effectiveDef(baseDef: number, s: DebuffState): number {
 }
 
 function debuffKey(s: DebuffState): string {
-  return `${s.knockedDown ? 1 : 0}${s.stationary ? 1 : 0}${s.iceCageStacks}${s.shadowbind ? 1 : 0}${s.blind ? 1 : 0}${s.paralyzed ? 1 : 0}${s.flare ? 1 : 0}${s.weaken ? 1 : 0}.${s.armPenalty}`;
+  return `${s.knockedDown ? 1 : 0}${s.stationary ? 1 : 0}${s.iceCageStacks}${s.shadowbind ? 1 : 0}${s.blind ? 1 : 0}${s.paralyzed ? 1 : 0}${s.flare ? 1 : 0}${s.weaken ? 1 : 0}${s.dispelled ? 1 : 0}.${s.armPenalty}`;
 }
 
 function applyStatEffect(s: DebuffState, effect: StatEffect): DebuffState {
@@ -195,6 +256,8 @@ function applyStatEffect(s: DebuffState, effect: StatEffect): DebuffState {
       return s.weaken ? s : { ...s, weaken: true };
     case 'armPenalty':
       return { ...s, armPenalty: s.armPenalty + (effect.amount ?? 0) };
+    case 'dispel':
+      return s.dispelled ? s : { ...s, dispelled: true };
   }
 }
 
@@ -223,7 +286,7 @@ function applyStatEffectsForOutcome(s: DebuffState, statEffects: StatEffect[] | 
 function computeReachableDebuffStates(
   attacks: SequencedAttack[],
   startsKnockedDown: boolean,
-  hasTough: boolean
+  hasAnyTough: boolean
 ): DebuffState[][] {
   const perStep: DebuffState[][] = [];
   const initial = startsKnockedDown ? { ...INITIAL_DEBUFFS, knockedDown: true } : INITIAL_DEBUFFS;
@@ -244,9 +307,9 @@ function computeReachableDebuffStates(
       ];
       for (const candidate of candidates) {
         add(candidate);
-        // Surviving a Tough roll always also knocks the target down (see damageBranches),
-        // regardless of which of the candidates above it happens on top of.
-        if (hasTough && !candidate.knockedDown) {
+        // Surviving a Tough or Tough Steady roll always also knocks the target down (see
+        // damageBranches), regardless of which of the candidates above it happens on top of.
+        if (hasAnyTough && !candidate.knockedDown) {
           add({ ...candidate, knockedDown: true });
         }
       }
@@ -270,6 +333,20 @@ interface ResourceBranch {
 
 type ValueLookup = (boxes: number, debuffState: DebuffState, focusLeft: number, furyLeft: number) => number;
 
+/**
+ * Tough/Tough Steady come in a pre-Dispel/post-Dispel pair (see `SequenceTarget`'s
+ * `toughPostDispel`/`toughSteadyPostDispel` doc comment) since either can be spell-granted and
+ * therefore removable by Dispel. Bundled into one object so `damageBranches`/`bestAction` don't
+ * need five separate positional booleans/numbers threaded through every call.
+ */
+interface ToughRules {
+  hasTough: boolean;
+  hasToughSteady: boolean;
+  hasToughPostDispel: boolean;
+  hasToughSteadyPostDispel: boolean;
+  failChance: number;
+}
+
 /** Applies a (possibly already-mitigated) damage value against the target's boxes, bifurcating on a Tough roll if lethal. */
 function damageBranches(
   boxes: number,
@@ -277,21 +354,27 @@ function damageBranches(
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
-  hasTough: boolean,
-  toughFailChance: number
+  tough: ToughRules
 ): ResourceBranch[] {
   const lethal = damageDealt >= boxes;
   if (!lethal) {
     return [{ probability: 1, boxes: boxes - damageDealt, debuffState, focusLeft, furyLeft, destroyed: false }];
   }
-  if (!hasTough) {
+  // Once Dispel has fired, a spell-granted Tough/Tough Steady is gone - fall back to whichever
+  // half of the pair matches the target's current (innate-only, once dispelled) toughness.
+  const hasTough = debuffState.dispelled ? tough.hasToughPostDispel : tough.hasTough;
+  const hasToughSteady = debuffState.dispelled ? tough.hasToughSteadyPostDispel : tough.hasToughSteady;
+  // Plain Tough can't be attempted while Knocked Down/Stationary (the real tabletop rule); Tough
+  // Steady is immune to that negation - that's the entire difference between the two abilities.
+  const toughApplies = hasToughSteady || (hasTough && !isKnockedDownOrStationary(debuffState));
+  if (!toughApplies) {
     return [{ probability: 1, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true }];
   }
   // Tough simplification (see attack-model.ts): survives on 1 box and Knocked Down.
   const survivedState = debuffState.knockedDown ? debuffState : { ...debuffState, knockedDown: true };
   return [
-    { probability: 1 - toughFailChance, boxes: 1, debuffState: survivedState, focusLeft, furyLeft, destroyed: false },
-    { probability: toughFailChance, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true },
+    { probability: 1 - tough.failChance, boxes: 1, debuffState: survivedState, focusLeft, furyLeft, destroyed: false },
+    { probability: tough.failChance, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true },
   ];
 }
 
@@ -354,11 +437,10 @@ function bestAction(
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
-  hasTough: boolean,
-  toughFailChance: number,
+  tough: ToughRules,
   valueAt: ValueLookup
 ): ResourceBranch[] {
-  let bestBranches = damageBranches(boxes, damageDealt, debuffState, focusLeft, furyLeft, hasTough, toughFailChance);
+  let bestBranches = damageBranches(boxes, damageDealt, debuffState, focusLeft, furyLeft, tough);
   let bestScore = outcomeScore(bestBranches, valueAt);
 
   if (focusLeft > 0) {
@@ -368,8 +450,7 @@ function bestAction(
       debuffState,
       focusLeft - 1,
       furyLeft,
-      hasTough,
-      toughFailChance
+      tough
     );
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
@@ -379,7 +460,7 @@ function bestAction(
   }
 
   if (furyLeft > 0) {
-    const branches = damageBranches(boxes, 0, debuffState, focusLeft, furyLeft - 1, hasTough, toughFailChance);
+    const branches = damageBranches(boxes, 0, debuffState, focusLeft, furyLeft - 1, tough);
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
       bestBranches = branches;
@@ -429,16 +510,34 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   if (maxFocus > MAX_RESOURCE_POINTS || maxFury > MAX_RESOURCE_POINTS) {
     throw new Error(`focusPoints/furyPoints=${maxFocus}/${maxFury} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
   }
-  const hasTough = !!target.tough;
-  const toughFailChance = hasTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
+  const toughRules: ToughRules = {
+    hasTough: !!target.tough,
+    hasToughSteady: !!target.toughSteady,
+    hasToughPostDispel: !!target.toughPostDispel,
+    hasToughSteadyPostDispel: !!target.toughSteadyPostDispel,
+    failChance: 0,
+  };
+  const hasAnyTough = toughRules.hasTough || toughRules.hasToughSteady;
+  toughRules.failChance = hasAnyTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
   const n = attacks.length;
 
   // DEF = 'KD' means the target starts the sequence Knocked Down (see SequenceTarget doc).
   const startsKnockedDown = target.def === 'KD';
+  // `baseDef`/`baseArm` stay the target's PRINTED stats, with no buffs (Shield/Unyielding/Carapace/
+  // spell bonuses) or debuffs folded in - Armor Piercing explicitly ignores both (see `profileFor`).
   const baseDef = typeof target.def === 'number' ? target.def : DEF_FLOOR;
   const baseArm = target.arm;
+  const defBonus = target.defBonus ?? 0;
+  const defBonusPostDispel = target.defBonusPostDispel ?? 0;
+  const shieldArmBonus = target.shieldArmBonus ?? 0;
+  const spellArmBonus = target.spellArmBonus ?? 0;
+  const spellArmBonusPostDispel = target.spellArmBonusPostDispel ?? 0;
+  const unyielding = !!target.unyielding;
+  const unyieldingPostDispel = !!target.unyieldingPostDispel;
+  const carapace = !!target.carapace;
+  const carapacePostDispel = !!target.carapacePostDispel;
 
-  const debuffStatesPerStep = computeReachableDebuffStates(attacks, startsKnockedDown, hasTough);
+  const debuffStatesPerStep = computeReachableDebuffStates(attacks, startsKnockedDown, hasAnyTough);
 
   // Attack profiles depend on the target's CURRENT debuffs (DEF/ARM/status), so they can't be
   // built once per attack like before a target could change mid-sequence - but the number of
@@ -448,8 +547,22 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   function profileFor(k: number, atk: SequencedAttack, debuffState: DebuffState): AttackProfile {
     const immobilized = isKnockedDownOrStationary(debuffState);
     const usesAutoHit = !!atk.forceAutoHit || (atk.type === 'melee' && immobilized);
-    const def = effectiveDef(baseDef, debuffState);
-    const arm = baseArm - debuffState.armPenalty;
+    // Blessed drops every Stat-type spell bonus (DEF and ARM); Dispel drops just the ones flagged
+    // Dispellable. Both can apply at once (Blessed then just reads as 0 either way).
+    const activeSpellDef = atk.blessed ? 0 : debuffState.dispelled ? defBonusPostDispel : defBonus;
+    const activeSpellArm = atk.blessed ? 0 : debuffState.dispelled ? spellArmBonusPostDispel : spellArmBonus;
+    // Chain Weapon drops Shield's ARM bonus specifically, regardless of Dispel (a spell-granted
+    // Shield isn't reachable from the current UI, so Dispel never needs to touch this component).
+    const activeShieldArm = atk.chainWeapon ? 0 : shieldArmBonus;
+    const def = effectiveDef(baseDef, debuffState) + activeSpellDef;
+    // Unyielding/Carapace only apply against their specific attack type, so - unlike Shield and
+    // spell bonuses - they're resolved per attack here rather than folded into a flat bonus. Once
+    // Dispel has fired, fall back to whichever half of each pair matches (see `SequenceTarget`).
+    const activeUnyielding = debuffState.dispelled ? unyieldingPostDispel : unyielding;
+    const activeCarapace = debuffState.dispelled ? carapacePostDispel : carapace;
+    const conditionalArmBonus =
+      (activeUnyielding && atk.type === 'melee' ? 2 : 0) + (activeCarapace && atk.type === 'ranged' ? 4 : 0);
+    const arm = baseArm - debuffState.armPenalty + activeShieldArm + activeSpellArm + conditionalArmBonus;
     const cacheKey = `${k}|${usesAutoHit}|${def}|${arm}|${debuffState.knockedDown}|${isStationary(debuffState)}`;
     const cached = profileCache.get(cacheKey);
     if (cached) return cached;
@@ -493,7 +606,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
         let total = 0;
         for (const outcome of applyProfile(profile)) {
           const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
-          const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focus, fury, hasTough, toughFailChance, valueAt);
+          const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focus, fury, toughRules, valueAt);
           total += outcome.probability * branchesValue(branches, valueAt);
         }
         return total;
@@ -558,8 +671,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
           newDebuffState,
           state.focusLeft,
           state.furyLeft,
-          hasTough,
-          toughFailChance,
+          toughRules,
           valueAt
         );
 

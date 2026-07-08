@@ -18,7 +18,13 @@ import { toNumber } from '../select.util';
   imports: [FormsModule],
   templateUrl: './attack-row.html',
   // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/scrollable-row.css', '../shared/mini-field.css', '../shared/icon-btn.css', './attack-row.css'],
+  styleUrls: [
+    '../shared/scrollable-row.css',
+    '../shared/mini-field.css',
+    '../shared/icon-btn.css',
+    '../shared/effect-tags.css',
+    './attack-row.css',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AttackRowComponent {

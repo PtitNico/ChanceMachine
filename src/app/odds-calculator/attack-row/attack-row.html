@@ -82,7 +82,7 @@
     </button>
   </div>
   @if (effectsSummary(row()).length > 0) {
-    <div class="attack-row__effects">
+    <div class="effect-tags">
       @for (label of effectsSummary(row()); track label) {
         <span class="effect-tag">{{ label }}</span>
       }
