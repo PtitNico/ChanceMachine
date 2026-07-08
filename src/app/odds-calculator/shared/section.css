@@ -1,0 +1,24 @@
+/* Shared "console" chrome: the Target and Attack-sequence sections use .console,
+   Results uses .readout (identical background/padding, different name for clarity
+   in the markup) - both share the same section-title styling. */
+
+.console,
+.readout {
+  flex-shrink: 0;
+  background: var(--panel);
+  padding: 1rem 0.85rem;
+  min-width: 0;
+}
+
+.console__title {
+  flex-shrink: 0;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  margin: 0 0 1.1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}

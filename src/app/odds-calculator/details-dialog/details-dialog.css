@@ -1,0 +1,109 @@
+/* --- Step-by-step and damage distribution --- */
+
+.steps {
+  margin-bottom: 1.5rem;
+}
+
+/* Each step always stays on a single line - if a narrow viewport can't fit the
+   label + all three metrics, the row scrolls horizontally instead of wrapping
+   onto a second line (same "one line, scroll if needed" pattern used by
+   .target-row/.attack-row), with the scrollbar hidden as elsewhere in this app. */
+.steps__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.9rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.steps__row::-webkit-scrollbar {
+  display: none;
+}
+
+.steps__label {
+  flex-shrink: 0;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.steps__metric {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.steps__metric-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.steps__metric-value {
+  color: var(--text);
+}
+
+.distribution__empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.distribution__title {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 0.75rem;
+}
+
+.distribution__row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 3.2rem;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.distribution__damage {
+  text-align: right;
+  color: var(--text-dim);
+}
+
+.distribution__bar-track {
+  height: 0.65rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.distribution__bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--steel), var(--brass));
+  transition: width 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .distribution__bar {
+    transition: none;
+  }
+}
+
+.distribution__prob {
+  color: var(--text);
+}

@@ -1,0 +1,11 @@
+/* This component's host wraps the "Target" section, which is a direct flex item of
+   .panel__body (a flex column) in the parent - it must keep its natural size (never
+   compressed) and must not have a flexbox min-width floor. Previously these two rules
+   lived directly on `.console` when that element was itself the flex item; now that
+   `.console` is nested one level deeper (inside this component's host), the host itself
+   needs them instead. */
+:host {
+  display: block;
+  flex-shrink: 0;
+  min-width: 0;
+}

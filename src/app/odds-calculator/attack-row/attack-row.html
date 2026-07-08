@@ -1,0 +1,91 @@
+<div class="attack-row-group">
+  <div class="attack-row">
+    <span class="attack-row__index">{{ index() + 1 }}</span>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Type</span>
+      <select
+        class="mini-field__input mini-field__input--select"
+        [ngModel]="row().type()"
+        (ngModelChange)="row().type.set($event)"
+      >
+        @for (t of attackTypes; track t) {
+          <option [value]="t">{{ t }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">{{ statLabel(row().type()) }}</span>
+      <select
+        class="mini-field__input mini-field__input--select mini-field__input--narrow"
+        [ngModel]="row().stat()"
+        (ngModelChange)="row().stat.set(toNumber($event))"
+      >
+        @for (v of statOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Dice</span>
+      <select
+        class="mini-field__input mini-field__input--select mini-field__input--narrow"
+        [ngModel]="row().diceCount()"
+        (ngModelChange)="row().diceCount.set(toNumber($event))"
+      >
+        @for (v of diceOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">POW</span>
+      <select
+        class="mini-field__input mini-field__input--select mini-field__input--narrow"
+        [ngModel]="row().pow()"
+        (ngModelChange)="row().pow.set(parsePow($event))"
+      >
+        @for (v of powOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <label class="mini-field">
+      <span class="mini-field__label">Dice</span>
+      <select
+        class="mini-field__input mini-field__input--select mini-field__input--narrow"
+        [ngModel]="row().damageDiceCount()"
+        (ngModelChange)="row().damageDiceCount.set(toNumber($event))"
+      >
+        @for (v of diceOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+
+    <button type="button" class="effects-btn" (click)="openEffects.emit()">
+      Effects
+    </button>
+
+    <button
+      type="button"
+      class="icon-btn icon-btn--danger"
+      (click)="remove.emit()"
+      [disabled]="!removable()"
+      aria-label="Remove attack"
+    >
+      ✕
+    </button>
+  </div>
+  @if (effectsSummary(row()).length > 0) {
+    <div class="attack-row__effects">
+      @for (label of effectsSummary(row()); track label) {
+        <span class="effect-tag">{{ label }}</span>
+      }
+    </div>
+  }
+</div>
