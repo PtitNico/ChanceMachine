@@ -37,6 +37,19 @@
  * Stat-type spell bonus, and Chain Weapon (`SequencedAttack.chainWeapon`)
  * ignores Shield's ARM bonus - see `profileFor`.
  *
+ * Rapid Healing (`SequenceTarget.rapidHealing`) adds a THIRD sub-problem on top of Focus/Fury and
+ * the persistent debuffs: after any hit that deals nonzero RAW damage and doesn't destroy the
+ * target (Tough already resolved), the target rolls a d3 and heals that many boxes, capped at its
+ * starting box count - see `healBranches`. "Raw" matters here: whether Rapid Healing triggers is
+ * decided by the damage the attack dealt BEFORE any Focus/Fury mitigation, not by how much of it
+ * actually reached the target's boxes - spending a resource point to blunt or fully negate a hit
+ * doesn't undo the fact that the target was hit, it just softens the consequence, so `bestAction`
+ * carries that original value alongside whichever mitigated amount a given candidate action
+ * produces. Grievous Wounds (a `StatEffectType`, like Dispel a `DebuffState` flag) turns Rapid
+ * Healing off for the rest of the sequence once inflicted, and also removes Tough/Tough Steady
+ * entirely (on top of the existing Knocked Down/Stationary negation, which only ever affected
+ * plain Tough) - see `damageBranches`.
+ *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
  * distribution over the target's *state* (boxes remaining, debuffs, focus/fury
@@ -59,10 +72,11 @@ import {
 } from './attack-model';
 
 /** Named persistent target debuffs an attack can inflict on a hit or a crit. See doc comments on
- *  each in `docs/`. 'dispel' is the odd one out - it doesn't debuff DEF/ARM directly, it strips
- *  every currently-dispellable spell bonus/rule off the target (see `profileFor`) - but it's
- *  modeled the same way (a `DebuffState` flag that, once set, persists for the rest of the
- *  sequence) since it's exactly as "sticky" as the others. */
+ *  each in `docs/`. 'dispel' and 'grievousWounds' are the odd ones out - neither debuffs DEF/ARM
+ *  directly ('dispel' strips currently-dispellable spell bonuses/rules, 'grievousWounds' removes
+ *  Tough/Tough Steady and Rapid Healing, see `profileFor`/`damageBranches`) - but both are modeled
+ *  the same way (a `DebuffState` flag that, once set, persists for the rest of the sequence) since
+ *  they're exactly as "sticky" as the others. */
 export type StatEffectType =
   | 'knockdown'
   | 'stationary'
@@ -73,7 +87,8 @@ export type StatEffectType =
   | 'flare'
   | 'weaken'
   | 'armPenalty'
-  | 'dispel';
+  | 'dispel'
+  | 'grievousWounds';
 
 export interface StatEffect {
   type: StatEffectType;
@@ -151,6 +166,11 @@ export interface SequenceTarget {
   carapace?: boolean;
   /** `carapace` as it'd read post-Dispel - see `toughPostDispel`. */
   carapacePostDispel?: boolean;
+  /** The target heals d3 boxes after any hit that deals nonzero damage without destroying it -
+   *  see `healBranches`. Turned off for the rest of the sequence by Grievous Wounds (there's no
+   *  Dispel-style pre/post pair here: unlike Tough/Unyielding/etc. this isn't currently reachable
+   *  as a spell grant from the UI, and Grievous Wounds is a one-way switch, not a removable buff). */
+  rapidHealing?: boolean;
 }
 
 export interface SequenceStepResult {
@@ -200,6 +220,9 @@ interface DebuffState {
   /** Once true, every currently-Dispellable spell bonus/rule on the target is gone for the rest
    *  of the sequence - see `profileFor` and the `*PostDispel` fields on `SequenceTarget`. */
   dispelled: boolean;
+  /** Once true, the target has neither Tough/Tough Steady nor Rapid Healing for the rest of the
+   *  sequence, regardless of what `SequenceTarget` says - see `damageBranches`/`healBranches`. */
+  grievouslyWounded: boolean;
 }
 
 const INITIAL_DEBUFFS: DebuffState = {
@@ -213,6 +236,7 @@ const INITIAL_DEBUFFS: DebuffState = {
   weaken: false,
   armPenalty: 0,
   dispelled: false,
+  grievouslyWounded: false,
 };
 
 /** Ice Cage makes the target Stationary once it reaches 2 stacks, on top of an explicit Stationary effect. */
@@ -233,7 +257,7 @@ function effectiveDef(baseDef: number, s: DebuffState): number {
 }
 
 function debuffKey(s: DebuffState): string {
-  return `${s.knockedDown ? 1 : 0}${s.stationary ? 1 : 0}${s.iceCageStacks}${s.shadowbind ? 1 : 0}${s.blind ? 1 : 0}${s.paralyzed ? 1 : 0}${s.flare ? 1 : 0}${s.weaken ? 1 : 0}${s.dispelled ? 1 : 0}.${s.armPenalty}`;
+  return `${s.knockedDown ? 1 : 0}${s.stationary ? 1 : 0}${s.iceCageStacks}${s.shadowbind ? 1 : 0}${s.blind ? 1 : 0}${s.paralyzed ? 1 : 0}${s.flare ? 1 : 0}${s.weaken ? 1 : 0}${s.dispelled ? 1 : 0}${s.grievouslyWounded ? 1 : 0}.${s.armPenalty}`;
 }
 
 function applyStatEffect(s: DebuffState, effect: StatEffect): DebuffState {
@@ -258,6 +282,8 @@ function applyStatEffect(s: DebuffState, effect: StatEffect): DebuffState {
       return { ...s, armPenalty: s.armPenalty + (effect.amount ?? 0) };
     case 'dispel':
       return s.dispelled ? s : { ...s, dispelled: true };
+    case 'grievousWounds':
+      return s.grievouslyWounded ? s : { ...s, grievouslyWounded: true };
   }
 }
 
@@ -347,18 +373,65 @@ interface ToughRules {
   failChance: number;
 }
 
-/** Applies a (possibly already-mitigated) damage value against the target's boxes, bifurcating on a Tough roll if lethal. */
-function damageBranches(
+/** Rapid Healing is a target-level capability like Tough, rather than something Dispel can strip -
+ *  Grievous Wounds is what turns it off instead (`DebuffState.grievouslyWounded`), so there's no
+ *  pre/post-Dispel pair to bundle here the way `ToughRules` needs. */
+interface HealingRules {
+  hasRapidHealing: boolean;
+  /** Caps how high a heal roll can bring the target back - never above its starting box count. */
+  initialBoxes: number;
+}
+
+/**
+ * Splits a single non-destroyed outcome into its Rapid Healing sub-outcomes (a d3 roll, each face
+ * equally likely) if the target is eligible - has Rapid Healing, isn't currently Grievously
+ * Wounded, and this attack actually dealt damage - otherwise returns the outcome unchanged.
+ * `boxes` is the box count AFTER damage/Tough have already been resolved, before any healing.
+ * Eligibility is checked against `rawDamageDealt` (the attack's damage BEFORE any Focus/Fury
+ * mitigation), not the amount that actually came off `boxes`: a target that spends a resource
+ * point to blunt or fully negate a hit still took that hit - it was "damaged by the attack" the
+ * moment it landed, Focus/Fury just softened the consequence, so Rapid Healing still triggers off
+ * the original wound. Only a genuine miss (`rawDamageDealt === 0`) skips healing entirely.
+ */
+function healBranches(
   boxes: number,
-  damageDealt: number,
+  rawDamageDealt: number,
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
-  tough: ToughRules
+  healing: HealingRules
+): ResourceBranch[] {
+  if (!healing.hasRapidHealing || rawDamageDealt <= 0 || debuffState.grievouslyWounded) {
+    return [{ probability: 1, boxes, debuffState, focusLeft, furyLeft, destroyed: false }];
+  }
+  return [1, 2, 3].map((healAmount) => ({
+    probability: 1 / 3,
+    boxes: Math.min(healing.initialBoxes, boxes + healAmount),
+    debuffState,
+    focusLeft,
+    furyLeft,
+    destroyed: false,
+  }));
+}
+
+/** Applies a (possibly already-mitigated) damage value against the target's boxes, bifurcating on
+ *  a Tough roll if lethal, then folding in Rapid Healing (see `healBranches`) on every surviving
+ *  outcome. `damageDealt` is what actually comes off `boxes` (post-Focus/Fury); `rawDamageDealt`
+ *  is what the attack dealt before any such mitigation, and is only used to gate Rapid Healing -
+ *  see `healBranches`'s doc comment for why the two must be kept separate. */
+function damageBranches(
+  boxes: number,
+  damageDealt: number,
+  rawDamageDealt: number,
+  debuffState: DebuffState,
+  focusLeft: number,
+  furyLeft: number,
+  tough: ToughRules,
+  healing: HealingRules
 ): ResourceBranch[] {
   const lethal = damageDealt >= boxes;
   if (!lethal) {
-    return [{ probability: 1, boxes: boxes - damageDealt, debuffState, focusLeft, furyLeft, destroyed: false }];
+    return healBranches(boxes - damageDealt, rawDamageDealt, debuffState, focusLeft, furyLeft, healing);
   }
   // Once Dispel has fired, a spell-granted Tough/Tough Steady is gone - fall back to whichever
   // half of the pair matches the target's current (innate-only, once dispelled) toughness.
@@ -366,14 +439,20 @@ function damageBranches(
   const hasToughSteady = debuffState.dispelled ? tough.hasToughSteadyPostDispel : tough.hasToughSteady;
   // Plain Tough can't be attempted while Knocked Down/Stationary (the real tabletop rule); Tough
   // Steady is immune to that negation - that's the entire difference between the two abilities.
-  const toughApplies = hasToughSteady || (hasTough && !isKnockedDownOrStationary(debuffState));
+  // Grievous Wounds removes both outright, on top of (and regardless of) that negation.
+  const toughApplies =
+    !debuffState.grievouslyWounded && (hasToughSteady || (hasTough && !isKnockedDownOrStationary(debuffState)));
   if (!toughApplies) {
     return [{ probability: 1, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true }];
   }
   // Tough simplification (see attack-model.ts): survives on 1 box and Knocked Down.
   const survivedState = debuffState.knockedDown ? debuffState : { ...debuffState, knockedDown: true };
+  const survivedBranches = healBranches(1, rawDamageDealt, survivedState, focusLeft, furyLeft, healing).map((b) => ({
+    ...b,
+    probability: b.probability * (1 - tough.failChance),
+  }));
   return [
-    { probability: 1 - tough.failChance, boxes: 1, debuffState: survivedState, focusLeft, furyLeft, destroyed: false },
+    ...survivedBranches,
     { probability: tough.failChance, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true },
   ];
 }
@@ -438,19 +517,25 @@ function bestAction(
   focusLeft: number,
   furyLeft: number,
   tough: ToughRules,
+  healing: HealingRules,
   valueAt: ValueLookup
 ): ResourceBranch[] {
-  let bestBranches = damageBranches(boxes, damageDealt, debuffState, focusLeft, furyLeft, tough);
+  // `damageDealt` here is always the RAW damage (before this hit's own Focus/Fury choice, if any)
+  // - it's passed through unchanged as `rawDamageDealt` to every candidate below, regardless of
+  // how much of it that candidate's own mitigation actually blocks - see `damageBranches`.
+  let bestBranches = damageBranches(boxes, damageDealt, damageDealt, debuffState, focusLeft, furyLeft, tough, healing);
   let bestScore = outcomeScore(bestBranches, valueAt);
 
   if (focusLeft > 0) {
     const branches = damageBranches(
       boxes,
       Math.max(0, damageDealt - FOCUS_DAMAGE_REDUCTION),
+      damageDealt,
       debuffState,
       focusLeft - 1,
       furyLeft,
-      tough
+      tough,
+      healing
     );
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
@@ -460,7 +545,7 @@ function bestAction(
   }
 
   if (furyLeft > 0) {
-    const branches = damageBranches(boxes, 0, debuffState, focusLeft, furyLeft - 1, tough);
+    const branches = damageBranches(boxes, 0, damageDealt, debuffState, focusLeft, furyLeft - 1, tough, healing);
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
       bestBranches = branches;
@@ -519,6 +604,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   };
   const hasAnyTough = toughRules.hasTough || toughRules.hasToughSteady;
   toughRules.failChance = hasAnyTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
+  const healingRules: HealingRules = { hasRapidHealing: !!target.rapidHealing, initialBoxes };
   const n = attacks.length;
 
   // DEF = 'KD' means the target starts the sequence Knocked Down (see SequenceTarget doc).
@@ -606,7 +692,16 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
         let total = 0;
         for (const outcome of applyProfile(profile)) {
           const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
-          const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focus, fury, toughRules, valueAt);
+          const branches = bestAction(
+            boxes,
+            outcome.damageDealt,
+            newDebuffState,
+            focus,
+            fury,
+            toughRules,
+            healingRules,
+            valueAt
+          );
           total += outcome.probability * branchesValue(branches, valueAt);
         }
         return total;
@@ -672,6 +767,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
           state.focusLeft,
           state.furyLeft,
           toughRules,
+          healingRules,
           valueAt
         );
 

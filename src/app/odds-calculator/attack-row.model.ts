@@ -44,6 +44,7 @@ const STAT_EFFECT_TYPES: StatEffectType[] = [
   'weaken',
   'armPenalty',
   'dispel',
+  'grievousWounds',
 ];
 
 export const TRIGGER_EFFECT_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
@@ -61,6 +62,7 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   weaken: 'Weaken (-2 DEF)',
   armPenalty: '-X ARM',
   dispel: 'Dispel',
+  grievousWounds: 'Grievous Wounds',
 };
 
 function isStatEffectKey(key: TriggerEffectKey): key is StatEffectType {

@@ -966,3 +966,109 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
   });
 });
+
+describe('sequence engine - Rapid Healing and Grievous Wounds', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('Rapid Healing adds E[d3]=2 expected boxes back after a non-lethal hit', () => {
+    const target = { def: 10, arm: 0, boxes: 1000, rapidHealing: true };
+    const withHealing = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], { def: 10, arm: 0, boxes: 1000 });
+    // Damage = 2d6+12, always far below 1000 boxes and always far below the 1000 cap even after
+    // a max +3 heal, so the cap never kicks in here - the only difference is the heal itself.
+    expect(withHealing.steps[0].expectedBoxesRemaining).toBeCloseTo(without.steps[0].expectedBoxesRemaining + 2, 9);
+  });
+
+  it("Rapid Healing's heal never brings the target above its starting box count", () => {
+    const target = { def: 10, arm: 11, boxes: 2, rapidHealing: true };
+    const withHealing = computeSequenceOdds([attack({ forceAutoHit: true, pow: 0 })], target);
+    const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 0 })], { def: 10, arm: 11, boxes: 2 });
+    // Damage = max(0, 2d6-11): 0 except on a natural 12 (1/36), which deals exactly 1 (non-lethal,
+    // boxes=2). Without healing that 1/36 chance leaves the target at 1 box: expected = 2 - 1/36.
+    // With healing, every one of the 3 possible heal rolls (1, 2, or 3) taken from 1 box gets
+    // capped right back at the starting 2 - so the target is deterministically at full boxes.
+    expect(without.steps[0].expectedBoxesRemaining).toBeCloseTo(2 - 1 / 36, 9);
+    expect(withHealing.steps[0].expectedBoxesRemaining).toBeCloseTo(2, 9);
+  });
+
+  it('Rapid Healing does not trigger when no damage gets through at all', () => {
+    const target = { def: 13, arm: 20, boxes: 1000, rapidHealing: true };
+    // ARM 20 exceeds even the maximum possible 2d6+0 damage roll (12), so damageDealt is always 0
+    // whether this attack hits or misses (a natural double-6 always hits, regardless of DEF - so
+    // "always misses" isn't achievable here, but "always deals 0 damage" is, and that's what
+    // actually gates the heal): expectedBoxesRemaining stays exactly at the start.
+    const result = computeSequenceOdds([attack({ pow: 0 })], target);
+    expect(result.steps[0].expectedBoxesRemaining).toBeCloseTo(1000, 9);
+  });
+
+  it('Rapid Healing still triggers on a Fury-negated hit, since the RAW damage (before mitigation) was nonzero', () => {
+    // boxes=30 is sized so neither heal (max +3 each, twice) ever gets near the 30 cap: attack1's
+    // damage (2d6+10, 12-22) always leaves at least 8 boxes of headroom before any healing, and
+    // attack2's own heal on top of that still tops out at 27 - so the +4 expected below is exact,
+    // not just approximate (no capping edge case muddies it, unlike a naive boxes=20 attempt).
+    const target = { def: 13, arm: 0, boxes: 30, furyPoints: 1, rapidHealing: true };
+    const attack1 = attack({ id: '1', forceAutoHit: true, pow: 10 }); // damage = 2d6+10 (12-22), never lethal (< 30)
+    const attack2 = attack({ id: '2', forceAutoHit: true, pow: 30 }); // damage = 2d6+30 (32-42), always lethal without the one Fury point
+    const withHealing = computeSequenceOdds([attack1, attack2], target);
+    const withoutHealing = computeSequenceOdds([attack1, attack2], { def: 13, arm: 0, boxes: 30, furyPoints: 1 });
+    // The target is forced to spend its one Fury point on attack2 regardless of Rapid Healing (not
+    // spending it means certain destruction, which always dominates any box-count tiebreak) - so
+    // both runs make the exact same Focus/Fury choice, and Fury negates attack2's damage to 0 in
+    // both. The only difference is Rapid Healing itself: it adds E[d3]=2 boxes after attack1
+    // (whose raw damage is always > 0) and another 2 after attack2 - triggered by attack2's raw
+    // damage (2d6+30), even though the mitigated damage that actually reached boxes was 0.
+    expect(withHealing.steps[1].expectedBoxesRemaining).toBeCloseTo(withoutHealing.steps[1].expectedBoxesRemaining + 4, 9);
+  });
+
+  it('Grievous Wounds removes Tough (and Tough Steady) for the rest of the sequence', () => {
+    const target = { def: 13, arm: 0, boxes: 50, tough: true, toughOn: 5 };
+    const attack1 = attack({
+      id: '1',
+      forceAutoHit: true,
+      pow: 0,
+      statEffects: [{ type: 'grievousWounds', trigger: 'hit' }],
+    });
+    const attack2 = attack({ id: '2', forceAutoHit: true, pow: 100 });
+    const withGrievousWounds = computeSequenceOdds([attack1, attack2], target);
+    const withoutGrievousWounds = computeSequenceOdds([attack({ id: '1', forceAutoHit: true, pow: 0 }), attack2], target);
+    // Without Grievous Wounds, Tough still gives attack2 a 4/6 chance to survive (toughOn 5+).
+    // With it, Tough no longer applies at all - attack2 is always lethal.
+    expect(withoutGrievousWounds.steps[1].destroyChanceAtThisStep).toBeCloseTo(4 / 6, 9);
+    expect(withGrievousWounds.steps[1].destroyChanceAtThisStep).toBeCloseTo(1, 9);
+  });
+
+  it('Grievous Wounds removes Tough Steady too, unlike the Knocked Down negation it is otherwise immune to', () => {
+    const target = { def: 13, arm: 0, boxes: 50, toughSteady: true, toughOn: 5 };
+    const attack1 = attack({
+      id: '1',
+      forceAutoHit: true,
+      pow: 0,
+      statEffects: [{ type: 'grievousWounds', trigger: 'hit' }],
+    });
+    const attack2 = attack({ id: '2', forceAutoHit: true, pow: 100 });
+    const result = computeSequenceOdds([attack1, attack2], target);
+    expect(result.steps[1].destroyChanceAtThisStep).toBeCloseTo(1, 9);
+  });
+
+  it('Grievous Wounds also disables Rapid Healing, including on the very hit that inflicts it', () => {
+    const target = { def: 10, arm: 0, boxes: 1000, rapidHealing: true };
+    const withoutWound = computeSequenceOdds([attack({ forceAutoHit: true, pow: 5 })], target);
+    const withWound = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 5, statEffects: [{ type: 'grievousWounds', trigger: 'hit' }] })],
+      target
+    );
+    // Same damage roll (2d6+5) either way; only the heal differs. Without the wound, healing adds
+    // E[d3]=2 on top; the wound (inflicted by this same hit) suppresses it entirely.
+    expect(withoutWound.steps[0].expectedBoxesRemaining).toBeCloseTo(withWound.steps[0].expectedBoxesRemaining + 2, 9);
+  });
+});

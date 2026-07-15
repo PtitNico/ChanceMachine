@@ -89,7 +89,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **A to-hit roll where every die shows 1 is always a miss**, regardless of MAT/RAT/AAT and DEF.
 - **A to-hit roll where every die shows 6 is always a hit** (and therefore also a critical hit, since a roll where every die matches necessarily contains a double), regardless of MAT/RAT/AAT and DEF — unless only one die is rolled, in which case a lone 6 gets no special bonus.
 - Damage roll: 2d6 + any boosts + POW − ARM (minimum 0).
-- **Tough**: whenever damage would be lethal, a Tough roll is attempted; on success, the target survives with 1 box remaining and becomes Knocked Down (standard Tough rule behavior) instead of being destroyed. **A Knocked Down or Stationary target cannot attempt a plain Tough roll at all** (the real tabletop rule — a downed model doesn't get to try) and is simply destroyed; **Tough Steady** is a separate capability that behaves exactly like Tough but is immune to that negation, so it always gets its roll regardless of the target's current state.
+- **Tough**: whenever damage would be lethal, a Tough roll is attempted; on success, the target survives with 1 box remaining and becomes Knocked Down (standard Tough rule behavior) instead of being destroyed. **A Knocked Down or Stationary target cannot attempt a plain Tough roll at all** (the real tabletop rule — a downed model doesn't get to try) and is simply destroyed; **Tough Steady** is a separate capability that behaves exactly like Tough but is immune to that negation, so it always gets its roll regardless of the target's current state. **Grievous Wounds** removes both outright (see "Supported effects" below) — unlike the Knocked Down negation, it applies to Tough Steady too.
 - **Auto-hit** (`Effects > Auto-hit`, or a Knocked Down/Stationary target facing a melee attack, or `DEF: KD`): no to-hit roll is made at all, so an auto-hit can never produce a critical hit (no to-hit dice rolled = no double possible).
 - **DEF: KD** (target starts the sequence Knocked Down) behaves exactly like a Knockdown triggered mid-sequence (see below), simply active from the first attack rather than triggered by one: only **melee** attacks auto-hit (for the whole sequence, from the start); **ranged** and **magic** attacks roll normally against a DEF of 5.
 
@@ -121,6 +121,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Weaken**: −2 DEF.
 - **-X ARM** (generic, amount configurable from 1 to 10): reduces the target's ARM for the rest of the sequence, stackable with other instances of this effect. Applied on top of Armor Piercing's halved base ARM too, same as every other ARM buff/debuff.
 - **Dispel**: removes every spell bonus/rule currently flagged **Dispellable** (see "Spell bonuses" below) from the target, for the rest of the sequence. A **Rule**-type spell entry is always Dispellable, so any Tough/Unyielding it grants goes away too; a **Stat**-type entry only goes away if its own Dispellable checkbox is still checked. Innate capabilities toggled directly in "Special rules" are never affected — only spell-granted ones can be dispelled. Like the other persistent effects, once triggered it applies to every later attack in the sequence, never the attack that triggered it.
+- **Grievous Wounds**: the target loses **Tough** and **Tough Steady** entirely (both, if either is active) and can no longer benefit from **Rapid Healing**, for the rest of the sequence. Unlike the Knocked Down negation (which only ever affected plain Tough, never Tough Steady), Grievous Wounds removes both.
 
 All the DEF penalties listed above are **additive** with each other (Ice Cage, Shadowbind, Blind, Flare, Weaken all stack), except Knocked Down/Stationary/Paralysis, which **cap DEF at 5 first** before the other penalties are added on top (so DEF can potentially drop below 5 if several effects stack). Each named effect (other than Ice Cage and "-X ARM", which are explicitly stackable) can only apply once on a given target, even if triggered by several different attacks in the sequence — a second occurrence then has no further effect.
 
@@ -133,10 +134,9 @@ Set once in the Target profile pop-up (see "Target" above), these apply for the 
 - **Shield**: a flat ARM bonus (amount configurable from 1 to 10), applied against every attack regardless of type — unless that attack has **Chain Weapon**, which ignores Shield specifically.
 - **Unyielding**: +2 ARM, but only against **melee** attacks.
 - **Carapace**: +4 ARM, but only against **ranged** attacks.
+- **Rapid Healing**: after any hit that deals damage to the target **without destroying it**, the target immediately heals **d3 boxes** (1, 2, or 3, equally likely), never going above its starting box count. What counts as "damaged" is the hit's damage **before** any Focus/Fury point is spent on it — a model that spends a resource point to blunt or fully negate a hit was still hit, so Rapid Healing still triggers off that original wound even if the mitigated damage that actually reached its boxes was 0. Only a genuine **miss** (or a hit ARM reduces to 0 outright) heals nothing. Turned off for the rest of the sequence by **Grievous Wounds** (see "Supported effects" above), including on the very hit that inflicts the wound.
 
-None of these stack with themselves (each is a simple on/off toggle), and Shield/Unyielding/Carapace/Tough Steady are all cumulative with each other and with the persistent DEF/ARM effects listed above (they're independent bonuses, not mutually exclusive with anything except Tough/Tough Steady with each other).
-
-**Rapid Healing** (the target recovers d3 boxes after being damaged by an attack) is a named capability from the same source list, but is **not implemented at all yet** — see "Not yet implemented" for why.
+None of these stack with themselves (each is a simple on/off toggle), and Shield/Unyielding/Carapace/Tough Steady/Rapid Healing are all cumulative with each other and with the persistent DEF/ARM effects listed above (they're independent bonuses, not mutually exclusive with anything except Tough/Tough Steady with each other).
 
 ### Spell bonuses
 
@@ -170,7 +170,6 @@ Some rules points were implemented using the most commonly accepted formulation 
 ## Not yet implemented
 
 - **Shred** (an extra free attack on a critical hit, same profile as the attack that triggered it, itself able to re-trigger a new Shred): postponed to a future iteration.
-- **Rapid Healing** (recover d3 boxes after being damaged): would need a genuine new probability branch in the engine (a d3 heal roll after every non-lethal hit), comparable in scope to the persistent-debuffs work — deliberately postponed rather than rushed in. No toggle is shown for it in the UI yet (unlike Shred, which is at least referenced in the effects list): a visible-but-inert toggle for a capability whose entire purpose is a numeric effect would silently mislead players into thinking it changes the result.
 - **Automatic optimization of attack order**: a product decision — the order remains manually defined by the user (see "Product choices").
 - Unit handling (several identical models in a single group attack) — not handled, the engine reasons model by model.
 
@@ -185,10 +184,10 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **Persistent effects don't stack unless stated otherwise**: a given named effect can only apply once to a target (Ice Cage and the generic "-X ARM" being the only explicitly stackable exceptions), staying faithful to the "unless specified" wording provided by the user.
 - **Tough vs. Knocked Down is now correctly modeled**: an earlier version of the app let Tough succeed even while the target was already Knocked Down, which isn't how the tabletop rule works. Fixing this was necessary for Tough Steady (a capability that's specifically defined as "Tough, but immune to that negation") to mean anything at all.
 - **Armor Piercing now correctly halves only the printed base ARM**: an earlier version had it ignore every ARM buff and debuff outright (always resolving against the raw printed stat). The corrected rule halves just the base value; every buff (Shield, spell bonuses, Unyielding/Carapace) and debuff (the generic "-X ARM" penalty) currently in play still applies on top, exactly as it would on a normal attack.
+- **Rapid Healing implemented as a genuine new probability branch**, rather than postponed: after any non-destroying hit that deals damage, the target's box count now branches three ways (d3 heal), on top of the existing boxes/debuffs/Focus-Fury branching - comparable in scope to the persistent-debuffs work, but no longer deferred. Grievous Wounds (which also removes Tough/Tough Steady) shipped alongside it as the effect that turns it off.
 
 ## Roadmap
 
 - Implement Shred (recursive free attack on a critical hit).
-- Implement Rapid Healing (d3 box recovery after a non-lethal hit).
 - Icons and final PWA manifest configuration.
 - Verification of the display on smartphones (in progress).

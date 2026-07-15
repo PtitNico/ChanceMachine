@@ -81,6 +81,14 @@
         >
           Carapace
         </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="t.rapidHealing()"
+          (click)="t.rapidHealing.set(!t.rapidHealing())"
+        >
+          Rapid Healing
+        </button>
       </div>
       @if (t.shield()) {
         <label class="field">
@@ -151,7 +159,7 @@
                 }
               </select>
             }
-            <label class="spell-row__dispellable" title="Dispellable - removable by a future Dispel effect">
+            <label class="spell-row__dispellable" title="Dispellable - removable by an attack's Dispel effect">
               <input
                 type="checkbox"
                 [ngModel]="spell.dispellable()"

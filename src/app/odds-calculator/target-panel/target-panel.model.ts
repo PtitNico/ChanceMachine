@@ -88,6 +88,10 @@ export interface TargetState {
   readonly shieldAmount: WritableSignal<number>;
   readonly unyielding: WritableSignal<boolean>;
   readonly carapace: WritableSignal<boolean>;
+  /** Heals d3 boxes after any hit that deals nonzero damage without destroying the target - see
+   *  `sequence.ts`'s `healBranches`. Turned off for the rest of the sequence by an attack's
+   *  Grievous Wounds effect, not by anything toggled here. */
+  readonly rapidHealing: WritableSignal<boolean>;
   /** Repeatable list of generic spell-granted stat bonuses/rules - see `SpellBonusRow`. */
   readonly spellBonuses: WritableSignal<SpellBonusRow[]>;
 }
@@ -104,6 +108,7 @@ export function createTargetState(): TargetState {
     shieldAmount: signal(2),
     unyielding: signal(false),
     carapace: signal(false),
+    rapidHealing: signal(false),
     spellBonuses: signal<SpellBonusRow[]>([]),
   };
 }
@@ -115,6 +120,7 @@ export function resetTargetProfile(target: TargetState): void {
   target.shield.set(false);
   target.unyielding.set(false);
   target.carapace.set(false);
+  target.rapidHealing.set(false);
   target.spellBonuses.set([]);
 }
 
@@ -194,6 +200,7 @@ export function targetSummary(target: TargetState): string[] {
   if (target.shield()) parts.push(`Shield +${target.shieldAmount()} ARM`);
   if (target.unyielding()) parts.push('Unyielding');
   if (target.carapace()) parts.push('Carapace');
+  if (target.rapidHealing()) parts.push('Rapid Healing');
   for (const spell of target.spellBonuses()) {
     const bonus =
       spell.kind() === 'stat'

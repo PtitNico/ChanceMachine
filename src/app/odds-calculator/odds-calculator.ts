@@ -77,6 +77,7 @@ export class OddsCalculator {
       unyieldingPostDispel: this.target.unyielding(),
       carapace: effectiveCarapace(this.target),
       carapacePostDispel: this.target.carapace(),
+      rapidHealing: this.target.rapidHealing(),
     })
   );
 
