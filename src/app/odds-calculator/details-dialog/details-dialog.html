@@ -7,9 +7,9 @@
 
     <div class="steps">
       <h3 class="distribution__title">Step by step</h3>
-      @for (step of steps(); track step.attack.id) {
+      @for (step of steps(); track step.attack.id; let i = $index) {
         <div class="steps__row">
-          <span class="steps__label">{{ step.attack.label }}</span>
+          <span class="steps__label">{{ i + 1 }}</span>
           <span class="steps__metric">
             <span class="steps__metric-label">Hit</span>
             <span class="steps__metric-value">{{ pct(step.hitChance) }}</span>
