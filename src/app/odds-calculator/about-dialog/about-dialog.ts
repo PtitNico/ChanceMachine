@@ -1,4 +1,8 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
+
+/** Set in localStorage the first time this dialog auto-opens itself, so it never does so again
+ *  on the same device/browser - see `ngAfterViewInit`. */
+const HAS_SEEN_ABOUT_KEY = 'chancemachine.hasSeenAbout';
 
 @Component({
   selector: 'app-about-dialog',
@@ -8,8 +12,21 @@ import { ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angu
   styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './about-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AboutDialog {
+export class AboutDialog implements AfterViewInit {
   @ViewChild('dialog') private dialogRef?: ElementRef<HTMLDialogElement>;
+
+  /** Auto-opens itself once per device/browser, the very first time the app is ever loaded -
+   *  a new visitor gets a quick explanation of what the app does without having to find the
+   *  menu first; anyone who's seen it before (including someone who closed it instantly without
+   *  reading it - this only tracks "has it auto-opened", not "did they read it") never gets
+   *  interrupted by it again. Manually opening it from the menu never touches this flag. */
+  ngAfterViewInit(): void {
+    if (localStorage.getItem(HAS_SEEN_ABOUT_KEY)) {
+      return;
+    }
+    localStorage.setItem(HAS_SEEN_ABOUT_KEY, '1');
+    this.open();
+  }
 
   open(): void {
     this.dialogRef?.nativeElement.showModal();
