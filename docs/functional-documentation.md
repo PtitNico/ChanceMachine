@@ -103,7 +103,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 
 **Effects scoped to a single attack** (don't persist on the target):
 - **Brutal Damage**: on a critical hit, adds an extra die to the damage roll.
-- **Armor Piercing** (triggered on a hit or on a critical hit, your choice): halves the target's **base** ARM (before any ARM debuff currently in play — see "-X ARM" below), rounded up, for this attack's damage roll only.
+- **Armor Piercing** (triggered on a hit or on a critical hit, your choice): halves the target's **printed base** ARM, rounded up, for this attack's damage roll only — every buff and debuff currently in play (Shield, spell bonuses, Unyielding/Carapace, "-X ARM" penalties below) still applies on top of that halved value, exactly as it would without Armor Piercing.
 - **Decapitation** (triggered on a hit or on a critical hit, your choice): doubles the damage dealt by this attack.
 - **Trash**: an extra damage die if the target is **currently** Knocked Down at the time of this attack.
 - **Shatter**: an extra damage die if the target is **currently** Stationary at the time of this attack.
@@ -119,7 +119,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Paralysis**: caps the target's DEF at 5 (like Knocked Down/Stationary), and then stacks with the other active DEF penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) exactly as if it were a Knockdown.
 - **Flare**: −2 DEF.
 - **Weaken**: −2 DEF.
-- **-X ARM** (generic, amount configurable from 1 to 10): reduces the target's ARM for the rest of the sequence, stackable with other instances of this effect. Armor Piercing deliberately ignores this penalty (it always starts from base ARM).
+- **-X ARM** (generic, amount configurable from 1 to 10): reduces the target's ARM for the rest of the sequence, stackable with other instances of this effect. Applied on top of Armor Piercing's halved base ARM too, same as every other ARM buff/debuff.
 - **Dispel**: removes every spell bonus/rule currently flagged **Dispellable** (see "Spell bonuses" below) from the target, for the rest of the sequence. A **Rule**-type spell entry is always Dispellable, so any Tough/Unyielding it grants goes away too; a **Stat**-type entry only goes away if its own Dispellable checkbox is still checked. Innate capabilities toggled directly in "Special rules" are never affected — only spell-granted ones can be dispelled. Like the other persistent effects, once triggered it applies to every later attack in the sequence, never the attack that triggered it.
 
 All the DEF penalties listed above are **additive** with each other (Ice Cage, Shadowbind, Blind, Flare, Weaken all stack), except Knocked Down/Stationary/Paralysis, which **cap DEF at 5 first** before the other penalties are added on top (so DEF can potentially drop below 5 if several effects stack). Each named effect (other than Ice Cage and "-X ARM", which are explicitly stackable) can only apply once on a given target, even if triggered by several different attacks in the sequence — a second occurrence then has no further effect.
@@ -184,6 +184,7 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **Additive DEF penalties, with Knocked Down/Stationary/Paralysis as a floor**: the named penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) all stack with each other; Knocked Down/Stationary/Paralysis cap DEF at 5 first rather than stacking like the others, reflecting their in-game wording ("DEF reduced to 5" rather than "−X DEF").
 - **Persistent effects don't stack unless stated otherwise**: a given named effect can only apply once to a target (Ice Cage and the generic "-X ARM" being the only explicitly stackable exceptions), staying faithful to the "unless specified" wording provided by the user.
 - **Tough vs. Knocked Down is now correctly modeled**: an earlier version of the app let Tough succeed even while the target was already Knocked Down, which isn't how the tabletop rule works. Fixing this was necessary for Tough Steady (a capability that's specifically defined as "Tough, but immune to that negation") to mean anything at all.
+- **Armor Piercing now correctly halves only the printed base ARM**: an earlier version had it ignore every ARM buff and debuff outright (always resolving against the raw printed stat). The corrected rule halves just the base value; every buff (Shield, spell bonuses, Unyielding/Carapace) and debuff (the generic "-X ARM" penalty) currently in play still applies on top, exactly as it would on a normal attack.
 
 ## Roadmap
 

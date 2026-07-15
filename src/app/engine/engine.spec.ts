@@ -713,7 +713,7 @@ describe('sequence engine - persistent target debuffs', () => {
     expect(result.steps[2].averageDamage).toBeCloseTo(7, 9);
   });
 
-  it('Armor Piercing halves BASE ARM (ignoring any ARM debuff already in play), rounded up', () => {
+  it('Armor Piercing halves only the printed BASE ARM; an existing ARM debuff still applies on top', () => {
     const target = { def: 13, arm: 15, boxes: 1000 };
     const result = computeSequenceOdds(
       [
@@ -722,9 +722,9 @@ describe('sequence engine - persistent target debuffs', () => {
       ],
       target
     );
-    // Armor Piercing uses ceil(15/2)=8 (BASE ARM 15, ignoring the -5 debuff) rather than 10.
-    // averageDamage = E[2d6] + 12 - 8 = 7 + 4 = 11.
-    expect(result.steps[1].averageDamage).toBeCloseTo(11, 9);
+    // ceil(15/2)=8 (BASE ARM 15, halved) + (10-15)=-5 (the existing debuff, still applied) = 3.
+    // averageDamage = E[2d6] + 12 - 3 = 7 + 9 = 16.
+    expect(result.steps[1].averageDamage).toBeCloseTo(16, 9);
   });
 
   it("Decapitation doubles this attack's damage", () => {
@@ -902,16 +902,16 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     expect(result.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
   });
 
-  it('Armor Piercing ignores ARM buffs too (Shield/spell/Unyielding/Carapace), using the printed base ARM', () => {
+  it('Armor Piercing still applies ARM buffs too (Shield/spell/Unyielding/Carapace) on top of the halved base', () => {
     const target = { def: 13, arm: 16, boxes: 1000, shieldArmBonus: 4, unyielding: true };
     const result = computeSequenceOdds(
       [attack({ forceAutoHit: true, pow: 12, effects: { armorPiercing: 'hit' } })],
       target
     );
-    // Armor Piercing uses ceil(16/2)=8 (printed base ARM only), ignoring the +4 shieldArmBonus and
-    // the +2 Unyielding bonus that would otherwise apply to this melee attack (effective ARM would be 22).
-    // averageDamage = E[2d6] + 12 - 8 = 7 + 4 = 11.
-    expect(result.steps[0].averageDamage).toBeCloseTo(11, 9);
+    // Effective ARM (no Armor Piercing) would be 16 + 4 (Shield) + 2 (Unyielding, melee) = 22.
+    // Armor Piercing halves only the printed base: ceil(16/2)=8, then adds back the +6 of
+    // buffs still in play (22-16) = 14. averageDamage = E[2d6] + 12 - 14 = 7 - 2 = 5.
+    expect(result.steps[0].averageDamage).toBeCloseTo(5, 9);
   });
 
   it('Blessed ignores every Stat-type spell bonus (DEF and ARM), but not Shield', () => {

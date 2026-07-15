@@ -58,8 +58,9 @@ export interface RollModifiers {
 export interface AttackEffects {
   /** Crit-only: extra d6 added to the damage roll (Brutal Damage). */
   brutalDamageDice?: number;
-  /** Halves BASE ARM (i.e. ignoring any ARM debuff already in play), rounded
-   *  up, for this attack's damage only. */
+  /** Halves BASE ARM (rounded up), for this attack's damage only - every buff/debuff currently
+   *  in play (Shield, spell bonuses, Unyielding/Carapace, persistent ARM penalties) still applies
+   *  on top of the halved value, exactly as it would without Armor Piercing. */
   armorPiercing?: EffectTrigger;
   /** Doubles this attack's damage. */
   decapitation?: EffectTrigger;
@@ -86,10 +87,11 @@ export interface AttackInput {
   effects?: AttackEffects;
   target: {
     def: number;
-    /** Effective ARM, after any persistent ARM debuff. */
+    /** Effective ARM, after every buff/debuff/penalty currently in play. */
     arm: number;
-    /** Original ARM before any debuff - used by Armor Piercing, which explicitly
-     *  ignores debuffs. Defaults to `arm` (i.e. no debuff in play) when omitted. */
+    /** Printed base ARM, before any buff/debuff/penalty - the value Armor Piercing halves
+     *  (`arm - baseArm`, the net buff/debuff total, is then added back on top - see
+     *  `buildAttackProfile`). Defaults to `arm` (i.e. nothing in play) when omitted. */
     baseArm?: number;
     /** Remaining damage capacity (health boxes / remaining life) needed to destroy the model. */
     boxesRemaining: number;
@@ -224,7 +226,11 @@ export function buildAttackProfile(
   autoHit: boolean
 ): AttackProfile {
   const baseArm = target.baseArm ?? target.arm;
-  const armorPiercingArm = Math.ceil(baseArm / 2);
+  // Armor Piercing halves only the printed base ARM - every buff/debuff currently in play
+  // (Shield, spell bonuses, Unyielding/Carapace, persistent ARM penalties like Ice Cage's) still
+  // applies on top, same as normal. `target.arm - baseArm` is that net modifier total, since
+  // `target.arm` is already the fully-resolved ARM (base + every modifier folded in).
+  const armorPiercingArm = Math.ceil(baseArm / 2) + (target.arm - baseArm);
   const nonCritArm = appliesOnNonCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
   const critArm = appliesOnCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
 
