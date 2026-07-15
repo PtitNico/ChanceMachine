@@ -2,6 +2,10 @@
   height: 100vh;
   height: 100dvh; /* dvh accounts for mobile browser chrome (address bar) so the fixed
                      header/target/results never end up partly hidden behind it */
+  /* JS-computed (app.ts, via visualViewport) - wins over the plain 100dvh above once set, since
+     it's more reliable across Android WebView versions after a reload; falls back to 100dvh
+     (via the custom property's fallback value) until the JS runs on first paint. */
+  height: var(--app-height, 100dvh);
   background: #1a1c1f;
   display: flex;
   justify-content: center;

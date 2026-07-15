@@ -6,15 +6,6 @@
   box-sizing: border-box;
 }
 
-html {
-  /* Disables the browser's pull-to-refresh gesture. There's nothing server-side to
-     refresh (everything recomputes instantly and the app works offline), and on
-     Android this gesture can trigger a viewport/`dvh` recalculation glitch in some
-     WebView versions that leaves the installed PWA's fixed layout mis-sized after
-     the reload, requiring a scroll to reach content that should already be visible. */
-  overscroll-behavior-y: none;
-}
-
 body {
   margin: 0;
 }
