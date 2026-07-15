@@ -1,0 +1,20 @@
+<div class="app-menu" #menuRoot (document:click)="onDocumentClick($event)" (document:keydown.escape)="close()">
+  <button
+    type="button"
+    class="icon-btn app-menu__trigger"
+    (click)="toggle()"
+    [attr.aria-expanded]="isOpen()"
+    aria-haspopup="true"
+    aria-label="Menu"
+  >
+    ☰
+  </button>
+
+  @if (isOpen()) {
+    <div class="app-menu__dropdown" role="menu">
+      <button type="button" class="app-menu__item" role="menuitem" (click)="onReset()">Reset</button>
+      <button type="button" class="app-menu__item" role="menuitem" (click)="onAbout()">About</button>
+      <button type="button" class="app-menu__item" role="menuitem" (click)="onFeedback()">Feedback</button>
+    </div>
+  }
+</div>

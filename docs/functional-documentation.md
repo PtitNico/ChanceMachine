@@ -35,6 +35,15 @@ All numeric fields are **dropdown lists** (`<select>`) rather than free-text inp
 
 **Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attack rows — this matters most on short mobile screens. Section titles (Target/Attack sequence/Results) are kept small, and Results uses a small **"+"** icon next to its title instead of a full-width button (see below) to leave as much room as possible for the attack list.
 
+### Menu
+
+A **☰ (hamburger)** icon button in the top-right corner of the header opens a small dropdown with three actions:
+- **Reset**: clears **everything** — the target's DEF/ARM/Boxes and its whole profile (Focus/Fury, Special rules, spell bonuses), plus the attack sequence, which collapses back down to a single default attack row. Unlike the Reset buttons inside the Effects/Target profile pop-ups (which only ever touch what's inside that specific pop-up), this is the one "start completely over" action in the app. It takes effect immediately, with no confirmation step.
+- **About**: a short pop-up explaining what the app does and how it computes its numbers.
+- **Feedback**: a pop-up with a small form (a Feedback/Bug report toggle, a message, and an optional email) to send feedback or report a bug directly from the app, without leaving it or knowing where to file an issue. Submissions go to a spreadsheet via a small Google Apps Script backend (see the technical documentation) — there's no visible confirmation that the *script* processed it successfully (only that the message was sent), a limitation of that kind of lightweight backend.
+
+The dropdown closes itself after picking an action, on pressing Escape, or on clicking anywhere outside it.
+
 ### 1. Target
 
 A single row of fields, shared across the whole attack sequence:
@@ -45,7 +54,7 @@ A single row of fields, shared across the whole attack sequence:
 
 The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, organized into toggle-button sections identical in style to the Effects pop-up (see "Attack sequence" below):
 - **Resources**: a **Focus / Fury** toggle (a model has one or the other, never both) plus a single point count, 0 to 15 (see "Focus and Fury" below).
-- **Special rules**: **Tough** / **Tough Steady** (mutually exclusive — activating one deactivates the other; see "Modeled rules" for the difference between them), **Shield** (a flat ARM bonus, amount 1 to 10, appears once Shield is active), **Unyielding** (+2 ARM against melee attacks only), **Carapace** (+4 ARM against ranged attacks only).
+- **Special rules**: **Tough** / **Tough Steady** (mutually exclusive — activating one deactivates the other; see "Modeled rules" for the difference between them), **Shield** (a flat ARM bonus, amount 1 to 10, appears once Shield is active), **Unyielding** (+2 ARM against melee attacks only), **Carapace** (+4 ARM against ranged attacks only), **Rapid Healing** (heals d3 boxes after a damaging, non-destroying hit — see "Target capabilities" below).
 - **Spells**: a repeatable list for spell-granted stat bonuses or capabilities that aren't worth naming individually (there are far too many to enumerate) — see "Spell bonuses" below.
 - **Reset**: clears every item in the pop-up at once (DEF/ARM/Boxes, which live outside the pop-up, are untouched).
 
@@ -65,7 +74,7 @@ An ordered list of "attack" rows. Each row represents **one attack** and carries
   - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
   - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
   - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
-  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
+  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
   - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" row instead of unchecking effects one by one.
 
 The **"+ Add attack"** button adds a new attack at the bottom of the list, **copying the values of the last attack in the list** (type, stats, dice, every effect) — since chaining similar attacks is the most common case, the player only needs to adjust the few fields that change instead of re-entering everything.
@@ -185,6 +194,7 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **Tough vs. Knocked Down is now correctly modeled**: an earlier version of the app let Tough succeed even while the target was already Knocked Down, which isn't how the tabletop rule works. Fixing this was necessary for Tough Steady (a capability that's specifically defined as "Tough, but immune to that negation") to mean anything at all.
 - **Armor Piercing now correctly halves only the printed base ARM**: an earlier version had it ignore every ARM buff and debuff outright (always resolving against the raw printed stat). The corrected rule halves just the base value; every buff (Shield, spell bonuses, Unyielding/Carapace) and debuff (the generic "-X ARM" penalty) currently in play still applies on top, exactly as it would on a normal attack.
 - **Rapid Healing implemented as a genuine new probability branch**, rather than postponed: after any non-destroying hit that deals damage, the target's box count now branches three ways (d3 heal), on top of the existing boxes/debuffs/Focus-Fury branching - comparable in scope to the persistent-debuffs work, but no longer deferred. Grievous Wounds (which also removes Tough/Tough Steady) shipped alongside it as the effect that turns it off.
+- **Feedback goes to a Google Sheet via Apps Script, not a real backend**: the app has no server of its own (it's a static PWA), so adding a proper feedback API wasn't worth the operational cost for a low-traffic hobby project. A Google Apps Script Web App bound to a spreadsheet is a few dozen lines, free to run, and needs nothing hosted - the tradeoff is that the client can't reliably confirm the script actually processed a submission (see "Menu" above), only that it was sent.
 
 ## Roadmap
 

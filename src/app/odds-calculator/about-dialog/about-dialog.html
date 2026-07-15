@@ -1,0 +1,30 @@
+<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
+  <div class="dialog__content">
+    <header class="dialog__header">
+      <h2 class="dialog__title">About</h2>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </header>
+
+    <div class="about">
+      <p>
+        ChanceMachine is a probability calculator for <strong>Warmachine / Hordes</strong> (MK4). It answers the
+        question you're really asking while planning a turn: if I chain these attacks in this order, what's my
+        chance of destroying this target?
+      </p>
+      <p>
+        Enter your target's DEF/ARM/Boxes and profile (Tough, Shield, Unyielding, spell bonuses...), then build an
+        attack sequence with each attack's special effects. Results recompute instantly, with no "Calculate" button
+        — and no dice are actually rolled: every number is an <strong>exact</strong> enumeration of every possible
+        outcome, not a random simulation.
+      </p>
+      <p>
+        It's the spiritual successor to <strong>OddsMachine</strong>, an Android app no longer available on modern
+        phones — built instead as an installable web app (PWA), so it works on Android, iOS, and desktop alike.
+      </p>
+      <p class="about__credit">
+        Made by PtitNico ·
+        <a href="https://ko-fi.com/ptitnico" target="_blank" rel="noopener noreferrer">Support this project on Ko-fi</a>
+      </p>
+    </div>
+  </div>
+</dialog>

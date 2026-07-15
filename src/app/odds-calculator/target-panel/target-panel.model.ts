@@ -96,11 +96,15 @@ export interface TargetState {
   readonly spellBonuses: WritableSignal<SpellBonusRow[]>;
 }
 
+const DEFAULT_DEF = 13;
+const DEFAULT_ARM = 15;
+const DEFAULT_BOXES = 5;
+
 export function createTargetState(): TargetState {
   return {
-    def: signal<number | 'KD'>(13),
-    arm: signal(15),
-    boxes: signal(5),
+    def: signal<number | 'KD'>(DEFAULT_DEF),
+    arm: signal(DEFAULT_ARM),
+    boxes: signal(DEFAULT_BOXES),
     resourceKind: signal<ResourceKind>('focus'),
     resourcePoints: signal(0),
     toughKind: signal<ToughKind>('off'),
@@ -122,6 +126,17 @@ export function resetTargetProfile(target: TargetState): void {
   target.carapace.set(false);
   target.rapidHealing.set(false);
   target.spellBonuses.set([]);
+}
+
+/** Full reset used by the hamburger menu's app-wide Reset action - unlike `resetTargetProfile`
+ *  (which the Target profile pop-up's own Reset button uses, deliberately leaving DEF/ARM/Boxes
+ *  untouched since those live outside that pop-up, on the Target row itself), this also restores
+ *  DEF/ARM/Boxes to their defaults. */
+export function resetTargetFully(target: TargetState): void {
+  target.def.set(DEFAULT_DEF);
+  target.arm.set(DEFAULT_ARM);
+  target.boxes.set(DEFAULT_BOXES);
+  resetTargetProfile(target);
 }
 
 function grantsRule(target: TargetState, rule: SpellRuleKind): boolean {

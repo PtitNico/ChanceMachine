@@ -1,0 +1,42 @@
+.app-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-menu__trigger {
+  font-size: 1rem;
+}
+
+.app-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 9.5rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--brass);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+}
+
+.app-menu__item {
+  padding: 0.65rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-menu__item:last-child {
+  border-bottom: none;
+}
+
+.app-menu__item:hover {
+  background: rgba(201, 151, 61, 0.12);
+  color: var(--brass-bright);
+}

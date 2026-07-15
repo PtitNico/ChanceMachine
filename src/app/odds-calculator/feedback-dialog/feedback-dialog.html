@@ -1,0 +1,72 @@
+<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
+  <div class="dialog__content">
+    <header class="dialog__header">
+      <h2 class="dialog__title">Feedback</h2>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </header>
+
+    @if (state() === 'sent') {
+      <p class="feedback__sent">Thanks! Your message has been sent.</p>
+      <div class="dialog__actions">
+        <button type="button" class="dialog__done-btn" (click)="close()">Done</button>
+      </div>
+    } @else {
+      <div class="toggle-group">
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="kind() === 'feedback'"
+          (click)="setKind('feedback')"
+        >
+          Feedback
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          [class.toggle-btn--active]="kind() === 'bug'"
+          (click)="setKind('bug')"
+        >
+          Bug report
+        </button>
+      </div>
+
+      <label class="field field--stacked">
+        <span class="field__label">Message</span>
+        <textarea
+          class="feedback__textarea"
+          rows="5"
+          placeholder="What's on your mind?"
+          [ngModel]="message()"
+          (ngModelChange)="message.set($event)"
+        ></textarea>
+      </label>
+
+      <label class="field field--stacked">
+        <span class="field__label">Email (optional, if you'd like a reply)</span>
+        <input
+          type="email"
+          class="feedback__input"
+          placeholder="you@example.com"
+          [ngModel]="email()"
+          (ngModelChange)="email.set($event)"
+        />
+      </label>
+
+      @if (state() === 'error') {
+        <p class="feedback__error">Something went wrong sending this - please try again in a moment.</p>
+      }
+
+      <div class="dialog__actions">
+        <button type="button" class="dialog__reset-btn" (click)="close()">Cancel</button>
+        <button
+          type="button"
+          class="dialog__done-btn"
+          [disabled]="!message().trim() || state() === 'sending'"
+          (click)="submit()"
+        >
+          {{ state() === 'sending' ? 'Sending…' : 'Send' }}
+        </button>
+      </div>
+    }
+  </div>
+</dialog>

@@ -1,11 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
 import { SequencedAttack } from '../engine/sequence';
+import { AboutDialog } from './about-dialog/about-dialog';
+import { AppMenu } from './app-menu/app-menu';
 import { AttackRow, cloneAttackRow, createAttackRow, toSequencedAttack } from './attack-row.model';
 import { AttackRowComponent } from './attack-row/attack-row';
 import { DamagePoint } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { EffectsDialog } from './effects-dialog/effects-dialog';
+import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
 import {
@@ -14,6 +17,7 @@ import {
   effectiveCarapace,
   effectiveToughKind,
   effectiveUnyielding,
+  resetTargetFully,
   shieldArmBonus,
   spellArmBonus,
   spellArmBonusPostDispel,
@@ -25,7 +29,17 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
 @Component({
   selector: 'app-odds-calculator',
   standalone: true,
-  imports: [TargetPanel, AttackRowComponent, ResultsPanel, EffectsDialog, DetailsDialog, TargetProfileDialog],
+  imports: [
+    TargetPanel,
+    AttackRowComponent,
+    ResultsPanel,
+    EffectsDialog,
+    DetailsDialog,
+    TargetProfileDialog,
+    AppMenu,
+    AboutDialog,
+    FeedbackDialog,
+  ],
   templateUrl: './odds-calculator.html',
   // Shared partials first, this component's own file last: `.console--attacks` here must
   // win its `flex-shrink` tie-break against shared/section.css's `.console` (equal
@@ -115,5 +129,13 @@ export class OddsCalculator {
 
   protected removeAttack(id: string): void {
     this.rows.update((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+  }
+
+  /** Hamburger menu's "Reset": wipes the target's profile AND its DEF/ARM/Boxes (unlike the
+   *  Target profile pop-up's own Reset, which only touches the profile), and collapses the
+   *  attack sequence back down to a single default row. */
+  protected resetAll(): void {
+    resetTargetFully(this.target);
+    this.rows.set([createAttackRow()]);
   }
 }

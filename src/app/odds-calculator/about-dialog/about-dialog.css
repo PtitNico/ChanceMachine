@@ -1,0 +1,19 @@
+.about p {
+  margin: 0 0 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.about p:last-child {
+  margin-bottom: 0;
+}
+
+.about__credit {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.about__credit a {
+  color: var(--brass-bright);
+}

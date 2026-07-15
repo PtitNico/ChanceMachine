@@ -1,0 +1,45 @@
+/* Unlike the horizontal label+control `.field` used elsewhere (DEF/ARM selects, -X ARM amount),
+   a textarea reads better with its label stacked above rather than squeezed to one side. */
+.field--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.feedback__textarea,
+.feedback__input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.feedback__textarea {
+  resize: vertical;
+}
+
+.feedback__textarea:focus-visible,
+.feedback__input:focus-visible {
+  outline: 2px solid var(--brass-bright);
+  outline-offset: 1px;
+}
+
+.feedback__sent {
+  color: var(--brass-bright);
+  font-size: 0.9rem;
+  margin: 1rem 0;
+}
+
+.feedback__error {
+  color: #d97a6a;
+  font-size: 0.78rem;
+  margin: 0.5rem 0 0;
+}
+
+.dialog__done-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

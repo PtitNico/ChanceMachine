@@ -1,6 +1,7 @@
 <div class="panel">
   <header class="panel__header">
     <span class="panel__eyebrow">ChanceMachine</span>
+    <app-menu (reset)="resetAll()" (openAbout)="aboutDialogRef.open()" (openFeedback)="feedbackDialogRef.open()" />
   </header>
 
   <div class="panel__body">
@@ -41,4 +42,8 @@
     [damagePoints]="damageDistributionPoints()"
     [maxDamageProbability]="maxDamageProbability()"
   />
+
+  <app-about-dialog #aboutDialogRef />
+
+  <app-feedback-dialog #feedbackDialogRef />
 </div>
