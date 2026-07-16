@@ -1,59 +1,39 @@
 # ChanceMachine
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.18.
+**[Open the app →](https://ptitnico.github.io/ChanceMachine/)**
 
-## Development server
+A probability calculator for the **Warmachine / Hordes** tabletop miniatures games. It answers the question every player asks while planning a turn: *"if I chain these attacks in this order, what's my chance of destroying this target?"*
 
-To start a local development server, run:
+ChanceMachine is the spiritual successor to **OddsMachine**, an Android app no longer available on modern phones — built instead as an installable web app (PWA), so it works on Android, iOS, and desktop alike, online or off.
 
-```bash
-ng serve
-```
+## What it does
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Enter a target (DEF, ARM, remaining boxes, plus an optional profile — Tough, Shield, Unyielding, Carapace, spell bonuses, Focus/Fury), then build an ordered attack sequence (one or more attackers, each with one or more attacks) and its special rules. Results update **instantly** on every change, no "Calculate" button — and no dice are ever actually rolled: every number is an **exact enumeration** of every possible outcome, not a Monte Carlo simulation.
 
-## Code scaffolding
+You get, for the whole sequence and at every step along the way:
+- Chance to hit and chance to destroy the target
+- Expected boxes remaining, and the full distribution of outcomes if the target survives
+- A target that defends itself **optimally** — Focus/Fury spending is computed via backward induction across the whole sequence, not a naive "block this hit if it would kill me" reflex
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Supports a wide, growing range of Warmachine/Hordes rules: Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, Trash, Shatter, Armor Piercing, Decapitation, Brutal Damage, Critical Shred, Rapid Healing, Grievous Wounds, Dispel, Blessed, Chain Weapon, boost/reroll/discard dice modifiers, and more — see the [functional documentation](docs/functional-documentation.md) for the full, precise list of what's modeled and how.
 
-```bash
-ng generate component component-name
-```
+Targeted rules edition: **Warmachine MK4**.
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Tech
 
-```bash
-ng generate --help
-```
+Angular 21 (standalone components, signals, zoneless), TypeScript, Vitest — a pure-TypeScript calculation engine with no Angular dependency, and no backend: it's a fully static PWA (`@angular/service-worker`), deployed to GitHub Pages.
 
-## Building
+For an in-depth look at how the engine and UI are built, see the [technical documentation](docs/technical-documentation.md).
 
-To build the project run:
+## Development
 
 ```bash
-ng build
+npm install
+npm start          # dev server at http://localhost:4200
+npm test            # unit tests (Vitest, via the Angular builder)
+npm run build       # production build in dist/
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+## Feedback
 
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Found a bug, or have a rule that isn't modeled correctly? Use the **Feedback** entry in the app's own menu, or [open an issue](https://github.com/PtitNico/ChanceMachine/issues).
