@@ -1,0 +1,21 @@
+<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
+  <div class="dialog__content">
+    <header class="dialog__header">
+      <h2 class="dialog__title">Changelog</h2>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </header>
+
+    <div class="changelog">
+      @for (entry of entries; track entry.date) {
+        <section class="changelog__entry">
+          <h3 class="changelog__date">{{ entry.date }}</h3>
+          <ul class="changelog__items">
+            @for (item of entry.items; track item) {
+              <li>{{ item }}</li>
+            }
+          </ul>
+        </section>
+      }
+    </div>
+  </div>
+</dialog>

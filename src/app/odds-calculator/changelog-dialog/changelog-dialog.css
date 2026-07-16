@@ -1,0 +1,29 @@
+.changelog__entry {
+  margin-bottom: 1.1rem;
+}
+
+.changelog__entry:last-child {
+  margin-bottom: 0;
+}
+
+.changelog__date {
+  margin: 0 0 0.4rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--brass-bright);
+}
+
+.changelog__items {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.changelog__items li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text);
+}

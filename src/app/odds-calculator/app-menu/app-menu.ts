@@ -5,9 +5,10 @@ import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, output, sign
  * than a native `<dialog>` (unlike every other pop-up in this app) - it's a short list of actions,
  * not a form or a breakdown, so a full-screen modal backdrop would be heavier than the content
  * warrants. It owns none of the actions itself: Reset needs the target/attack-sequence state that
- * lives in `OddsCalculator`, and About/Feedback are their own dialog components (same pattern as
- * `TargetPanel`'s `openProfile` output triggering `TargetProfileDialog` one level up) - this
- * component only emits which one was picked and closes itself.
+ * lives in `OddsCalculator`, and About/Changelog/Feedback are their own dialog components (same
+ * pattern as `TargetPanel`'s `openProfile` output triggering `TargetProfileDialog` one level up) -
+ * this component only emits which one was picked and closes itself. "Support me" is a plain link,
+ * not an output - there's no state or dialog involved, just a URL.
  */
 @Component({
   selector: 'app-menu',
@@ -19,6 +20,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, output, sign
 export class AppMenu {
   readonly reset = output<void>();
   readonly openAbout = output<void>();
+  readonly openChangelog = output<void>();
   readonly openFeedback = output<void>();
 
   protected readonly isOpen = signal(false);
@@ -40,6 +42,11 @@ export class AppMenu {
 
   protected onAbout(): void {
     this.openAbout.emit();
+    this.close();
+  }
+
+  protected onChangelog(): void {
+    this.openChangelog.emit();
     this.close();
   }
 

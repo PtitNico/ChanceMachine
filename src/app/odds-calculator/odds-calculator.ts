@@ -5,6 +5,7 @@ import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackRow, cloneAttackRow, createAttackRow, toSequencedAttack } from './attack-row.model';
 import { AttackRowComponent } from './attack-row/attack-row';
+import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
 import { DamagePoint } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { EffectsDialog } from './effects-dialog/effects-dialog';
@@ -38,6 +39,7 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
     TargetProfileDialog,
     AppMenu,
     AboutDialog,
+    ChangelogDialog,
     FeedbackDialog,
   ],
   templateUrl: './odds-calculator.html',

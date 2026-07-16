@@ -1,8 +1,10 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
 
 /** Set in localStorage the first time this dialog auto-opens itself, so it never does so again
- *  on the same device/browser - see `ngAfterViewInit`. */
-const HAS_SEEN_ABOUT_KEY = 'chancemachine.hasSeenAbout';
+ *  on the same device/browser - see `ngAfterViewInit`. Exported so `ChangelogDialog` can tell a
+ *  visitor's very first ever load (About auto-opens, this key is about to be set for the first
+ *  time) apart from a returning one (see its own doc comment for why that distinction matters). */
+export const HAS_SEEN_ABOUT_KEY = 'chancemachine.hasSeenAbout';
 
 @Component({
   selector: 'app-about-dialog',

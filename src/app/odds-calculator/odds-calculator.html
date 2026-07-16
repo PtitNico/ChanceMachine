@@ -1,7 +1,12 @@
 <div class="panel">
   <header class="panel__header">
     <span class="panel__eyebrow">ChanceMachine</span>
-    <app-menu (reset)="resetAll()" (openAbout)="aboutDialogRef.open()" (openFeedback)="feedbackDialogRef.open()" />
+    <app-menu
+      (reset)="resetAll()"
+      (openAbout)="aboutDialogRef.open()"
+      (openChangelog)="changelogDialogRef.open()"
+      (openFeedback)="feedbackDialogRef.open()"
+    />
   </header>
 
   <div class="panel__body">
@@ -44,6 +49,8 @@
   />
 
   <app-about-dialog #aboutDialogRef />
+
+  <app-changelog-dialog #changelogDialogRef />
 
   <app-feedback-dialog #feedbackDialogRef />
 </div>
