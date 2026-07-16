@@ -291,8 +291,8 @@ odds-calculator/
   effects-dialog/                  # per-attack Effects pop-up
   target-profile-dialog/           # Target profile pop-up (Focus/Fury/Tough/capabilities/spells)
   details-dialog/                  # Results breakdown pop-up (step-by-step + damage distribution)
-  results-panel/                   # Results gauges + "+" details button + Ko-fi link
-  app-menu/                        # Header hamburger dropdown (Reset / About / Feedback)
+  results-panel/                   # Results gauges + "+" details button
+  app-menu/                        # Header hamburger dropdown (Reset / About / Feedback / Support me - Ko-fi link)
   about-dialog/                    # Static "what is this app" pop-up
   feedback-dialog/                 # Feedback/bug-report form, posts to a Google Apps Script
   shared/                          # CSS partials reused by 2+ of the above (see below)
