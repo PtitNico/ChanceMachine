@@ -83,8 +83,8 @@
   </div>
   @if (effectsSummary(row()).length > 0) {
     <div class="effect-tags">
-      @for (label of effectsSummary(row()); track label) {
-        <span class="effect-tag">{{ label }}</span>
+      @for (tag of effectsSummary(row()); track tag.key) {
+        <span class="effect-tag">{{ tag.label }}</span>
       }
     </div>
   }

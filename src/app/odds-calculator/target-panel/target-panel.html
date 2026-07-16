@@ -46,8 +46,8 @@
 
   @if (targetSummary(target()).length > 0) {
     <div class="effect-tags">
-      @for (label of targetSummary(target()); track label) {
-        <span class="effect-tag">{{ label }}</span>
+      @for (tag of targetSummary(target()); track tag.key) {
+        <span class="effect-tag">{{ tag.label }}</span>
       }
     </div>
   }

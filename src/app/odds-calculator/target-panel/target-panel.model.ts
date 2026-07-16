@@ -204,18 +204,34 @@ export function spellDefBonusPostDispel(target: TargetState): number {
   return sumStatAmount(statSpells(target, 'def', true));
 }
 
-/** Short summary strings for every active target capability, shown under the DEF/ARM/Boxes row. */
-export function targetSummary(target: TargetState): string[] {
-  const parts: string[] = [];
+export interface TargetSummaryTag {
+  /** Stable across a re-render even when `label` itself changes (e.g. adjusting Focus/Fury's
+   *  point count, or switching Tough to Tough Steady, changes the text but not the identity of
+   *  that one tag) - see `target-panel.html`'s `@for` tracking this instead of the label string
+   *  itself, to avoid NG0956: tracking by the text would make Angular treat such a change as
+   *  removing one tag and adding an unrelated one (destroying and recreating its DOM node)
+   *  instead of just updating the existing node's text. A spell bonus tag uses the spell's own
+   *  `id` (already stable, already used to `@for`-track the Spells list itself); every other tag
+   *  is a fixed, known-in-advance capability, keyed by name. */
+  readonly key: string;
+  readonly label: string;
+}
+
+/** Short summary tags for every active target capability, shown under the DEF/ARM/Boxes row. */
+export function targetSummary(target: TargetState): TargetSummaryTag[] {
+  const tags: TargetSummaryTag[] = [];
   if (target.resourcePoints() > 0) {
-    parts.push(`${target.resourceKind() === 'focus' ? 'Focus' : 'Fury'} ${target.resourcePoints()}`);
+    tags.push({
+      key: 'resource',
+      label: `${target.resourceKind() === 'focus' ? 'Focus' : 'Fury'} ${target.resourcePoints()}`,
+    });
   }
-  if (target.toughKind() === 'tough') parts.push('Tough');
-  if (target.toughKind() === 'toughSteady') parts.push('Tough Steady');
-  if (target.shield()) parts.push(`Shield +${target.shieldAmount()} ARM`);
-  if (target.unyielding()) parts.push('Unyielding');
-  if (target.carapace()) parts.push('Carapace');
-  if (target.rapidHealing()) parts.push('Rapid Healing');
+  if (target.toughKind() === 'tough') tags.push({ key: 'tough', label: 'Tough' });
+  if (target.toughKind() === 'toughSteady') tags.push({ key: 'tough', label: 'Tough Steady' });
+  if (target.shield()) tags.push({ key: 'shield', label: `Shield +${target.shieldAmount()} ARM` });
+  if (target.unyielding()) tags.push({ key: 'unyielding', label: 'Unyielding' });
+  if (target.carapace()) tags.push({ key: 'carapace', label: 'Carapace' });
+  if (target.rapidHealing()) tags.push({ key: 'rapidHealing', label: 'Rapid Healing' });
   for (const spell of target.spellBonuses()) {
     const bonus =
       spell.kind() === 'stat'
@@ -224,7 +240,7 @@ export function targetSummary(target: TargetState): string[] {
           : ''
         : SPELL_RULE_LABELS[spell.ruleKind()];
     const name = spell.name().trim() || 'Spell';
-    parts.push(`${name}${bonus ? ` (${bonus})` : ''}${spell.dispellable() ? ' [Up]' : ''}`);
+    tags.push({ key: spell.id, label: `${name}${bonus ? ` (${bonus})` : ''}${spell.dispellable() ? ' [Up]' : ''}` });
   }
-  return parts;
+  return tags;
 }

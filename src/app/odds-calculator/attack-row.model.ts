@@ -25,14 +25,6 @@ export const ARM_PENALTY_OPTIONS = range(1, 10);
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 
-/**
- * Every effect that can fire on a hit or specifically on a crit, rendered as a pair of
- * toggle buttons (one in the "On hit" group, one in "On crit") - clicking one sets this
- * effect's trigger, clicking the already-active one turns the effect off. Armor Piercing
- * and Decapitation are one-off (this attack only); the rest are persistent `StatEffect`s.
- */
-export type TriggerEffectKey = 'armorPiercing' | 'decapitation' | StatEffectType;
-
 const STAT_EFFECT_TYPES: StatEffectType[] = [
   'knockdown',
   'stationary',
@@ -47,9 +39,92 @@ const STAT_EFFECT_TYPES: StatEffectType[] = [
   'grievousWounds',
 ];
 
-export const TRIGGER_EFFECT_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
+/**
+ * Every toggleable effect on an attack row - general, attack-roll, damage-roll, crit-only, and
+ * genuinely triggered-on-hit-or-crit alike - is one `TriggerEffectRow`, all stored together in
+ * `AttackRow.triggerEffects`. Most of these have no real hit/crit distinction at all (Jump the
+ * Shark, Discard lowest, Trash, ...) - for those, `'hit'` is simply the interface's generic "on"
+ * value, and the UI only ever offers ONE button for them (`ToggleButton` with its default
+ * `activeValue="hit"`). Only Armor Piercing, Decapitation, and the persistent `StatEffect`s
+ * genuinely distinguish "on a hit" from "on a critical hit", rendered as a PAIR of buttons (one
+ * per group) both bound to the SAME `TriggerEffectRow` with a different `activeValue`. Sharing one
+ * shape across both cases - rather than a separate plain `WritableSignal<boolean>` per simple
+ * effect - is what let a single `ToggleButton` component replace every repeated toggle-button
+ * block that used to be hand-written per effect.
+ */
+export type TriggerEffectKey =
+  | 'jumpTheShark'
+  | 'blessed'
+  | 'forceAutoHit'
+  | 'discardAttackLowest'
+  | 'discardAttackHighest'
+  | 'rerollAttack'
+  | 'sanguineFate'
+  | 'discardDamageLowest'
+  | 'discardDamageHighest'
+  | 'rerollDamage'
+  | 'trash'
+  | 'shatter'
+  | 'chainWeapon'
+  | 'brutalDamage'
+  | 'criticalShred'
+  | 'armorPiercing'
+  | 'decapitation'
+  | StatEffectType;
+
+/** Rendered in the Effects dialog's "General" section, each as a single simple toggle. */
+export const GENERAL_EFFECT_KEYS: TriggerEffectKey[] = ['jumpTheShark', 'blessed'];
+
+/** Rendered in the "Attack" section, each as a single simple toggle. */
+export const ATTACK_EFFECT_KEYS: TriggerEffectKey[] = [
+  'forceAutoHit',
+  'discardAttackLowest',
+  'discardAttackHighest',
+  'rerollAttack',
+  'sanguineFate',
+];
+
+/** Rendered in the "Damage" section, each as a single simple toggle. */
+export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
+  'discardDamageLowest',
+  'discardDamageHighest',
+  'rerollDamage',
+  'trash',
+  'shatter',
+  'chainWeapon',
+];
+
+/** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`. */
+export const HIT_CRIT_PAIR_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
+
+/** Rendered in the "Critical" section too, but (unlike `HIT_CRIT_PAIR_KEYS`) as a single simple
+ *  toggle each - neither has an "on hit" variant at all. */
+export const CRIT_ONLY_SIMPLE_KEYS: TriggerEffectKey[] = ['brutalDamage', 'criticalShred'];
+
+export const TRIGGER_EFFECT_KEYS: TriggerEffectKey[] = [
+  ...GENERAL_EFFECT_KEYS,
+  ...ATTACK_EFFECT_KEYS,
+  ...DAMAGE_EFFECT_KEYS,
+  ...HIT_CRIT_PAIR_KEYS,
+  ...CRIT_ONLY_SIMPLE_KEYS,
+];
 
 export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
+  jumpTheShark: 'Jump the Shark',
+  blessed: 'Blessed',
+  forceAutoHit: 'Auto-hit',
+  discardAttackLowest: 'Discard lowest',
+  discardAttackHighest: 'Discard highest',
+  rerollAttack: 'Reroll',
+  sanguineFate: 'Sanguine Fate',
+  discardDamageLowest: 'Discard lowest',
+  discardDamageHighest: 'Discard highest',
+  rerollDamage: 'Reroll',
+  trash: 'Trash',
+  shatter: 'Shatter',
+  chainWeapon: 'Chain Weapon',
+  brutalDamage: 'Brutal Damage',
+  criticalShred: 'Shred',
   armorPiercing: 'Armor Piercing',
   decapitation: 'Decapitation',
   knockdown: 'Knockdown',
@@ -65,8 +140,22 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   grievousWounds: 'Grievous Wounds',
 };
 
+/** Where a summary tag's text needs to differ from the button's own label (mainly to disambiguate
+ *  the attack-roll/damage-roll pairs sharing a label, e.g. both "Discard lowest" buttons) - see
+ *  `effectsSummary`. Anything not listed here just reuses `TRIGGER_EFFECT_LABELS` verbatim. */
+const SUMMARY_LABEL_OVERRIDES: Partial<Record<TriggerEffectKey, string>> = {
+  discardAttackLowest: 'Discard lowest (atk)',
+  discardAttackHighest: 'Discard highest (atk)',
+  rerollAttack: 'Reroll (atk)',
+  discardDamageLowest: 'Discard lowest (dmg)',
+  discardDamageHighest: 'Discard highest (dmg)',
+  rerollDamage: 'Reroll (dmg)',
+  brutalDamage: 'Crit Brutal Damage',
+  criticalShred: 'Crit Shred',
+};
+
 function isStatEffectKey(key: TriggerEffectKey): key is StatEffectType {
-  return key !== 'armorPiercing' && key !== 'decapitation';
+  return (STAT_EFFECT_TYPES as TriggerEffectKey[]).includes(key);
 }
 
 /** 'off' means this effect isn't active on this attack. */
@@ -85,6 +174,15 @@ function cloneTriggerEffects(source: TriggerEffectRow[]): TriggerEffectRow[] {
   return source.map((e) => ({ key: e.key, trigger: signal(e.trigger()), amount: signal(e.amount()) }));
 }
 
+/** Every `TriggerEffectRow` from `row.triggerEffects` matching `keys`, in `keys`' own order - the
+ *  Effects dialog template uses this to pull just the subset relevant to a given section (see
+ *  `GENERAL_EFFECT_KEYS` and friends above). Every key in `TRIGGER_EFFECT_KEYS` is always present
+ *  in `row.triggerEffects` (a fixed set created once per row), so this never needs to filter out
+ *  a miss. */
+export function effectsFor(row: AttackRow, keys: readonly TriggerEffectKey[]): TriggerEffectRow[] {
+  return keys.map((key) => row.triggerEffects.find((e) => e.key === key)!);
+}
+
 /**
  * One editable row in the attack sequence builder. Each field is its own
  * signal (rather than one signal holding a plain object) so that editing a
@@ -100,33 +198,11 @@ export interface AttackRow {
   readonly type: WritableSignal<AttackType>;
   readonly stat: WritableSignal<number>;
   readonly diceCount: WritableSignal<number>;
-  readonly forceAutoHit: WritableSignal<boolean>;
   readonly pow: WritableSignal<number | '-'>;
   readonly damageDiceCount: WritableSignal<number>;
 
-  // General.
-  readonly jumpTheShark: WritableSignal<boolean>;
-  readonly blessed: WritableSignal<boolean>;
-
-  // Attack roll.
-  readonly discardAttackLowest: WritableSignal<boolean>;
-  readonly discardAttackHighest: WritableSignal<boolean>;
-  readonly rerollAttack: WritableSignal<boolean>;
-  readonly sanguineFate: WritableSignal<boolean>;
-
-  // Damage roll.
-  readonly discardDamageLowest: WritableSignal<boolean>;
-  readonly discardDamageHighest: WritableSignal<boolean>;
-  readonly rerollDamage: WritableSignal<boolean>;
-  readonly trash: WritableSignal<boolean>;
-  readonly shatter: WritableSignal<boolean>;
-  readonly chainWeapon: WritableSignal<boolean>;
-
-  // Crit only.
-  readonly brutalDamage: WritableSignal<boolean>;
-  readonly criticalShred: WritableSignal<boolean>;
-
-  // Everything triggerable on a hit and/or a crit (fixed set, always present - see TriggerEffectRow).
+  /** Every toggleable effect on this attack - always one entry per `TRIGGER_EFFECT_KEYS` (a fixed
+   *  set) - see `TriggerEffectRow`'s doc comment above. */
   readonly triggerEffects: TriggerEffectRow[];
 }
 
@@ -136,23 +212,8 @@ export function createAttackRow(): AttackRow {
     type: signal<AttackType>('melee'),
     stat: signal(6),
     diceCount: signal(2),
-    forceAutoHit: signal(false),
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
-    jumpTheShark: signal(false),
-    blessed: signal(false),
-    discardAttackLowest: signal(false),
-    discardAttackHighest: signal(false),
-    rerollAttack: signal(false),
-    sanguineFate: signal(false),
-    discardDamageLowest: signal(false),
-    discardDamageHighest: signal(false),
-    rerollDamage: signal(false),
-    trash: signal(false),
-    shatter: signal(false),
-    chainWeapon: signal(false),
-    brutalDamage: signal(false),
-    criticalShred: signal(false),
     triggerEffects: createTriggerEffects(),
   };
 }
@@ -164,43 +225,13 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     type: signal(source.type()),
     stat: signal(source.stat()),
     diceCount: signal(source.diceCount()),
-    forceAutoHit: signal(source.forceAutoHit()),
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
-    jumpTheShark: signal(source.jumpTheShark()),
-    blessed: signal(source.blessed()),
-    discardAttackLowest: signal(source.discardAttackLowest()),
-    discardAttackHighest: signal(source.discardAttackHighest()),
-    rerollAttack: signal(source.rerollAttack()),
-    sanguineFate: signal(source.sanguineFate()),
-    discardDamageLowest: signal(source.discardDamageLowest()),
-    discardDamageHighest: signal(source.discardDamageHighest()),
-    rerollDamage: signal(source.rerollDamage()),
-    trash: signal(source.trash()),
-    shatter: signal(source.shatter()),
-    chainWeapon: signal(source.chainWeapon()),
-    brutalDamage: signal(source.brutalDamage()),
-    criticalShred: signal(source.criticalShred()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
 }
 
 export function resetEffects(row: AttackRow): void {
-  row.forceAutoHit.set(false);
-  row.jumpTheShark.set(false);
-  row.blessed.set(false);
-  row.discardAttackLowest.set(false);
-  row.discardAttackHighest.set(false);
-  row.rerollAttack.set(false);
-  row.sanguineFate.set(false);
-  row.discardDamageLowest.set(false);
-  row.discardDamageHighest.set(false);
-  row.rerollDamage.set(false);
-  row.trash.set(false);
-  row.shatter.set(false);
-  row.chainWeapon.set(false);
-  row.brutalDamage.set(false);
-  row.criticalShred.set(false);
   for (const effect of row.triggerEffects) {
     effect.trigger.set('off');
     effect.amount.set(2);
@@ -208,33 +239,28 @@ export function resetEffects(row: AttackRow): void {
 }
 
 /** Short "label (trigger)" summary strings for every active effect on a row, shown under the attack row. */
-export function effectsSummary(row: AttackRow): string[] {
-  const parts: string[] = [];
-  if (row.forceAutoHit()) parts.push('Auto-hit');
-  if (row.jumpTheShark()) parts.push('Jump the Shark');
-  if (row.blessed()) parts.push('Blessed');
-  if (row.discardAttackLowest()) parts.push('Discard lowest (atk)');
-  if (row.discardAttackHighest()) parts.push('Discard highest (atk)');
-  if (row.rerollAttack()) parts.push('Reroll (atk)');
-  if (row.sanguineFate()) parts.push('Sanguine Fate');
-  if (row.discardDamageLowest()) parts.push('Discard lowest (dmg)');
-  if (row.discardDamageHighest()) parts.push('Discard highest (dmg)');
-  if (row.rerollDamage()) parts.push('Reroll (dmg)');
-  if (row.trash()) parts.push('Trash');
-  if (row.shatter()) parts.push('Shatter');
-  if (row.chainWeapon()) parts.push('Chain Weapon');
-  if (row.brutalDamage()) parts.push('Crit Brutal Damage');
-  if (row.criticalShred()) parts.push('Critical Shred');
+export interface EffectSummaryTag {
+  /** Stable across a re-render even when `label` itself changes (e.g. switching an effect from
+   *  "on crit" to "on hit" changes its text but not its identity) - see `attack-row.html`'s
+   *  `@for` tracking this instead of the label string itself, to avoid NG0956: tracking by the
+   *  text would make Angular treat that switch as removing one tag and adding an unrelated one
+   *  (destroying and recreating its DOM node) instead of just updating the existing node's text. */
+  readonly key: TriggerEffectKey;
+  readonly label: string;
+}
+
+export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
+  const tags: EffectSummaryTag[] = [];
   for (const effect of row.triggerEffects) {
     const trigger = effect.trigger();
     if (trigger === 'off') continue;
-    let label = effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : TRIGGER_EFFECT_LABELS[effect.key];
+    let label = effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : (SUMMARY_LABEL_OVERRIDES[effect.key] ?? TRIGGER_EFFECT_LABELS[effect.key]);
     if (trigger === 'crit') {
       label = `Crit ${label}`;
     }
-    parts.push(label);
+    tags.push({ key: effect.key, label });
   }
-  return parts;
+  return tags;
 }
 
 /** Total dice picked by the user -> extra dice on top of the game's 2d6 baseline (never negative). */
@@ -250,6 +276,11 @@ function discardModifier(lowest: boolean, highest: boolean): { highest?: number;
 function triggerOf(row: AttackRow, key: TriggerEffectKey): EffectTrigger | undefined {
   const trigger = row.triggerEffects.find((e) => e.key === key)?.trigger();
   return trigger && trigger !== 'off' ? trigger : undefined;
+}
+
+/** Whether a simple (non hit/crit) effect is currently active - i.e. its trigger isn't 'off'. */
+function isEffectOn(row: AttackRow, key: TriggerEffectKey): boolean {
+  return triggerOf(row, key) !== undefined;
 }
 
 /** Projects one UI row into the plain object shape the engine expects. */
@@ -272,29 +303,29 @@ export function toSequencedAttack(row: AttackRow, index: number): SequencedAttac
     stat: row.stat(),
     modifiers: {
       boostDice: toBoostDice(row.diceCount()),
-      discard: discardModifier(row.discardAttackLowest(), row.discardAttackHighest()),
-      reroll: row.rerollAttack() || undefined,
-      treatOnesAsSixes: row.jumpTheShark() || undefined,
-      extraCritDice: row.sanguineFate() ? 1 : undefined,
+      discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),
+      reroll: isEffectOn(row, 'rerollAttack') || undefined,
+      treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
+      extraCritDice: isEffectOn(row, 'sanguineFate') ? 1 : undefined,
     },
     pow: resolvePow(row.pow()),
     damageModifiers: {
       boostDice: toBoostDice(row.damageDiceCount()),
-      discard: discardModifier(row.discardDamageLowest(), row.discardDamageHighest()),
-      reroll: row.rerollDamage() || undefined,
-      treatOnesAsSixes: row.jumpTheShark() || undefined,
+      discard: discardModifier(isEffectOn(row, 'discardDamageLowest'), isEffectOn(row, 'discardDamageHighest')),
+      reroll: isEffectOn(row, 'rerollDamage') || undefined,
+      treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
     },
     effects: {
-      brutalDamageDice: row.brutalDamage() ? 1 : undefined,
+      brutalDamageDice: isEffectOn(row, 'brutalDamage') ? 1 : undefined,
       armorPiercing: triggerOf(row, 'armorPiercing'),
       decapitation: triggerOf(row, 'decapitation'),
-      trash: row.trash() || undefined,
-      shatter: row.shatter() || undefined,
+      trash: isEffectOn(row, 'trash') || undefined,
+      shatter: isEffectOn(row, 'shatter') || undefined,
     },
     statEffects: statEffects.length > 0 ? statEffects : undefined,
-    forceAutoHit: row.forceAutoHit(),
-    blessed: row.blessed() || undefined,
-    chainWeapon: row.chainWeapon() || undefined,
-    criticalShred: row.criticalShred() || undefined,
+    forceAutoHit: isEffectOn(row, 'forceAutoHit'),
+    blessed: isEffectOn(row, 'blessed') || undefined,
+    chainWeapon: isEffectOn(row, 'chainWeapon') || undefined,
+    criticalShred: isEffectOn(row, 'criticalShred') || undefined,
   };
 }
