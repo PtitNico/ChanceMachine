@@ -44,11 +44,5 @@
     <button type="button" class="icon-btn" (click)="openProfile.emit()" aria-label="Target profile">⚙</button>
   </div>
 
-  @if (targetSummary(target()).length > 0) {
-    <div class="effect-tags">
-      @for (tag of targetSummary(target()); track tag.key) {
-        <span class="effect-tag">{{ tag.label }}</span>
-      }
-    </div>
-  }
+  <app-effect-tags [tags]="targetSummary(target())" />
 </section>

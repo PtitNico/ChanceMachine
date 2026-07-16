@@ -1,0 +1,7 @@
+@if (tags().length > 0) {
+  <div class="effect-tags">
+    @for (tag of tags(); track tag.key) {
+      <span class="effect-tag">{{ tag.label }}</span>
+    }
+  </div>
+}

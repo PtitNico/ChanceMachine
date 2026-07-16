@@ -81,11 +81,5 @@
       ✕
     </button>
   </div>
-  @if (effectsSummary(row()).length > 0) {
-    <div class="effect-tags">
-      @for (tag of effectsSummary(row()); track tag.key) {
-        <span class="effect-tag">{{ tag.label }}</span>
-      }
-    </div>
-  }
+  <app-effect-tags [tags]="effectsSummary(row())" />
 </div>

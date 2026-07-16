@@ -1,5 +1,6 @@
-/* Small pill tags summarizing active effects/capabilities under an attack row or the
-   Target row - shared since both need the exact same compact, wrapping presentation. */
+/* Small pill tags summarizing active effects/capabilities under an attack row or the Target
+   row - the only consumer of this file is the `EffectTags` component (`effect-tags/`), which
+   both of those render through, rather than each loading this partial independently. */
 
 .effect-tags {
   display: flex;
