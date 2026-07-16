@@ -6,7 +6,7 @@ ChanceMachine is an Angular PWA (Progressive Web App) that computes, via exact e
 
 - **Stack**: Angular 21 (standalone components, signals), TypeScript, Vitest.
 - **No runtime dependency beyond Angular**: the calculation engine (`src/app/engine/`) is pure TypeScript with no Angular dependency, testable in isolation.
-- **PWA**: `@angular/service-worker`, installable on mobile (Android/iOS via "Add to Home Screen"), works offline (no application network calls).
+- **PWA**: `@angular/service-worker`, installable on mobile (Android/iOS via "Add to Home Screen"), works offline (the calculation engine itself makes no network calls - Feedback and the analytics script are the only things that do, and both are best-effort, never required for the app to function).
 
 ## Project structure
 
@@ -507,7 +507,15 @@ Two CSS pitfalls hit while implementing "fits on a single line", worth keeping i
 - `@angular/service-worker` enabled only outside dev mode (`enabled: !isDevMode()`), `registerWhenStable:30000` registration strategy.
 - `ngsw-config.json`: prefetches application files (HTML/CSS/JS/manifest), lazy-caches icons.
 - `public/manifest.webmanifest` + `public/icons/*`: multi-resolution icons for home-screen installation (Android and iOS).
-- No application network calls: the app works fully offline once loaded/installed.
+- The calculation engine itself makes no network calls: the app works fully offline once loaded/installed. Feedback and analytics (see below) are the only network-dependent things in the app, and neither blocks or degrades any other feature when unavailable.
+
+## Analytics (GoatCounter)
+
+`index.html` loads GoatCounter (`<script data-goatcounter="https://chancemachine.goatcounter.com/count" async src="//gc.zgo.at/count.js">`) - a cookie-free, privacy-friendly page-view counter chosen specifically to avoid the GDPR cookie-consent banner a cookie-based tool like Google Analytics would require for EU visitors. It counts page views automatically on its own; `src/app/analytics.ts` is only for the one CUSTOM event this app tracks on top of that.
+
+- **`trackPwaInstall()`** (called once from `App`'s constructor in `app.ts`, alongside the existing `updateAppHeight` viewport wiring): listens for the standard `appinstalled` event and reports it as a GoatCounter event (`{ path: 'pwa-install', title: 'PWA install', event: true }`). `appinstalled` fires the same way whether the visitor accepted the browser's own install prompt or used the browser menu's "Install"/"Add to Home Screen" directly, so there's no need to separately hook `beforeinstallprompt`.
+- **`window.goatcounter` is typed via `declare global { interface Window { ... } }`** in `analytics.ts` rather than pulling in a package for it - GoatCounter's script defines this global itself at runtime, there's no npm package to depend on. Every call goes through `window.goatcounter?.count(...)` (optional chaining, not a null check + throw): the script may not have loaded yet, or may be blocked outright by an ad/tracker blocker, and analytics silently doing nothing in that case is correct - it must never be able to break the app.
+- **Installed/offline PWA usage isn't visible to GoatCounter at all** beyond the `appinstalled` event itself: any session where the app is opened without a network connection (or where the analytics script is blocked) simply never reaches `chancemachine.goatcounter.com`, the same limitation any client-side web analytics tool has for an installable, offline-capable PWA.
 
 ## Commands
 

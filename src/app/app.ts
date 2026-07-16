@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { trackPwaInstall } from './analytics';
 import { OddsCalculator } from './odds-calculator/odds-calculator';
 
 @Component({
@@ -13,6 +14,7 @@ export class App {
     updateAppHeight();
     const viewport = window.visualViewport;
     (viewport ?? window).addEventListener('resize', updateAppHeight);
+    trackPwaInstall();
   }
 }
 
