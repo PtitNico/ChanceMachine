@@ -50,6 +50,26 @@
  * entirely (on top of the existing Knocked Down/Stationary negation, which only ever affected
  * plain Tough) - see `damageBranches`.
  *
+ * Critical Shred (`SequencedAttack.criticalShred`) is the odd one out architecturally: every other
+ * effect only ever changes DEF/ARM/boxes/debuffs for a FIXED, known-in-advance sequence of
+ * attacks. Shred means a crit makes this SAME attack fire again, immediately, against whatever
+ * state resulted from the first (which can itself crit and fire again...) - so the number of dice
+ * rolls "at position k" becomes a random variable, not a constant. This is modeled as a small
+ * self-referential value problem local to position k: `attackChainValue` (backward induction) and
+ * `resolveAttackChainForward` (forward simulation) both resolve one attack instance and, on a
+ * crit with Shred active, recurse into ANOTHER instance of themselves instead of falling through
+ * to the next attack - up to `MAX_SHRED_DEPTH` instances deep, since each further instance
+ * requires another crit and therefore contributes probability that shrinks geometrically
+ * (`critChance^depth`); truncating there leaves an error far below floating-point-visible
+ * precision for any realistic crit chance, the same kind of documented simplification as Tough's
+ * "no once-per-turn limit". `computeReachableDebuffStates` widens its over-approximation to match:
+ * a Shred chain can trigger the SAME crit-only persistent effect (Ice Cage, "-X ARM") repeatedly,
+ * once per instance in the chain, so it explores up to `MAX_SHRED_DEPTH + 1` repeated crit
+ * applications for a shredding attack instead of just one. In the step-by-step breakdown, "Avg
+ * damage" is the TOTAL expected damage across a whole chain (what actually happens at that
+ * position), but "Hit"/"Crit" chance stay the ORIGINAL roll's own - a single well-defined
+ * probability, unlike "average damage" which stays meaningful however many rolls occurred.
+ *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
  * distribution over the target's *state* (boxes remaining, debuffs, focus/fury
@@ -117,6 +137,10 @@ export interface SequencedAttack {
   blessed?: boolean;
   /** This attack ignores the target's Shield ARM bonus specifically (nothing else). */
   chainWeapon?: boolean;
+  /** On a critical hit, this attack fires again immediately with the same profile, against
+   *  whatever state resulted from the crit - and that instance can itself crit and fire again,
+   *  recursively (bounded by `MAX_SHRED_DEPTH`) - see the module doc comment. */
+  criticalShred?: boolean;
 }
 
 export interface SequenceTarget {
@@ -197,6 +221,12 @@ export interface SequenceResult {
 }
 
 const MAX_RESOURCE_POINTS = 10; // far beyond any Warmachine/Hordes caster's focus/fury stat; guards the value-table size.
+
+// Bounds how many extra instances a Critical Shred chain can recurse through. Each further
+// instance requires another crit, so the untruncated tail's probability is critChance^depth -
+// for any realistic crit chance this is astronomically small well before depth 10 (e.g. 0.3^10 is
+// about 6e-6), the same "exact enough" tradeoff as the app's existing 0.0005 display cutoff.
+const MAX_SHRED_DEPTH = 10;
 
 const FOCUS_DAMAGE_REDUCTION = 5;
 const DEF_FLOOR = 5; // Knocked Down / Stationary / Paralysis all reduce a target's DEF to this base before other flat penalties.
@@ -329,8 +359,18 @@ function computeReachableDebuffStates(
       const candidates = [
         state, // miss, or a hit/crit that triggers nothing
         applyStatEffectsForOutcome(state, atk.statEffects, false),
-        applyStatEffectsForOutcome(state, atk.statEffects, true),
       ];
+      // A Critical Shred attack can trigger its own crit-only statEffects repeatedly - a stacking
+      // effect (Ice Cage, "-X ARM") can end up applied once per instance in the chain, not just
+      // once. Over-approximate by exploring every "N repeated crits" state up to the same depth
+      // cap the actual chain resolution uses (see `attackChainValue`), so every state the real
+      // resolution can reach always has a value table built for it in the next step.
+      let critState = state;
+      const maxCrits = atk.criticalShred ? MAX_SHRED_DEPTH + 1 : 1;
+      for (let i = 0; i < maxCrits; i++) {
+        critState = applyStatEffectsForOutcome(critState, atk.statEffects, true);
+        candidates.push(critState);
+      }
       for (const candidate of candidates) {
         add(candidate);
         // Surviving a Tough or Tough Steady roll always also knocks the target down (see
@@ -664,6 +704,150 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     return profile;
   }
 
+  // Declared up here (rather than down by the forward simulation that mainly uses it) because
+  // `resolveAttackChainForward` below needs the type for its `next` accumulator parameter.
+  interface FwdState {
+    boxes: number;
+    debuffState: DebuffState;
+    focusLeft: number;
+    furyLeft: number;
+  }
+  const fwdKey = (s: FwdState) => `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}`;
+
+  /**
+   * Resolves one instance of attack `k` starting from the given state, and - if that instance
+   * crits and `atk.criticalShred` is set - recurses into ANOTHER instance of itself instead of
+   * falling through to `outerValueAt` (which represents "attacks k+1 onward"), up to
+   * `MAX_SHRED_DEPTH` deep. Attacks without Critical Shred take the `outerValueAt` branch on
+   * every outcome, so this degenerates to exactly the pre-Shred single-instance computation - it
+   * replaces the plain `bestAction`+`branchesValue` call at every use site, shred or not.
+   * Memoized per (depthRemaining, debuffState, boxes, focus, fury): the same state is frequently
+   * reachable via multiple different paths through both the recursion and the surrounding
+   * (boxes x focus x fury) grid this is called from.
+   */
+  function attackChainValue(
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    depthRemaining: number,
+    outerValueAt: ValueLookup,
+    cache: Map<string, number>
+  ): number {
+    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+
+    const profile = profileFor(k, atk, debuffState);
+    let total = 0;
+    for (const outcome of applyProfile(profile)) {
+      const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
+      const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+      const continuationValueAt: ValueLookup = continuesChain
+        ? (b, d, f, fu) => attackChainValue(k, atk, d, b, f, fu, depthRemaining - 1, outerValueAt, cache)
+        : outerValueAt;
+      const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focusLeft, furyLeft, toughRules, healingRules, continuationValueAt);
+      total += outcome.probability * branchesValue(branches, continuationValueAt);
+    }
+
+    cache.set(key, total);
+    return total;
+  }
+
+  /**
+   * Forward-simulation counterpart of `attackChainValue`: resolves one instance of attack `k`
+   * starting from `probability` of the sequence being in the given state, accumulating into
+   * `stats`/`next`/`destroyed` by mutation rather than returning a value, matching the imperative
+   * style the rest of the forward pass already uses. If `atk.criticalShred` is set, a crit
+   * continues the chain into another instance of the SAME attack, resolved one depth level at a
+   * time: every state reached at a given depth is merged (by `fwdKey`) into a single map BEFORE
+   * resolving the next instance against it, rather than recursing per-branch. That merge is the
+   * whole point - two different paths through the chain landing on the same (boxes, debuffState,
+   * focus, fury) get resolved together instead of separately, so this stays proportional to the
+   * number of DISTINCT states reached, exactly like `attackChainValue`'s cache does. A naive
+   * per-branch recursion here would instead redo its ~11-way branch at every depth independently:
+   * cheap for a couple of levels, but up to 11^`MAX_SHRED_DEPTH` in the worst case, which is why
+   * this isn't written that way. `stats.hitMass`/`critMass` only accumulate for the FIRST
+   * instance (depth === `MAX_SHRED_DEPTH`) - "Hit"/"Crit" chance are the ORIGINAL roll's own (a
+   * single well-defined probability), unlike "Avg damage" which stays meaningful summed across
+   * however many instances actually fired (see the module doc comment).
+   */
+  function resolveAttackChainForward(
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    probability: number,
+    outerValueAt: ValueLookup,
+    shredCache: Map<string, number>,
+    stats: { hitMass: number; critMass: number; damageMass: number },
+    next: Map<string, { state: FwdState; probability: number }>,
+    destroyed: { mass: number }
+  ): void {
+    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft };
+    let current = new Map<string, { state: FwdState; probability: number }>([
+      [fwdKey(initialState), { state: initialState, probability }],
+    ]);
+    let depthRemaining = MAX_SHRED_DEPTH;
+
+    while (current.size > 0) {
+      const topLevel = depthRemaining === MAX_SHRED_DEPTH;
+      const continuing = new Map<string, { state: FwdState; probability: number }>();
+
+      for (const { state, probability: p0 } of current.values()) {
+        if (p0 <= 0) continue;
+        const profile = profileFor(k, atk, state.debuffState);
+        for (const outcome of applyProfile(profile)) {
+          const p = p0 * outcome.probability;
+          if (p <= 0) continue;
+          if (topLevel) {
+            if (outcome.isHit) stats.hitMass += p;
+            if (outcome.isCrit) stats.critMass += p;
+          }
+          stats.damageMass += p * outcome.damageDealt;
+
+          const newDebuffState = applyStatEffectsForOutcome(state.debuffState, atk.statEffects, outcome.isCrit);
+          const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+          const continuationValueAt: ValueLookup = continuesChain
+            ? (b, d, f, fu) => attackChainValue(k, atk, d, b, f, fu, depthRemaining - 1, outerValueAt, shredCache)
+            : outerValueAt;
+          const branches = bestAction(
+            state.boxes,
+            outcome.damageDealt,
+            newDebuffState,
+            state.focusLeft,
+            state.furyLeft,
+            toughRules,
+            healingRules,
+            continuationValueAt
+          );
+
+          for (const b of branches) {
+            const pp = p * b.probability;
+            if (pp <= 0) continue;
+            if (b.destroyed) {
+              destroyed.mass += pp;
+              continue;
+            }
+            const fwd: FwdState = { boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft };
+            const key = fwdKey(fwd);
+            const target = continuesChain ? continuing : next;
+            const existing = target.get(key);
+            if (existing) existing.probability += pp;
+            else target.set(key, { state: fwd, probability: pp });
+          }
+        }
+      }
+
+      current = continuing;
+      depthRemaining--;
+    }
+  }
+
   // --- Backward induction ---
   // valueTables[k] = one (boxes x focus x fury) table PER reachable debuff state, giving
   // P(survive attacks[k..n-1] onward | state), playing the optimal Focus/Fury policy.
@@ -678,48 +862,24 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     const atk = attacks[k];
     const nextTables = valueTables[k + 1];
     valueTables[k] = new Map();
+    const shredCache = new Map<string, number>();
 
     for (const debuffState of debuffStatesPerStep[k]) {
-      const profile = profileFor(k, atk, debuffState);
-
       const valueAt: ValueLookup = (boxes, nextDebuffState, focus, fury) => {
         const table = nextTables.get(debuffKey(nextDebuffState));
         // Should always be present - computeReachableDebuffStates over-approximates, never under.
         return table ? readValueTable(table, boxes, focus, fury) : 0;
       };
 
-      const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) => {
-        let total = 0;
-        for (const outcome of applyProfile(profile)) {
-          const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
-          const branches = bestAction(
-            boxes,
-            outcome.damageDealt,
-            newDebuffState,
-            focus,
-            fury,
-            toughRules,
-            healingRules,
-            valueAt
-          );
-          total += outcome.probability * branchesValue(branches, valueAt);
-        }
-        return total;
-      });
+      const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) =>
+        attackChainValue(k, atk, debuffState, boxes, focus, fury, MAX_SHRED_DEPTH, valueAt, shredCache)
+      );
 
       valueTables[k].set(debuffKey(debuffState), table);
     }
   }
 
   // --- Forward simulation, replaying the policy above to get step-by-step stats ---
-  interface FwdState {
-    boxes: number;
-    debuffState: DebuffState;
-    focusLeft: number;
-    furyLeft: number;
-  }
-  const fwdKey = (s: FwdState) => `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}`;
-
   let dist = new Map<string, { state: FwdState; probability: number }>();
   const initialDebuffs = startsKnockedDown ? { ...INITIAL_DEBUFFS, knockedDown: true } : INITIAL_DEBUFFS;
   const initialState: FwdState = {
@@ -742,52 +902,30 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     };
 
     const next = new Map<string, { state: FwdState; probability: number }>();
-    let destroyedThisStep = 0;
-    let hitMass = 0;
-    let critMass = 0;
-    let damageMass = 0;
+    const stats = { hitMass: 0, critMass: 0, damageMass: 0 };
+    const destroyed = { mass: 0 };
     let aliveMass = 0;
+    const shredCache = new Map<string, number>();
 
     for (const { state, probability } of dist.values()) {
       aliveMass += probability;
-      const profile = profileFor(k, atk, state.debuffState);
-
-      for (const outcome of applyProfile(profile)) {
-        const p = probability * outcome.probability;
-        if (p <= 0) continue;
-        if (outcome.isHit) hitMass += p;
-        if (outcome.isCrit) critMass += p;
-        damageMass += p * outcome.damageDealt;
-
-        const newDebuffState = applyStatEffectsForOutcome(state.debuffState, atk.statEffects, outcome.isCrit);
-        const branches = bestAction(
-          state.boxes,
-          outcome.damageDealt,
-          newDebuffState,
-          state.focusLeft,
-          state.furyLeft,
-          toughRules,
-          healingRules,
-          valueAt
-        );
-
-        for (const b of branches) {
-          const pp = p * b.probability;
-          if (pp <= 0) continue;
-          if (b.destroyed) {
-            destroyedThisStep += pp;
-            continue;
-          }
-          const fwd: FwdState = { boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft };
-          const k2 = fwdKey(fwd);
-          const existing = next.get(k2);
-          if (existing) existing.probability += pp;
-          else next.set(k2, { state: fwd, probability: pp });
-        }
-      }
+      resolveAttackChainForward(
+        k,
+        atk,
+        state.debuffState,
+        state.boxes,
+        state.focusLeft,
+        state.furyLeft,
+        probability,
+        valueAt,
+        shredCache,
+        stats,
+        next,
+        destroyed
+      );
     }
 
-    cumulativeDestroy += destroyedThisStep;
+    cumulativeDestroy += destroyed.mass;
     dist = next;
 
     const expectedBoxesRemaining = [...dist.values()].reduce(
@@ -797,10 +935,10 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
 
     steps.push({
       attack: atk,
-      hitChance: aliveMass > 0 ? hitMass / aliveMass : 0,
-      critChance: aliveMass > 0 ? critMass / aliveMass : 0,
-      averageDamage: aliveMass > 0 ? damageMass / aliveMass : 0,
-      destroyChanceAtThisStep: destroyedThisStep,
+      hitChance: aliveMass > 0 ? stats.hitMass / aliveMass : 0,
+      critChance: aliveMass > 0 ? stats.critMass / aliveMass : 0,
+      averageDamage: aliveMass > 0 ? stats.damageMass / aliveMass : 0,
+      destroyChanceAtThisStep: destroyed.mass,
       cumulativeDestroyChance: cumulativeDestroy,
       expectedBoxesRemaining,
     });

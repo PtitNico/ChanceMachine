@@ -124,6 +124,7 @@ export interface AttackRow {
 
   // Crit only.
   readonly brutalDamage: WritableSignal<boolean>;
+  readonly criticalShred: WritableSignal<boolean>;
 
   // Everything triggerable on a hit and/or a crit (fixed set, always present - see TriggerEffectRow).
   readonly triggerEffects: TriggerEffectRow[];
@@ -151,6 +152,7 @@ export function createAttackRow(): AttackRow {
     shatter: signal(false),
     chainWeapon: signal(false),
     brutalDamage: signal(false),
+    criticalShred: signal(false),
     triggerEffects: createTriggerEffects(),
   };
 }
@@ -178,6 +180,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     shatter: signal(source.shatter()),
     chainWeapon: signal(source.chainWeapon()),
     brutalDamage: signal(source.brutalDamage()),
+    criticalShred: signal(source.criticalShred()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
 }
@@ -197,6 +200,7 @@ export function resetEffects(row: AttackRow): void {
   row.shatter.set(false);
   row.chainWeapon.set(false);
   row.brutalDamage.set(false);
+  row.criticalShred.set(false);
   for (const effect of row.triggerEffects) {
     effect.trigger.set('off');
     effect.amount.set(2);
@@ -220,6 +224,7 @@ export function effectsSummary(row: AttackRow): string[] {
   if (row.shatter()) parts.push('Shatter');
   if (row.chainWeapon()) parts.push('Chain Weapon');
   if (row.brutalDamage()) parts.push('Crit Brutal Damage');
+  if (row.criticalShred()) parts.push('Critical Shred');
   for (const effect of row.triggerEffects) {
     const trigger = effect.trigger();
     if (trigger === 'off') continue;
@@ -290,5 +295,6 @@ export function toSequencedAttack(row: AttackRow, index: number): SequencedAttac
     forceAutoHit: row.forceAutoHit(),
     blessed: row.blessed() || undefined,
     chainWeapon: row.chainWeapon() || undefined,
+    criticalShred: row.criticalShred() || undefined,
   };
 }

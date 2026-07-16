@@ -74,7 +74,7 @@ An ordered list of "attack" rows. Each row represents **one attack** and carries
   - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
   - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
   - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
-  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage only appears under "On crit" (it can never trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
+  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
   - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" row instead of unchecking effects one by one.
 
 The **"+ Add attack"** button adds a new attack at the bottom of the list, **copying the values of the last attack in the list** (type, stats, dice, every effect) — since chaining similar attacks is the most common case, the player only needs to adjust the few fields that change instead of re-entering everything.
@@ -118,6 +118,7 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Shatter**: an extra damage die if the target is **currently** Stationary at the time of this attack.
 - **Blessed**: this attack ignores every **Stat**-type spell bonus on the target (both DEF and ARM) — Shield, Unyielding, Carapace, and any **Rule**-type spell grant are all unaffected, since those aren't Stat-type bonuses.
 - **Chain Weapon**: this attack ignores the target's **Shield** ARM bonus specifically — nothing else (not spell stat bonuses, not Unyielding/Carapace).
+- **Critical Shred**: on a critical hit, this attack fires again immediately — same stats, same effects — against the target's current state (after the triggering hit's own damage, Tough, Focus/Fury, and healing have all resolved), and that extra attack can itself critically hit and fire yet another one, recursively. There's no rules limit on how many times this can chain — only the dice decide — though the app caps the calculation at a very deep bound internally, leaving a probability far too small to ever show up in the results unaccounted for (see the technical documentation). In the **Step by step** breakdown (see "Results" below), **Avg damage** for a Critical Shred attack is the total expected damage across the **whole chain**, not just the triggering roll — since that's what actually happens at that point in the sequence — but **Hit**/**Crit** stay the chance of that **first** roll specifically: once an unknown number of rolls might occur, "chance to hit" no longer has a single well-defined meaning to aggregate.
 
 **Effects that persist on the target** (triggered on a hit or on a critical hit, chosen per effect; remain active for **the rest of the sequence** once triggered — unless stated otherwise):
 - **Knockdown**: the target becomes *Knocked Down*. Only later **melee** attacks benefit from it (auto-hit); ranged and magic attacks still roll normally, but against a DEF capped at 5 (see "Stationary" below for the details of that cap).
@@ -133,8 +134,6 @@ A small **"+"** icon next to the "Results" title (rather than a full-width butto
 - **Grievous Wounds**: the target loses **Tough** and **Tough Steady** entirely (both, if either is active) and can no longer benefit from **Rapid Healing**, for the rest of the sequence. Unlike the Knocked Down negation (which only ever affected plain Tough, never Tough Steady), Grievous Wounds removes both.
 
 All the DEF penalties listed above are **additive** with each other (Ice Cage, Shadowbind, Blind, Flare, Weaken all stack), except Knocked Down/Stationary/Paralysis, which **cap DEF at 5 first** before the other penalties are added on top (so DEF can potentially drop below 5 if several effects stack). Each named effect (other than Ice Cage and "-X ARM", which are explicitly stackable) can only apply once on a given target, even if triggered by several different attacks in the sequence — a second occurrence then has no further effect.
-
-**Effect reserved for a future iteration: Shred** (an extra free attack on a critical hit, with the same profile as the attack that triggered it) — deliberately not implemented yet (see "Not yet implemented").
 
 ### Target capabilities
 
@@ -178,7 +177,6 @@ Some rules points were implemented using the most commonly accepted formulation 
 
 ## Not yet implemented
 
-- **Shred** (an extra free attack on a critical hit, same profile as the attack that triggered it, itself able to re-trigger a new Shred): postponed to a future iteration.
 - **Automatic optimization of attack order**: a product decision — the order remains manually defined by the user (see "Product choices").
 - Unit handling (several identical models in a single group attack) — not handled, the engine reasons model by model.
 
@@ -195,9 +193,9 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **Armor Piercing now correctly halves only the printed base ARM**: an earlier version had it ignore every ARM buff and debuff outright (always resolving against the raw printed stat). The corrected rule halves just the base value; every buff (Shield, spell bonuses, Unyielding/Carapace) and debuff (the generic "-X ARM" penalty) currently in play still applies on top, exactly as it would on a normal attack.
 - **Rapid Healing implemented as a genuine new probability branch**, rather than postponed: after any non-destroying hit that deals damage, the target's box count now branches three ways (d3 heal), on top of the existing boxes/debuffs/Focus-Fury branching - comparable in scope to the persistent-debuffs work, but no longer deferred. Grievous Wounds (which also removes Tough/Tough Steady) shipped alongside it as the effect that turns it off.
 - **Feedback goes to a Google Sheet via Apps Script, not a real backend**: the app has no server of its own (it's a static PWA), so adding a proper feedback API wasn't worth the operational cost for a low-traffic hobby project. A Google Apps Script Web App bound to a spreadsheet is a few dozen lines, free to run, and needs nothing hosted - the tradeoff is that the client can't reliably confirm the script actually processed a submission (see "Menu" above), only that it was sent.
+- **Critical Shred resolved as a bounded self-referential value problem, not deferred**: it's the one effect that changes the NUMBER of rolls made at a given position in the sequence, rather than DEF/ARM/boxes/debuffs for a fixed set of rolls, which is why it stayed "postponed to a future iteration" for a long time. Since each further chained attack requires another crit, its probability shrinks geometrically - capping the recursion at a generous depth (see the technical documentation) leaves an error far below anything the app's results could ever visibly show, the same kind of tradeoff already used for Tough's "no once-per-turn limit".
 
 ## Roadmap
 
-- Implement Shred (recursive free attack on a critical hit).
 - Icons and final PWA manifest configuration.
 - Verification of the display on smartphones (in progress).

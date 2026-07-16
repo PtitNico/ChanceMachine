@@ -1072,3 +1072,86 @@ describe('sequence engine - Rapid Healing and Grievous Wounds', () => {
     expect(withoutWound.steps[0].expectedBoxesRemaining).toBeCloseTo(withWound.steps[0].expectedBoxesRemaining + 2, 9);
   });
 });
+
+describe('sequence engine - Critical Shred', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('baseline without Critical Shred: average damage is just this one roll (sanity check for the next test)', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    // Needed sum = 2-20 = -18: every roll except the forced-miss double-1s (see attack-model.ts's
+    // "a roll of all 1s is always a miss" rule) is a hit, so hitChance = 35/36. The damage roll is
+    // a SEPARATE, independent 2d6 roll from the to-hit roll (see attack-model.ts), so it isn't
+    // affected by which specific to-hit combo landed the hit - averageDamage is simply
+    // hitChance * E[2d6] = (35/36) * 7 = 245/36.
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
+    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 36, 9);
+  });
+
+  it('extends average damage into a geometric series over the crit chance', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    // Same target/attack as the baseline above, plus Critical Shred. Crit chance here is 5/36
+    // (every double except the forced-miss 1-1: 2-2, 3-3, 4-4, 5-5, 6-6). ARM/DEF never change
+    // across the chain (no statEffects configured), so every instance has the same expected
+    // damage (245/36, from the baseline) and the same crit chance - the chain's expected TOTAL
+    // damage is therefore an exact geometric series: (245/36) * sum_i (5/36)^i = (245/36) / (1 - 5/36) = 245/31.
+    // Precision 8 (not 9, like every other test here) because this specific value is the one place
+    // MAX_SHRED_DEPTH's truncation actually shows up: the untruncated series is infinite, but the
+    // engine sums only 11 terms - the gap is (5/36)^11 worth of the tail, ~3e-9, well under
+    // anything the UI could ever display, but just above a 9-decimal-place tolerance.
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
+    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 31, 8);
+  });
+
+  it('Hit/Crit chance stay the ORIGINAL roll\'s own probability, not inflated by the chain', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
+    expect(result.steps[0].hitChance).toBeCloseTo(35 / 36, 9);
+    expect(result.steps[0].critChance).toBeCloseTo(5 / 36, 9);
+  });
+
+  it('resolves each chain instance against the UPDATED debuff state (a crit-triggered Knockdown auto-hits the next instance)', () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const shredKnockdown = attack({
+      type: 'melee',
+      stat: 0,
+      pow: 0,
+      criticalShred: true,
+      statEffects: [{ type: 'knockdown', trigger: 'crit' }],
+    });
+    const result = computeSequenceOdds([shredKnockdown], target);
+    // Needed sum = 13, impossible except via the "a natural 12 always hits" rule - so the only
+    // way to hit is a 6-6 (probability 1/36), which is necessarily also a crit, and inflicts
+    // Knockdown. The damage roll is a SEPARATE, independent 2d6 roll from the to-hit roll (see
+    // attack-model.ts), so this hit's own damage is E[2d6]=7, not the to-hit roll's own sum of 12.
+    // Since this attack has Critical Shred, a second instance immediately resolves against the
+    // now-Knocked-Down target: a melee attack against a Knocked Down target auto-hits (no roll at
+    // all, and per the auto-hit rule can never itself crit, so the chain stops there), dealing its
+    // own fresh, independent 2d6 damage roll (E[2d6]=7 again). If the recursion incorrectly reused
+    // the STALE (not-yet-knocked-down) debuff state instead, the second instance would need
+    // another 1/36 natural-12 roll instead of auto-hitting - a very different (much smaller)
+    // number, so this genuinely distinguishes the two.
+    // Total: P(6-6) * (E[2d6] + E[2d6]) = (1/36) * 14 = 14/36 = 7/18.
+    expect(result.steps[0].averageDamage).toBeCloseTo(7 / 18, 9);
+  });
+
+  it('a lethal hit within the chain can still destroy the target, ending the chain early', () => {
+    const target = { def: 2, arm: 0, boxes: 1, furyPoints: 0 };
+    // Needed sum = -18 as in the tests above: every roll but the forced-miss 1-1 is a hit, and
+    // any hit deals at least 1 damage (min roll 2, pow -1... use pow 0, min hit sum among the
+    // remaining 35 rolls is 3) against 1 box, so every hit is lethal and destroys the target
+    // immediately - Critical Shred never gets a chance to add a second instance, since a
+    // destroyed target has nothing left to shred. destroyChance should equal the plain hit chance.
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
+    expect(result.steps[0].destroyChanceAtThisStep).toBeCloseTo(35 / 36, 9);
+  });
+});

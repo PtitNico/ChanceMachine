@@ -132,7 +132,7 @@
           }
         </div>
 
-        <h3 class="dialog__section-title">On crit</h3>
+        <h3 class="dialog__section-title">Critical</h3>
         <div class="toggle-group">
           @for (effect of row.triggerEffects; track effect.key) {
             <button
@@ -151,6 +151,14 @@
             (click)="row.brutalDamage.set(!row.brutalDamage())"
           >
             Brutal Damage
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="row.criticalShred()"
+            (click)="row.criticalShred.set(!row.criticalShred())"
+          >
+            Shred
           </button>
         </div>
 
