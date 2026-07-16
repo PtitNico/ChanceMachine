@@ -1,4 +1,5 @@
-import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, ViewChild } from '@angular/core';
+import { DialogShell } from '../dialog-shell/dialog-shell';
 
 /** Set in localStorage the first time this dialog auto-opens itself, so it never does so again
  *  on the same device/browser - see `ngAfterViewInit`. Exported so `ChangelogDialog` can tell a
@@ -9,13 +10,13 @@ export const HAS_SEEN_ABOUT_KEY = 'chancemachine.hasSeenAbout';
 @Component({
   selector: 'app-about-dialog',
   standalone: true,
+  imports: [DialogShell],
   templateUrl: './about-dialog.html',
-  // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './about-dialog.css'],
+  styleUrls: ['./about-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AboutDialog implements AfterViewInit {
-  @ViewChild('dialog') private dialogRef?: ElementRef<HTMLDialogElement>;
+  @ViewChild('shell') private shell?: DialogShell;
 
   /** Auto-opens itself once per device/browser, the very first time the app is ever loaded -
    *  a new visitor gets a quick explanation of what the app does without having to find the
@@ -31,17 +32,6 @@ export class AboutDialog implements AfterViewInit {
   }
 
   open(): void {
-    this.dialogRef?.nativeElement.showModal();
-  }
-
-  close(): void {
-    this.dialogRef?.nativeElement.close();
-  }
-
-  /** Native <dialog> reports a click anywhere in the viewport while open; only the ::backdrop click has the dialog itself as target. */
-  protected closeOnBackdropClick(event: MouseEvent, dialog: HTMLDialogElement): void {
-    if (event.target === dialog) {
-      dialog.close();
-    }
+    this.shell?.open();
   }
 }

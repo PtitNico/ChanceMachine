@@ -34,8 +34,18 @@
 /* The first section title inside .dialog__body would otherwise show its own
    top border just below the header's bottom border - two parallel lines a
    few pixels apart. Only later sections need a rule of their own to separate
-   them from the section above. */
-.dialog__body > .dialog__section-title:first-child {
+   them from the section above.
+   Deliberately NOT `.dialog__body > .dialog__section-title:first-child`: `.dialog__body` is
+   rendered by `DialogShell` itself, while every `.dialog__section-title` is content PROJECTED
+   into it from the consuming dialog (Effects, Target profile) - under Angular's per-component
+   view encapsulation, a combinator selector can't bridge two elements that belong to different
+   components' own scoped stylesheets, so that version of this rule silently never matched
+   anything (confirmed empirically: the first section title kept its border, showing as a
+   second line right under the header's own). `:first-child` alone doesn't have this problem -
+   it's a purely structural check against the real DOM tree, unaffected by which component owns
+   the parent, so it still correctly matches only the genuinely-first heading inside whichever
+   component's own `.dialog__body` it ends up in. */
+.dialog__section-title:first-child {
   margin-top: 0;
   padding-top: 0;
   border-top: none;

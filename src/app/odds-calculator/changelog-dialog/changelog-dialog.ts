@@ -1,5 +1,6 @@
-import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, ViewChild } from '@angular/core';
 import { HAS_SEEN_ABOUT_KEY } from '../about-dialog/about-dialog';
+import { DialogShell } from '../dialog-shell/dialog-shell';
 import { CHANGELOG, LATEST_CHANGELOG_DATE } from './changelog.data';
 
 /** Set in localStorage whenever this dialog auto-opens (or is closed after auto-opening) so the
@@ -27,15 +28,15 @@ function hadAlreadySeenAbout(): boolean {
 @Component({
   selector: 'app-changelog-dialog',
   standalone: true,
+  imports: [DialogShell],
   templateUrl: './changelog-dialog.html',
-  // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './changelog-dialog.css'],
+  styleUrls: ['./changelog-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChangelogDialog implements AfterViewInit {
   protected readonly entries = CHANGELOG;
 
-  @ViewChild('dialog') private dialogRef?: ElementRef<HTMLDialogElement>;
+  @ViewChild('shell') private shell?: DialogShell;
 
   // Captured in the constructor (a field initializer runs as part of it), NOT read directly
   // inside `ngAfterViewInit` below: Angular constructs every component in a view tree - running
@@ -70,17 +71,6 @@ export class ChangelogDialog implements AfterViewInit {
   }
 
   open(): void {
-    this.dialogRef?.nativeElement.showModal();
-  }
-
-  close(): void {
-    this.dialogRef?.nativeElement.close();
-  }
-
-  /** Native <dialog> reports a click anywhere in the viewport while open; only the ::backdrop click has the dialog itself as target. */
-  protected closeOnBackdropClick(event: MouseEvent, dialog: HTMLDialogElement): void {
-    if (event.target === dialog) {
-      dialog.close();
-    }
+    this.shell?.open();
   }
 }

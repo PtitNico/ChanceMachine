@@ -1,14 +1,15 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewChild, input } from '@angular/core';
 import { SequenceStepResult } from '../../engine/sequence';
+import { DialogShell } from '../dialog-shell/dialog-shell';
 import { pct } from '../format.util';
 import { DamagePoint } from './details-dialog.model';
 
 @Component({
   selector: 'app-details-dialog',
   standalone: true,
+  imports: [DialogShell],
   templateUrl: './details-dialog.html',
-  // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', './details-dialog.css'],
+  styleUrls: ['./details-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DetailsDialog {
@@ -18,20 +19,9 @@ export class DetailsDialog {
 
   protected readonly pct = pct;
 
-  @ViewChild('dialog') private dialogRef?: ElementRef<HTMLDialogElement>;
+  @ViewChild('shell') private shell?: DialogShell;
 
   open(): void {
-    this.dialogRef?.nativeElement.showModal();
-  }
-
-  close(): void {
-    this.dialogRef?.nativeElement.close();
-  }
-
-  /** Native <dialog> reports a click anywhere in the viewport while open; only the ::backdrop click has the dialog itself as target. */
-  protected closeOnBackdropClick(event: MouseEvent, dialog: HTMLDialogElement): void {
-    if (event.target === dialog) {
-      dialog.close();
-    }
+    this.shell?.open();
   }
 }

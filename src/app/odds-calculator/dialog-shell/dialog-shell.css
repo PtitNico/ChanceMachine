@@ -1,0 +1,12 @@
+/* Wraps the projected `[dialogActions]` slot content so its `flex-shrink: 0` (needed when this
+   shell is `framed`, so the footer never gets squeezed by the scrolling body above it) can live in
+   THIS component's own scoped stylesheet. `.dialog__actions` itself is projected from the
+   consuming dialog's own template, so a `shared/dialog-sections.css` rule combining
+   `.dialog__content--framed > .dialog__actions` could never match it under Angular's per-component
+   view encapsulation - `.dialog__content--framed` and the projected `.dialog__actions` would carry
+   two DIFFERENT components' scoping attributes, and a combinator selector can't bridge that.
+   Harmless when NOT framed too: `flex-shrink` only has any effect inside a flex container, so this
+   is simply a no-op there (matches how Feedback's own footer, not framed, already behaved). */
+.dialog-shell__actions-slot {
+  flex-shrink: 0;
+}

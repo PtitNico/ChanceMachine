@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewChild, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DialogShell } from '../dialog-shell/dialog-shell';
 
 /**
  * Paste the Web App URL you get after deploying `google-apps-script/feedback.gs` (see that file's
@@ -16,35 +17,23 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error';
 @Component({
   selector: 'app-feedback-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, DialogShell],
   templateUrl: './feedback-dialog.html',
   // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/dialog.css', '../shared/icon-btn.css', '../shared/dialog-sections.css', './feedback-dialog.css'],
+  styleUrls: ['../shared/dialog-sections.css', './feedback-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedbackDialog {
-
   protected readonly kind = signal<FeedbackKind>('feedback');
   protected readonly message = signal('');
   protected readonly email = signal('');
   protected readonly state = signal<SubmitState>('idle');
 
-  @ViewChild('dialog') private dialogRef?: ElementRef<HTMLDialogElement>;
+  @ViewChild('shell') private shell?: DialogShell;
 
   open(): void {
     this.state.set('idle');
-    this.dialogRef?.nativeElement.showModal();
-  }
-
-  close(): void {
-    this.dialogRef?.nativeElement.close();
-  }
-
-  /** Native <dialog> reports a click anywhere in the viewport while open; only the ::backdrop click has the dialog itself as target. */
-  protected closeOnBackdropClick(event: MouseEvent, dialog: HTMLDialogElement): void {
-    if (event.target === dialog) {
-      dialog.close();
-    }
+    this.shell?.open();
   }
 
   protected setKind(kind: FeedbackKind): void {

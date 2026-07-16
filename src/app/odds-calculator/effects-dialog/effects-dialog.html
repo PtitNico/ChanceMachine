@@ -1,71 +1,68 @@
-<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
+<app-dialog-shell #shell title="Effects" [framed]="true">
   @if (row(); as row) {
-    <div class="dialog__content dialog__content--framed">
-      <header class="dialog__header">
-        <h2 class="dialog__title">Effects</h2>
-        <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
-      </header>
+    <h3 class="dialog__section-title">General</h3>
+    <div class="toggle-group">
+      @for (effect of effectsFor(row, generalEffectKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" />
+      }
+    </div>
 
-      <div class="dialog__body">
-        <h3 class="dialog__section-title">General</h3>
-        <div class="toggle-group">
-          @for (effect of effectsFor(row, generalEffectKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" />
+    <h3 class="dialog__section-title">Attack</h3>
+    <div class="toggle-group">
+      @for (effect of effectsFor(row, attackEffectKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" />
+      }
+    </div>
+
+    <h3 class="dialog__section-title">Damage</h3>
+    <div class="toggle-group">
+      @for (effect of effectsFor(row, damageEffectKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" />
+      }
+    </div>
+
+    <h3 class="dialog__section-title">On hit</h3>
+    <div class="toggle-group">
+      @for (effect of effectsFor(row, hitCritPairKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" activeValue="hit" />
+      }
+    </div>
+
+    <h3 class="dialog__section-title">Critical</h3>
+    <div class="toggle-group">
+      @for (effect of effectsFor(row, hitCritPairKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" activeValue="crit" />
+      }
+      @for (effect of effectsFor(row, critOnlySimpleKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" />
+      }
+    </div>
+
+    @let armPenalty = armPenaltyEffect(row);
+    @if (armPenalty.trigger() !== 'off') {
+      <label class="field">
+        <span class="field__label">-X ARM amount</span>
+        <select
+          class="field__select field__select--narrow"
+          [ngModel]="armPenalty.amount()"
+          (ngModelChange)="armPenalty.amount.set(toNumber($event))"
+        >
+          @for (v of armPenaltyOptions; track v) {
+            <option [value]="v">-{{ v }}</option>
           }
-        </div>
+        </select>
+      </label>
+    }
+  }
 
-        <h3 class="dialog__section-title">Attack</h3>
-        <div class="toggle-group">
-          @for (effect of effectsFor(row, attackEffectKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" />
-          }
-        </div>
-
-        <h3 class="dialog__section-title">Damage</h3>
-        <div class="toggle-group">
-          @for (effect of effectsFor(row, damageEffectKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" />
-          }
-        </div>
-
-        <h3 class="dialog__section-title">On hit</h3>
-        <div class="toggle-group">
-          @for (effect of effectsFor(row, hitCritPairKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" activeValue="hit" />
-          }
-        </div>
-
-        <h3 class="dialog__section-title">Critical</h3>
-        <div class="toggle-group">
-          @for (effect of effectsFor(row, hitCritPairKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" activeValue="crit" />
-          }
-          @for (effect of effectsFor(row, critOnlySimpleKeys); track effect.key) {
-            <app-toggle-button [effect]="effect" />
-          }
-        </div>
-
-        @let armPenalty = armPenaltyEffect(row);
-        @if (armPenalty.trigger() !== 'off') {
-          <label class="field">
-            <span class="field__label">-X ARM amount</span>
-            <select
-              class="field__select field__select--narrow"
-              [ngModel]="armPenalty.amount()"
-              (ngModelChange)="armPenalty.amount.set(toNumber($event))"
-            >
-              @for (v of armPenaltyOptions; track v) {
-                <option [value]="v">-{{ v }}</option>
-              }
-            </select>
-          </label>
-        }
-      </div>
-
-      <div class="dialog__actions">
-        <button type="button" class="dialog__reset-btn" (click)="resetEffects(row)">Reset</button>
-        <button type="button" class="dialog__done-btn" (click)="close()">Done</button>
-      </div>
+  <!-- A separate @if, rather than one more root node inside the block above: Angular can't route
+       an @if block's content into a NAMED projection slot (`dialogActions`) once that block has
+       more than one root node - see NG8011. Keeping this @if's root down to just the one node
+       that needs to land in that slot is what makes the projection actually work. -->
+  @if (row(); as row) {
+    <div dialogActions class="dialog__actions">
+      <button type="button" class="dialog__reset-btn" (click)="resetEffects(row)">Reset</button>
+      <button type="button" class="dialog__done-btn" (click)="shell.close()">Done</button>
     </div>
   }
-</dialog>
+</app-dialog-shell>

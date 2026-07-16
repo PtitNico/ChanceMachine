@@ -1,0 +1,21 @@
+<dialog #dialog class="dialog" [class.dialog--wide]="wide()" (click)="closeOnBackdropClick($event, dialog)">
+  <div class="dialog__content" [class.dialog__content--framed]="framed()">
+    <header class="dialog__header">
+      <h2 class="dialog__title">{{ title() }}</h2>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </header>
+
+    <!-- One default <ng-content> only, always rendered - not one per branch of an @if/@else on
+         `framed()`. Two separate default-slot <ng-content> tags (even in mutually exclusive
+         branches) left BOTH unprojected in practice: nothing rendered into either. Toggling the
+         `.dialog__body` class instead keeps a single projection point while still switching the
+         scroll behavior. -->
+    <div [class.dialog__body]="framed()">
+      <ng-content />
+    </div>
+
+    <div class="dialog-shell__actions-slot">
+      <ng-content select="[dialogActions]" />
+    </div>
+  </div>
+</dialog>

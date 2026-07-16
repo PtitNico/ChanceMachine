@@ -1,72 +1,57 @@
-<dialog #dialog class="dialog" (click)="closeOnBackdropClick($event, dialog)">
-  <div class="dialog__content">
-    <header class="dialog__header">
-      <h2 class="dialog__title">Feedback</h2>
-      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
-    </header>
+<app-dialog-shell #shell title="Feedback">
+  @if (state() === 'sent') {
+    <p class="feedback__sent">Thanks! Your message has been sent.</p>
+  } @else {
+    <div class="toggle-group">
+      <button type="button" class="toggle-btn" [class.toggle-btn--active]="kind() === 'feedback'" (click)="setKind('feedback')">
+        Feedback
+      </button>
+      <button type="button" class="toggle-btn" [class.toggle-btn--active]="kind() === 'bug'" (click)="setKind('bug')">
+        Bug report
+      </button>
+    </div>
 
-    @if (state() === 'sent') {
-      <p class="feedback__sent">Thanks! Your message has been sent.</p>
-      <div class="dialog__actions">
-        <button type="button" class="dialog__done-btn" (click)="close()">Done</button>
-      </div>
-    } @else {
-      <div class="toggle-group">
-        <button
-          type="button"
-          class="toggle-btn"
-          [class.toggle-btn--active]="kind() === 'feedback'"
-          (click)="setKind('feedback')"
-        >
-          Feedback
-        </button>
-        <button
-          type="button"
-          class="toggle-btn"
-          [class.toggle-btn--active]="kind() === 'bug'"
-          (click)="setKind('bug')"
-        >
-          Bug report
-        </button>
-      </div>
+    <label class="field field--stacked">
+      <span class="field__label">Message</span>
+      <textarea
+        class="feedback__textarea"
+        rows="5"
+        placeholder="What's on your mind?"
+        [ngModel]="message()"
+        (ngModelChange)="message.set($event)"
+      ></textarea>
+    </label>
 
-      <label class="field field--stacked">
-        <span class="field__label">Message</span>
-        <textarea
-          class="feedback__textarea"
-          rows="5"
-          placeholder="What's on your mind?"
-          [ngModel]="message()"
-          (ngModelChange)="message.set($event)"
-        ></textarea>
-      </label>
+    <label class="field field--stacked">
+      <span class="field__label">Email (optional, if you'd like a reply)</span>
+      <input
+        type="email"
+        class="feedback__input"
+        placeholder="you@example.com"
+        [ngModel]="email()"
+        (ngModelChange)="email.set($event)"
+      />
+    </label>
 
-      <label class="field field--stacked">
-        <span class="field__label">Email (optional, if you'd like a reply)</span>
-        <input
-          type="email"
-          class="feedback__input"
-          placeholder="you@example.com"
-          [ngModel]="email()"
-          (ngModelChange)="email.set($event)"
-        />
-      </label>
-
-      @if (state() === 'error') {
-        <p class="feedback__error">Something went wrong sending this - please try again in a moment.</p>
-      }
-
-      <div class="dialog__actions">
-        <button type="button" class="dialog__reset-btn" (click)="close()">Cancel</button>
-        <button
-          type="button"
-          class="dialog__done-btn"
-          [disabled]="!message().trim() || state() === 'sending'"
-          (click)="submit()"
-        >
-          {{ state() === 'sending' ? 'Sending…' : 'Send' }}
-        </button>
-      </div>
+    @if (state() === 'error') {
+      <p class="feedback__error">Something went wrong sending this - please try again in a moment.</p>
     }
-  </div>
-</dialog>
+  }
+
+  <!-- A separate @if/@else, rather than one more root node inside the blocks above: Angular can't
+       route an @if/@else block's content into a NAMED projection slot (`dialogActions`) once that
+       block has more than one root node - see NG8011. Keeping each branch's root down to just the
+       one node that needs to land in that slot is what makes the projection actually work. -->
+  @if (state() === 'sent') {
+    <div dialogActions class="dialog__actions">
+      <button type="button" class="dialog__done-btn" (click)="shell.close()">Done</button>
+    </div>
+  } @else {
+    <div dialogActions class="dialog__actions">
+      <button type="button" class="dialog__reset-btn" (click)="shell.close()">Cancel</button>
+      <button type="button" class="dialog__done-btn" [disabled]="!message().trim() || state() === 'sending'" (click)="submit()">
+        {{ state() === 'sending' ? 'Sending…' : 'Send' }}
+      </button>
+    </div>
+  }
+</app-dialog-shell>
