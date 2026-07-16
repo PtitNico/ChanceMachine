@@ -24,5 +24,17 @@
         "files": ["/**/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)"]
       }
     }
+  ],
+  "dataGroups": [
+    {
+      "name": "goatcounter",
+      "urls": ["https://gc.zgo.at/count.js", "https://chancemachine.goatcounter.com/count"],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 5,
+        "maxAge": "1d",
+        "timeout": "3s"
+      }
+    }
   ]
 }
