@@ -658,7 +658,6 @@ function bestAction(
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
       bestBranches = branches;
-      bestScore = score;
     }
   }
 

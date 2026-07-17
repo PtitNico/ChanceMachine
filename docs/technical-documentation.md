@@ -280,7 +280,7 @@ Two different paths through the chain landing on the same `(boxes, debuffState, 
 
 ### `odds-engine.ts` — bridge to Angular
 
-`@Injectable({ providedIn: 'root' })` — exposes `compute()` (single attack) and `computeSequence()` (full sequence) to components via dependency injection. Contains no logic: it's purely a DI entry point, leaving the door open for caching or saved profiles later without touching the engine.
+`@Injectable({ providedIn: 'root' })` — exposes `computeSequence()` to components via dependency injection. Contains no logic: it's purely a DI entry point, leaving the door open for caching or saved profiles later without touching the engine. (`computeAttackOdds`, the single-attack function `computeSequenceOdds` itself is built on, is still used directly by `attack-model.ts`'s own tests and by `sequence.ts` internally - it just never needed its own DI wrapper, since every UI path goes through a sequence, even a one-attack one.)
 
 ## The UI (`src/app/odds-calculator/`)
 

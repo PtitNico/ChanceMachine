@@ -60,15 +60,6 @@
   margin-bottom: 0.35rem;
 }
 
-.panel__title {
-  font-family: 'Rajdhani', sans-serif;
-  font-weight: 700;
-  font-size: 2.1rem;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  margin: 0;
-}
-
 .panel__body {
   display: flex;
   flex-direction: column;
