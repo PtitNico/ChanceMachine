@@ -2,44 +2,9 @@
   <h2 class="console__title">Target</h2>
 
   <div class="target-row">
-    <label class="mini-field">
-      <span class="mini-field__label">DEF</span>
-      <select
-        class="mini-field__input mini-field__input--select"
-        [ngModel]="target().def()"
-        (ngModelChange)="target().def.set(parseDef($event))"
-      >
-        @for (v of defOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-
-    <label class="mini-field">
-      <span class="mini-field__label">ARM</span>
-      <select
-        class="mini-field__input mini-field__input--select"
-        [ngModel]="target().arm()"
-        (ngModelChange)="target().arm.set(toNumber($event))"
-      >
-        @for (v of armOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-
-    <label class="mini-field">
-      <span class="mini-field__label">Boxes</span>
-      <select
-        class="mini-field__input mini-field__input--select"
-        [ngModel]="target().boxes()"
-        (ngModelChange)="target().boxes.set(toNumber($event))"
-      >
-        @for (v of boxesOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
+    <app-mini-field-select label="DEF" [signal]="target().def" [options]="defOptions" [parse]="parseDef" />
+    <app-mini-field-select label="ARM" [signal]="target().arm" [options]="armOptions" [parse]="toNumber" />
+    <app-mini-field-select label="Boxes" [signal]="target().boxes" [options]="boxesOptions" [parse]="toNumber" />
 
     <button type="button" class="icon-btn" (click)="openProfile.emit()" aria-label="Target profile">⚙</button>
   </div>

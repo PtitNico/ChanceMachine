@@ -1,0 +1,13 @@
+<label class="mini-field">
+  <span class="mini-field__label">{{ label() }}</span>
+  <select
+    class="mini-field__input mini-field__input--select"
+    [class.mini-field__input--narrow]="narrow()"
+    [ngModel]="signal()()"
+    (ngModelChange)="signal().set(parse()($event))"
+  >
+    @for (v of options(); track v) {
+      <option [value]="v">{{ v }}</option>
+    }
+  </select>
+</label>
