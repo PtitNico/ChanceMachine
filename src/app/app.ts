@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { trackPwaInstall } from './analytics';
 import { OddsCalculator } from './odds-calculator/odds-calculator';
+import { PwaInstall } from './pwa-install';
 
 @Component({
   selector: 'app-root',
@@ -11,6 +12,12 @@ import { OddsCalculator } from './odds-calculator/odds-calculator';
 })
 export class App {
   constructor() {
+    // Eagerly constructs the root-provided singleton (rather than waiting for PwaInstallBanner to
+    // inject it later) so its `beforeinstallprompt` listener is registered as early as possible -
+    // see PwaInstall's own doc comment. Never read directly here; PwaInstallBanner injects the
+    // same instance.
+    inject(PwaInstall);
+
     updateAppHeight();
     const viewport = window.visualViewport;
     (viewport ?? window).addEventListener('resize', updateAppHeight);

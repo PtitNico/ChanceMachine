@@ -35,6 +35,10 @@ All numeric fields are **dropdown lists** (`<select>`) rather than free-text inp
 
 **Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attack rows — this matters most on short mobile screens. Section titles (Target/Attack sequence/Results) are kept small, and Results uses a small **"+"** icon next to its title instead of a full-width button (see below) to leave as much room as possible for the attack list.
 
+### Install banner
+
+A banner between the header and the Target section, with a bordered "Install app" button (in the same brass/orange as the "ChanceMachine" title) and a **✕** button on its right. It only appears once the browser has told the app it's installable (Chrome/Edge on Android and desktop; Safari never does, on either iOS or desktop, so the banner never appears there). "Install app" triggers the browser's own install prompt directly, at a moment of your choosing, instead of relying purely on whatever install affordance the browser shows on its own; the banner disappears immediately after, whether the prompt was accepted or dismissed — a browser only ever offers it once per visit. The **✕** dismisses the banner for the rest of that visit without installing (it reappears on the next page load, as long as the browser still considers the app installable).
+
 ### Menu
 
 A **☰ (hamburger)** icon button in the top-right corner of the header opens a small dropdown:
@@ -202,6 +206,7 @@ Some rules points were implemented using the most commonly accepted formulation 
 
 - Icons and final PWA manifest configuration.
 - Verification of the display on smartphones (in progress).
+- Manual "Add to Home Screen" instructions for Safari (iOS and desktop) - the only browser that never fires the `beforeinstallprompt` event the install banner relies on, so it currently just never appears there instead of offering any alternative.
 
 ### Larger features under consideration
 

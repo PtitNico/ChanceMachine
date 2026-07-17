@@ -10,6 +10,7 @@ import { DamagePoint } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { EffectsDialog } from './effects-dialog/effects-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
+import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
 import {
@@ -41,6 +42,7 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
     AboutDialog,
     ChangelogDialog,
     FeedbackDialog,
+    PwaInstallBanner,
   ],
   templateUrl: './odds-calculator.html',
   // Shared partials first, this component's own file last: `.console--attacks` here must
