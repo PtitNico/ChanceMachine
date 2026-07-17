@@ -1,6 +1,6 @@
 import { WritableSignal, signal } from '@angular/core';
 import { AttackType, EffectTrigger } from '../engine/attack-model';
-import { SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
+import { RofValue, SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
 import { range } from './range.util';
 
 let nextRowId = 0;
@@ -22,6 +22,8 @@ export const STAT_OPTIONS = range(0, 20); // MAT / RAT / AAT
 export const POW_OPTIONS: (number | '-')[] = ['-', ...range(0, 30)];
 export const DICE_OPTIONS = range(1, 6);
 export const ARM_PENALTY_OPTIONS = range(1, 10);
+/** Ranged-only "shots per attack" field - see `SequencedAttack.rof`'s doc comment. */
+export const ROF_OPTIONS: RofValue[] = ['1', 'd3', '2d3'];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 
@@ -200,6 +202,9 @@ export interface AttackRow {
   readonly diceCount: WritableSignal<number>;
   readonly pow: WritableSignal<number | '-'>;
   readonly damageDiceCount: WritableSignal<number>;
+  /** Ranged-only "shots per attack" - ignored by the engine for melee/arcane rows regardless of
+   *  this value, so switching Type away from Ranged and back doesn't need to reset it. */
+  readonly rof: WritableSignal<RofValue>;
 
   /** Every toggleable effect on this attack - always one entry per `TRIGGER_EFFECT_KEYS` (a fixed
    *  set) - see `TriggerEffectRow`'s doc comment above. */
@@ -214,6 +219,7 @@ export function createAttackRow(): AttackRow {
     diceCount: signal(2),
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
+    rof: signal<RofValue>('1'),
     triggerEffects: createTriggerEffects(),
   };
 }
@@ -227,6 +233,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     diceCount: signal(source.diceCount()),
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
+    rof: signal(source.rof()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
 }
@@ -301,6 +308,7 @@ export function toSequencedAttack(row: AttackRow, index: number): SequencedAttac
     label: `Attack ${index + 1}`,
     type: row.type(),
     stat: row.stat(),
+    rof: row.rof(),
     modifiers: {
       boostDice: toBoostDice(row.diceCount()),
       discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),

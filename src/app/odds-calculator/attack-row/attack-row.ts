@@ -5,6 +5,7 @@ import {
   AttackRow,
   DICE_OPTIONS,
   POW_OPTIONS,
+  ROF_OPTIONS,
   STAT_LABELS,
   STAT_OPTIONS,
   effectsSummary,
@@ -35,6 +36,7 @@ export class AttackRowComponent {
   protected readonly statOptions = STAT_OPTIONS;
   protected readonly diceOptions = DICE_OPTIONS;
   protected readonly powOptions = POW_OPTIONS;
+  protected readonly rofOptions = ROF_OPTIONS;
   protected readonly effectsSummary = effectsSummary;
   protected readonly statLabel = (type: AttackType) => STAT_LABELS[type];
 

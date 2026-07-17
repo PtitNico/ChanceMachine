@@ -3,6 +3,9 @@
     <span class="attack-row__index">{{ index() + 1 }}</span>
 
     <app-mini-field-select label="Type" [signal]="row().type" [options]="attackTypes" />
+    @if (row().type() === 'ranged') {
+      <app-mini-field-select label="ROF" [signal]="row().rof" [options]="rofOptions" [narrow]="true" />
+    }
     <app-mini-field-select
       [label]="statLabel(row().type())"
       [signal]="row().stat"

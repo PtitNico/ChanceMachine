@@ -70,6 +70,25 @@
  * position), but "Hit"/"Crit" chance stay the ORIGINAL roll's own - a single well-defined
  * probability, unlike "average damage" which stays meaningful however many rolls occurred.
  *
+ * Rate of Fire (`SequencedAttack.rof`, ranged-only) fires MULTIPLE independent shots against the
+ * target instead of just one - the shot count is decided ONCE via a die roll before any of this
+ * attack's own dice are thrown, unlike Critical Shred's per-instance crit-triggered recursion: by
+ * the time the target is deciding whether to spend Focus/Fury on shot i, it already knows the
+ * total shot count K for the whole volley (common knowledge the moment the attacker rolls ROF,
+ * before any attack/damage dice), not merely an average over an unknown future. That's why
+ * `buildShotsValue`'s backward-induction helper builds one memoized value function PER POSSIBLE
+ * "shots remaining" count, rather than folding ROF into a single blended lookahead the way a
+ * crit-triggered continuation could: `shotsValue(s, ...)` is "resolve one more shot of this same
+ * attack (itself already Shred-aware via `attackChainValue`), then `shotsValue(s-1, ...)`
+ * afterward", bottoming out at `shotsValue(0, ...)` = the ordinary "attacks k+1 onward" value. The
+ * forward simulation (`resolveRofAttackForward`) mirrors this exactly, per possible shot count K:
+ * splits the incoming probability mass by `rofOutcomes`, then resolves K shots in sequence within
+ * each K-branch, reusing the SAME `shotsValue` functions the backward pass built so the replayed
+ * Focus/Fury policy matches what was actually optimized for. Like Shred, "Hit"/"Crit" chance in
+ * the step-by-step breakdown stay the FIRST shot's own well-defined probability (identical across
+ * every possible K, since K is independent of any attack dice), while "Avg damage" sums every shot
+ * actually fired, across every K, weighted by its own probability.
+ *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
  * distribution over the target's *state* (boxes remaining, debuffs, focus/fury
@@ -117,6 +136,8 @@ export interface StatEffect {
   amount?: number;
 }
 
+export type RofValue = '1' | 'd3' | '2d3';
+
 export interface SequencedAttack {
   id: string;
   attackerName: string;
@@ -127,6 +148,11 @@ export interface SequencedAttack {
   modifiers?: RollModifiers;
   pow: number;
   damageModifiers?: RollModifiers;
+  /** Ranged-only: fires this many independent shots against the target instead of just one, the
+   *  shot count decided ONCE via a die roll before any of this attack's dice are thrown (see the
+   *  module doc comment's "Rate of Fire" section). Ignored for melee/arcane attacks. Unset/'1'
+   *  means a single shot, same as every other attack. */
+  rof?: RofValue;
   /** Effects scoped to this attack alone (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter). */
   effects?: AttackEffects;
   /** Effects that persist on the target for the rest of the sequence once triggered. */
@@ -328,6 +354,49 @@ function applyStatEffectsForOutcome(s: DebuffState, statEffects: StatEffect[] | 
   return next;
 }
 
+/** For a `rof`-equipped RANGED attack, the probability distribution over how many independent
+ *  shots actually fire - decided ONCE, via a single die roll, before any of THIS attack's own
+ *  dice are thrown (see the module doc comment's "Rate of Fire" section). Anything else
+ *  (melee/arcane, or `rof` unset/'1') always fires exactly one shot. */
+function rofOutcomes(atk: SequencedAttack): { count: number; probability: number }[] {
+  if (atk.type !== 'ranged' || !atk.rof || atk.rof === '1') {
+    return [{ count: 1, probability: 1 }];
+  }
+  if (atk.rof === 'd3') {
+    return [1, 2, 3].map((count) => ({ count, probability: 1 / 3 }));
+  }
+  // '2d3': sum of two independent d3 rolls, faces 1-3 each equally likely.
+  const dist = new Map<number, number>();
+  for (let a = 1; a <= 3; a++) {
+    for (let b = 1; b <= 3; b++) {
+      dist.set(a + b, (dist.get(a + b) ?? 0) + 1 / 9);
+    }
+  }
+  return [...dist.entries()].sort(([a], [b]) => a - b).map(([count, probability]) => ({ count, probability }));
+}
+
+/** Every DebuffState reachable from ONE resolution of `atk`, starting from `state` - miss/no
+ *  trigger, a "hit" trigger, or (if Critical Shred is active) up to MAX_SHRED_DEPTH+1 repeated
+ *  "crit" triggers from the chain's own successive instances. */
+function attackTransitionCandidates(state: DebuffState, atk: SequencedAttack): DebuffState[] {
+  const candidates = [
+    state, // miss, or a hit/crit that triggers nothing
+    applyStatEffectsForOutcome(state, atk.statEffects, false),
+  ];
+  // A Critical Shred attack can trigger its own crit-only statEffects repeatedly - a stacking
+  // effect (Ice Cage, "-X ARM") can end up applied once per instance in the chain, not just
+  // once. Over-approximate by exploring every "N repeated crits" state up to the same depth
+  // cap the actual chain resolution uses (see `attackChainValue`), so every state the real
+  // resolution can reach always has a value table built for it in the next step.
+  let critState = state;
+  const maxCrits = atk.criticalShred ? MAX_SHRED_DEPTH + 1 : 1;
+  for (let i = 0; i < maxCrits; i++) {
+    critState = applyStatEffectsForOutcome(critState, atk.statEffects, true);
+    candidates.push(critState);
+  }
+  return candidates;
+}
+
 /**
  * The set of debuff states reachable just BEFORE each attack resolves (index 0 = before the
  * first attack, ... index n = after the last). Debuff transitions don't depend on boxes or
@@ -350,37 +419,30 @@ function computeReachableDebuffStates(
   perStep.push([...current.values()]);
 
   for (const atk of attacks) {
-    const next = new Map<string, DebuffState>();
-    const add = (s: DebuffState) => {
-      const k = debuffKey(s);
-      if (!next.has(k)) next.set(k, s);
-    };
-    for (const state of current.values()) {
-      const candidates = [
-        state, // miss, or a hit/crit that triggers nothing
-        applyStatEffectsForOutcome(state, atk.statEffects, false),
-      ];
-      // A Critical Shred attack can trigger its own crit-only statEffects repeatedly - a stacking
-      // effect (Ice Cage, "-X ARM") can end up applied once per instance in the chain, not just
-      // once. Over-approximate by exploring every "N repeated crits" state up to the same depth
-      // cap the actual chain resolution uses (see `attackChainValue`), so every state the real
-      // resolution can reach always has a value table built for it in the next step.
-      let critState = state;
-      const maxCrits = atk.criticalShred ? MAX_SHRED_DEPTH + 1 : 1;
-      for (let i = 0; i < maxCrits; i++) {
-        critState = applyStatEffectsForOutcome(critState, atk.statEffects, true);
-        candidates.push(critState);
-      }
-      for (const candidate of candidates) {
-        add(candidate);
-        // Surviving a Tough or Tough Steady roll always also knocks the target down (see
-        // damageBranches), regardless of which of the candidates above it happens on top of.
-        if (hasAnyTough && !candidate.knockedDown) {
-          add({ ...candidate, knockedDown: true });
+    // A Rate of Fire attack fires up to `maxShots` independent shots against this same target
+    // before the NEXT row resolves - each shot can independently trigger the attack's own
+    // statEffects (and, if Critical Shred is also active, its own chain of those - see
+    // attackTransitionCandidates), so the reachable-state exploration below runs once per
+    // possible shot rather than once total.
+    const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
+    for (let shot = 0; shot < maxShots; shot++) {
+      const next = new Map<string, DebuffState>();
+      const add = (s: DebuffState) => {
+        const k = debuffKey(s);
+        if (!next.has(k)) next.set(k, s);
+      };
+      for (const state of current.values()) {
+        for (const candidate of attackTransitionCandidates(state, atk)) {
+          add(candidate);
+          // Surviving a Tough or Tough Steady roll always also knocks the target down (see
+          // damageBranches), regardless of which of the candidates above it happens on top of.
+          if (hasAnyTough && !candidate.knockedDown) {
+            add({ ...candidate, knockedDown: true });
+          }
         }
       }
+      current = next;
     }
-    current = next;
     perStep.push([...current.values()]);
   }
   return perStep;
@@ -770,9 +832,12 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
    * per-branch recursion here would instead redo its ~11-way branch at every depth independently:
    * cheap for a couple of levels, but up to 11^`MAX_SHRED_DEPTH` in the worst case, which is why
    * this isn't written that way. `stats.hitMass`/`critMass` only accumulate for the FIRST
-   * instance (depth === `MAX_SHRED_DEPTH`) - "Hit"/"Crit" chance are the ORIGINAL roll's own (a
-   * single well-defined probability), unlike "Avg damage" which stays meaningful summed across
-   * however many instances actually fired (see the module doc comment).
+   * instance (depth === `MAX_SHRED_DEPTH`) AND only when `trackHitCrit` is true - "Hit"/"Crit"
+   * chance are the ORIGINAL roll's own (a single well-defined probability), unlike "Avg damage"
+   * which stays meaningful summed across however many instances actually fired (see the module
+   * doc comment). `trackHitCrit` lets `resolveRofAttackForward` (see the module doc comment's
+   * "Rate of Fire" section) call this once per shot in a volley while still only counting the
+   * volley's OWN first shot toward hitMass/critMass, not every shot in it.
    */
   function resolveAttackChainForward(
     k: number,
@@ -786,7 +851,8 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     shredCache: Map<string, number>,
     stats: { hitMass: number; critMass: number; damageMass: number },
     next: Map<string, { state: FwdState; probability: number }>,
-    destroyed: { mass: number }
+    destroyed: { mass: number },
+    trackHitCrit: boolean
   ): void {
     const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft };
     let current = new Map<string, { state: FwdState; probability: number }>([
@@ -804,7 +870,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
         for (const outcome of applyProfile(profile)) {
           const p = p0 * outcome.probability;
           if (p <= 0) continue;
-          if (topLevel) {
+          if (topLevel && trackHitCrit) {
             if (outcome.isHit) stats.hitMass += p;
             if (outcome.isCrit) stats.critMass += p;
           }
@@ -848,6 +914,53 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     }
   }
 
+  /**
+   * A Rate of Fire attack fires its shot count K (see `rofOutcomes`) ALL decided upfront, before
+   * any dice are rolled - so by the time the target is deciding whether to spend Focus/Fury on
+   * shot i, it already knows exactly how many shots remain in THIS volley (i < K), not merely an
+   * average over an unknown future (see the module doc comment). `shotsValue(s, ...)` is built as
+   * a small recursive value function, one memoized "level" per remaining-shot-count s (0..maxShots
+   * for this attack), rather than a single blended lookahead: `shotsValue(0, ...)` is exactly
+   * "attacks k+1 onward" (`nextTables`); `shotsValue(s, ...)` for s > 0 is "resolve one more shot
+   * of this attack (`attackChainValue`, which already handles that one shot's own Critical Shred
+   * chain if any), then `shotsValue(s-1, ...)` afterward". A single cache PER LEVEL s (not one per
+   * grid point) is safe and sufficient, exactly like the plain per-attack `shredCache` used to be:
+   * `shotsValue(s-1, ...)` is a pure function of (boxes, debuffState, focus, fury) alone, identical
+   * no matter which debuffState/grid-point this level was entered from. Returned rather than
+   * inlined so the forward pass below can reuse the exact same functions (and their caches) as its
+   * own per-shot lookahead, keeping the replayed Focus/Fury policy consistent with what the
+   * backward pass actually optimized for.
+   */
+  function buildShotsValue(
+    k: number,
+    atk: SequencedAttack,
+    nextTables: Map<string, ValueTable>
+  ): (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number) => number {
+    const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
+    const cachesByShotsRemaining: Map<string, number>[] = Array.from({ length: maxShots + 1 }, () => new Map());
+
+    function shotsValue(shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number): number {
+      if (shotsRemaining === 0) {
+        const table = nextTables.get(debuffKey(debuffState));
+        // Should always be present - computeReachableDebuffStates over-approximates, never under.
+        return table ? readValueTable(table, boxes, focusLeft, furyLeft) : 0;
+      }
+      return attackChainValue(
+        k,
+        atk,
+        debuffState,
+        boxes,
+        focusLeft,
+        furyLeft,
+        MAX_SHRED_DEPTH,
+        (b, d, f, fu) => shotsValue(shotsRemaining - 1, d, b, f, fu),
+        cachesByShotsRemaining[shotsRemaining]
+      );
+    }
+
+    return shotsValue;
+  }
+
   // --- Backward induction ---
   // valueTables[k] = one (boxes x focus x fury) table PER reachable debuff state, giving
   // P(survive attacks[k..n-1] onward | state), playing the optimal Focus/Fury policy.
@@ -858,24 +971,89 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     valueTables[n].set(debuffKey(debuffState), buildValueTable(initialBoxes, maxFocus, maxFury, () => 1));
   }
 
+  // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
+  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number) => number)[] =
+    new Array(n);
+
   for (let k = n - 1; k >= 0; k--) {
     const atk = attacks[k];
     const nextTables = valueTables[k + 1];
     valueTables[k] = new Map();
-    const shredCache = new Map<string, number>();
+    const shotsValue = buildShotsValue(k, atk, nextTables);
+    shotsValueByAttack[k] = shotsValue;
+    const rofDist = rofOutcomes(atk);
 
     for (const debuffState of debuffStatesPerStep[k]) {
-      const valueAt: ValueLookup = (boxes, nextDebuffState, focus, fury) => {
-        const table = nextTables.get(debuffKey(nextDebuffState));
-        // Should always be present - computeReachableDebuffStates over-approximates, never under.
-        return table ? readValueTable(table, boxes, focus, fury) : 0;
-      };
-
       const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) =>
-        attackChainValue(k, atk, debuffState, boxes, focus, fury, MAX_SHRED_DEPTH, valueAt, shredCache)
+        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury), 0)
       );
 
       valueTables[k].set(debuffKey(debuffState), table);
+    }
+  }
+
+  /**
+   * Forward-simulation counterpart of `buildShotsValue`: fires attack `k`'s full Rate of Fire
+   * volley starting from `initialDist`, splitting each incoming state's probability mass across
+   * every possible shot count (`rofDist`), then resolving that many `resolveAttackChainForward`
+   * calls in sequence per branch - each shot's survivors becoming the next shot's starting
+   * distribution WITHIN THAT SAME branch, exactly mirroring `shotsValue`'s own per-branch
+   * recursion above (so `bestAction`'s Focus/Fury lookahead, called from inside
+   * `resolveAttackChainForward`, sees the correct value for "however many shots THIS branch's own
+   * K actually leaves remaining", not a blended average). `stats.hitMass`/`critMass` only
+   * accumulate on each branch's own first shot (`trackHitCrit`) - since shot 1 always fires (every
+   * `rofDist` count is >= 1) and its outcome distribution is identical regardless of which K a
+   * given branch drew, summing it once per branch, weighted by that branch's own probability
+   * share, reconstructs the correct total automatically (the branch probabilities already sum
+   * back to the original incoming mass).
+   */
+  function resolveRofAttackForward(
+    k: number,
+    atk: SequencedAttack,
+    initialDist: Map<string, { state: FwdState; probability: number }>,
+    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number) => number,
+    stats: { hitMass: number; critMass: number; damageMass: number },
+    next: Map<string, { state: FwdState; probability: number }>,
+    destroyed: { mass: number }
+  ): void {
+    for (const { count, probability: rofP } of rofOutcomes(atk)) {
+      let current = new Map<string, { state: FwdState; probability: number }>();
+      for (const { state, probability } of initialDist.values()) {
+        const p = probability * rofP;
+        if (p <= 0) continue;
+        const key = fwdKey(state);
+        const existing = current.get(key);
+        if (existing) existing.probability += p;
+        else current.set(key, { state, probability: p });
+      }
+
+      for (let shotIndex = 1; shotIndex <= count; shotIndex++) {
+        const shotsRemainingAfter = count - shotIndex;
+        const isLastShot = shotIndex === count;
+        const shredCache = new Map<string, number>();
+        const survivors = new Map<string, { state: FwdState; probability: number }>();
+        const valueAt: ValueLookup = (b, d, f, fu) => shotsValue(shotsRemainingAfter, d, b, f, fu);
+
+        for (const { state, probability } of current.values()) {
+          resolveAttackChainForward(
+            k,
+            atk,
+            state.debuffState,
+            state.boxes,
+            state.focusLeft,
+            state.furyLeft,
+            probability,
+            valueAt,
+            shredCache,
+            stats,
+            isLastShot ? next : survivors,
+            destroyed,
+            shotIndex === 1
+          );
+        }
+
+        current = survivors;
+      }
     }
   }
 
@@ -895,35 +1073,15 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
 
   for (let k = 0; k < n; k++) {
     const atk = attacks[k];
-    const nextTables = valueTables[k + 1];
-    const valueAt: ValueLookup = (boxes, debuffState, focus, fury) => {
-      const table = nextTables.get(debuffKey(debuffState));
-      return table ? readValueTable(table, boxes, focus, fury) : 0;
-    };
+    const shotsValue = shotsValueByAttack[k];
 
     const next = new Map<string, { state: FwdState; probability: number }>();
     const stats = { hitMass: 0, critMass: 0, damageMass: 0 };
     const destroyed = { mass: 0 };
     let aliveMass = 0;
-    const shredCache = new Map<string, number>();
+    for (const { probability } of dist.values()) aliveMass += probability;
 
-    for (const { state, probability } of dist.values()) {
-      aliveMass += probability;
-      resolveAttackChainForward(
-        k,
-        atk,
-        state.debuffState,
-        state.boxes,
-        state.focusLeft,
-        state.furyLeft,
-        probability,
-        valueAt,
-        shredCache,
-        stats,
-        next,
-        destroyed
-      );
-    }
+    resolveRofAttackForward(k, atk, dist, shotsValue, stats, next, destroyed);
 
     cumulativeDestroy += destroyed.mass;
     dist = next;
