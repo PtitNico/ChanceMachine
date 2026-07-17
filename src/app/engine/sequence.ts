@@ -244,6 +244,13 @@ export interface SequenceResult {
   finalDestroyChance: number;
   /** Remaining-boxes distribution conditional on the target surviving the whole sequence. */
   survivalDistribution: { boxes: number; probability: number }[];
+  /** Expected RAW damage dealt over the whole sequence - the sum of every step's own raw,
+   *  uncapped damage (see `SequenceStepResult.averageDamage`), each weighted by the probability
+   *  the target was still alive when that step fired. Unlike `boxesInitial - steps.at(-1)
+   *  .expectedBoxesRemaining` (which caps at the target's box count, since a destroyed target
+   *  can't lose more boxes than it had), this counts "wasted" overkill damage too - dice that
+   *  landed but didn't matter because the target was already destroyed by that same hit. */
+  totalRawDamage: number;
 }
 
 const MAX_RESOURCE_POINTS = 10; // far beyond any Warmachine/Hordes caster's focus/fury stat; guards the value-table size.
@@ -1070,6 +1077,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
 
   const steps: SequenceStepResult[] = [];
   let cumulativeDestroy = 0;
+  let totalRawDamage = 0;
 
   for (let k = 0; k < n; k++) {
     const atk = attacks[k];
@@ -1084,6 +1092,10 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     resolveRofAttackForward(k, atk, dist, shotsValue, stats, next, destroyed);
 
     cumulativeDestroy += destroyed.mass;
+    // `stats.damageMass` is already probability-weighted (unconditional), so summing it directly
+    // across steps - rather than re-weighting each step's own `averageDamage` by its aliveMass -
+    // gives the whole sequence's expected raw damage, uncapped by the target's box count.
+    totalRawDamage += stats.damageMass;
     dist = next;
 
     const expectedBoxesRemaining = [...dist.values()].reduce(
@@ -1110,5 +1122,5 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     .map(([boxes, probability]) => ({ boxes, probability }))
     .sort((a, b) => a.boxes - b.boxes);
 
-  return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution };
+  return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution, totalRawDamage };
 }

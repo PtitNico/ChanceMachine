@@ -10,7 +10,7 @@
       <span class="gauge__label">Chance to destroy</span>
     </div>
     <div class="gauge">
-      <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
+      <span class="gauge__value">{{ sequence().totalRawDamage.toFixed(1) }}</span>
       <span class="gauge__label">Average damage</span>
     </div>
   </div>
