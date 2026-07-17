@@ -19,6 +19,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-17',
+    items: [
+      'Added Rate of Fire (ROF) for ranged attacks: fire d3 or 2d3 shots instead of just one, resolved in sequence against the target.',
+      'Fixed "Average damage" to no longer silently discard overkill damage.',
+    ],
+  },
+  {
     date: '2026-07-16',
     items: [
       'Added Critical Shred: an attack that fires again immediately on a critical hit, and can keep chaining on further crits.',
