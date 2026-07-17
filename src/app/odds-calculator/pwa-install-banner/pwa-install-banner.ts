@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { trackPwaInstallDismiss } from '../../analytics';
 import { PwaInstall } from '../../pwa-install';
 
 /**
@@ -23,10 +24,11 @@ export class PwaInstallBanner {
   protected readonly visible = computed(() => this.pwaInstall.installable() && !this.dismissed());
 
   protected install(): void {
-    this.pwaInstall.install();
+    this.pwaInstall.install().then(() => {});
   }
 
   protected dismiss(): void {
     this.dismissed.set(true);
+    trackPwaInstallDismiss();
   }
 }

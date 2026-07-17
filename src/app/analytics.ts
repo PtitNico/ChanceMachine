@@ -25,3 +25,12 @@ export function trackPwaInstall(): void {
     window.goatcounter?.count({ path: 'pwa-install', title: 'PWA install', event: true });
   });
 }
+
+/** Fires when a visitor dismisses the install banner (the ✕ button) without installing - lets the
+ *  banner's decline rate be compared against `pwa-install` above. Browser/system/device/location
+ *  aren't passed explicitly: GoatCounter's collector derives all of that itself, from the request's
+ *  User-Agent and IP, for every counted hit (pageview or custom event alike) - same as it already
+ *  does for the automatic page-view counting `index.html`'s script tag sets up. */
+export function trackPwaInstallDismiss(): void {
+  window.goatcounter?.count({ path: 'pwa-install-dismiss', title: 'PWA install banner dismissed', event: true });
+}
