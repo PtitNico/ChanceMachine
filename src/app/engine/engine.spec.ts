@@ -348,36 +348,6 @@ describe('sequence engine', () => {
     expect(seq.steps[0].averageDamage).toBeCloseTo(single.expectedDamage, 9);
   });
 
-  it('totalRawDamage equals the single step\'s own averageDamage for a one-attack sequence', () => {
-    // aliveMass is exactly 1 at the very first step, so the unconditional (probability-weighted)
-    // and conditional (divided-by-aliveMass) readings of "expected raw damage" coincide here.
-    const seq = computeSequenceOdds([attack()], target);
-    expect(seq.totalRawDamage).toBeCloseTo(seq.steps[0].averageDamage, 9);
-  });
-
-  it('totalRawDamage is UNCAPPED: it can exceed boxesInitial when overkill is likely', () => {
-    // High POW against few boxes: most hits deal far more damage than the target has boxes for.
-    const overkillTarget = { def: 13, arm: 0, boxes: 2 };
-    const seq = computeSequenceOdds([attack({ stat: 20, pow: 30 })], overkillTarget);
-    const cappedDamage = overkillTarget.boxes - seq.steps[0].expectedBoxesRemaining;
-    expect(seq.totalRawDamage).toBeGreaterThan(cappedDamage);
-  });
-
-  it('totalRawDamage sums every step\'s own probability-weighted raw damage across a multi-attack sequence', () => {
-    const attacks = [attack({ id: '1' }), attack({ id: '2' }), attack({ id: '3' })];
-    const seq = computeSequenceOdds(attacks, target);
-    // Each step's averageDamage is CONDITIONAL on being alive at that step - re-weighting by the
-    // alive mass actually reaching that step (tracked here the same way the engine itself does,
-    // via each step's own destroy/survive bookkeeping) and summing should reproduce totalRawDamage.
-    let aliveMass = 1;
-    let expectedTotal = 0;
-    for (const step of seq.steps) {
-      expectedTotal += aliveMass * step.averageDamage;
-      aliveMass -= step.destroyChanceAtThisStep;
-    }
-    expect(seq.totalRawDamage).toBeCloseTo(expectedTotal, 9);
-  });
-
   it('critChance and averageDamage match a hand-computed case (MAT 6 vs DEF 13, POW 12 vs ARM 15)', () => {
     // Same numbers as the hand-computed attack-model test: hit needs 2d6 >= 7 (21/36),
     // and among those, a double (crit) is 6/36 of all rolls, all of which are >= 7 anyway

@@ -92,7 +92,7 @@ The **"+ Add attack"** button adds a new attack at the bottom of the list, **cop
 
 By default, only two figures are shown:
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
-- **Average damage**: expected total **raw** damage from every attack's own dice over the whole sequence (unconditional, and *not* capped at the target's box count) — a destroyed target's exact overkill still counts in full here, unlike the "N+" bucket in the damage distribution below, which can't represent more than the target actually had to lose.
+- **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
 A small **"+"** icon next to the "Results" title (rather than a full-width button, to keep this fixed section as compact as possible — see "Compact layout" below) opens a pop-up with the full breakdown:
 - **Step by step**: for each attack in the sequence, in order: *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). All three are conditional on the target still being alive at that point in the sequence, and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome).
