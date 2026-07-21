@@ -1,5 +1,9 @@
 <div class="attacker-card">
   <div class="attacker-card__header">
+    <span class="drag-handle" cdkDragHandle aria-label="Drag to reorder attacker">
+      <span class="material-symbols-outlined">drag_indicator</span>
+    </span>
+
     <div class="attacker-card__name-row">
       <span
         #nameSpan
@@ -14,13 +18,13 @@
     </div>
 
     @if (presentTypes().has('melee')) {
-      <app-mini-field-select label="MAT" [signal]="attacker().mat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+      <app-mini-field-select label="MAT" [signal]="attacker().mat" [options]="statOptions" [parse]="toNumber" />
     }
     @if (presentTypes().has('ranged')) {
-      <app-mini-field-select label="RAT" [signal]="attacker().rat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+      <app-mini-field-select label="RAT" [signal]="attacker().rat" [options]="statOptions" [parse]="toNumber" />
     }
     @if (presentTypes().has('arcane')) {
-      <app-mini-field-select label="AAT" [signal]="attacker().aat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+      <app-mini-field-select label="AAT" [signal]="attacker().aat" [options]="statOptions" [parse]="toNumber" />
     }
 
     <button
@@ -34,9 +38,11 @@
     </button>
   </div>
 
-  <div class="attacker-card__attacks">
+  <div class="attacker-card__attacks" cdkDropList (cdkDropListDropped)="onAttackDrop($event)">
     @for (row of attacker().attacks(); track row.id; let count = $count) {
       <app-attack-sub-card
+        cdkDrag
+        [cdkDragData]="row"
         [row]="row"
         [removable]="count > 1"
         (edit)="editAttack.emit(row)"

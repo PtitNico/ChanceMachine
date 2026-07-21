@@ -1,3 +1,4 @@
+import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
 import { SequencedAttack } from '../engine/sequence';
@@ -33,6 +34,8 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
   selector: 'app-odds-calculator',
   standalone: true,
   imports: [
+    CdkDropList,
+    CdkDrag,
     TargetPanel,
     AttackerCard,
     ResultsPanel,
@@ -136,6 +139,14 @@ export class OddsCalculator {
 
   protected onAddAttacker(): void {
     this.attackers.update((list) => [...list, createAttacker()]);
+  }
+
+  /** Reorders attackers by dragging their card's handle - doesn't touch which attacks belong to
+   *  which attacker, just the order attackers (and so their attacks) resolve in. */
+  protected onAttackerDrop(event: CdkDragDrop<Attacker[]>): void {
+    const reordered = [...this.attackers()];
+    moveItemInArray(reordered, event.previousIndex, event.currentIndex);
+    this.attackers.set(reordered);
   }
 
   /** An attacker can't be removed while it's the only one - mirrors the same "always >=1" rule

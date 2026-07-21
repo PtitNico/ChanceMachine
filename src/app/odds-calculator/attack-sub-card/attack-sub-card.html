@@ -1,5 +1,9 @@
 <div class="attack-sub-card">
   <div class="attack-sub-card__row">
+    <span class="drag-handle" cdkDragHandle aria-label="Drag to reorder attack">
+      <span class="material-symbols-outlined">drag_indicator</span>
+    </span>
+
     <div class="attack-sub-card__fields">
       <app-mini-field-select label="Type" [signal]="row().type" [options]="attackTypes" [optionLabel]="typeOptionLabel" [narrow]="true" />
       @if (row().type() === 'ranged') {

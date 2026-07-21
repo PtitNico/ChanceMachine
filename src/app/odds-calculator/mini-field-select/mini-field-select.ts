@@ -3,12 +3,13 @@ import { FormsModule } from '@angular/forms';
 
 /**
  * One `.mini-field` labelled `<select>`, bound directly to a `WritableSignal<T>` - the repeated
- * shape behind DEF/ARM/Boxes (`TargetPanel`) and Type/MAT-RAT-AAT/Dice/POW/Dice
- * (`AttackRowComponent`): a label, a `<select>` looping over a fixed options array, writing back
- * through a string-to-`T` parser. `parse` defaults to a plain cast (`raw as unknown as T`), which
- * is all `AttackType`'s own select needs - a `<select>` change event is already the right string
- * value, nothing to actually convert; every numeric field passes `toNumber`, `parseDef`, or
- * `parsePow` explicitly instead, exactly as it did when each of these was hand-written inline.
+ * shape behind DEF/ARM/Boxes (`TargetPanel`), MAT/RAT/AAT (`AttackerCard`), and
+ * Type/ROF/Dice/POW/Dice (`AttackSubCard`): a label, a `<select>` looping over a fixed options
+ * array, writing back through a string-to-`T` parser. `parse` defaults to a plain cast (`raw as
+ * unknown as T`), which is all `AttackType`'s own select needs - a `<select>` change event is
+ * already the right string value, nothing to actually convert; every numeric field passes
+ * `toNumber`, `parseDef`, or `parsePow` explicitly instead, exactly as it did when each of these
+ * was hand-written inline.
  */
 @Component({
   selector: 'app-mini-field-select',

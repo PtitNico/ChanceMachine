@@ -33,7 +33,7 @@ The screen is split into three vertically stacked zones: **Target** at the top, 
 
 All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each attack row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
 
-**Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attack rows — this matters most on short mobile screens. Section titles (Target/Attack sequence/Results) are kept small, and Results uses a small **"+"** icon next to its title instead of a full-width button (see below) to leave as much room as possible for the attack list.
+**Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attacker cards — this matters most on short mobile screens. The Target section's title sits on the same line as its DEF/ARM/Boxes row rather than above it, and the standalone "Attack sequence"/"Results" section titles have been dropped entirely — the attacker cards and the two result gauges are self-explanatory enough on their own without them. Results' "Show details" pop-up (see below) opens from a small icon next to the Average damage gauge, rather than a full-width button, for the same reason.
 
 ### Install banner
 
@@ -66,33 +66,38 @@ The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, o
 
 ### 2. Attack sequence
 
-An ordered list of **attacker cards**. Each card represents one attacker (a model, a caster, an
-individual figure in a unit) and holds the MAT/RAT/AAT its own attacks share, plus its own ordered
-list of attacks:
-- A **name**, auto-numbered "Attacker N" until renamed, and its **MAT / RAT / AAT** (0 to 20 each),
-  shown on the card face. A **⚙ (cog)** icon button opens a small pop-up to rename the attacker and
-  edit these three stats; a **✕** button removes the whole attacker (disabled while it's the only
-  one — at least one attacker always remains).
-- One **attack sub-card** per attack this attacker makes, each showing:
-  - The attack **type** as an emoji — 🗡️ melee, 🏹 ranged, 🪄 arcane — which decides whether this
-    attack uses the attacker's MAT, RAT, or AAT, and whether a **Knockdown** triggered earlier in
-    the sequence benefits it (see below).
-  - **Dice** (to-hit dice, 1 to 6; 2 by default — the player directly picks this number to
-    represent a boost, rather than entering a separate boost-dice count), **POW** (`-` for an
-    attack that deals no damage at all, e.g. one whose sole purpose is a critical effect like
-    Knockdown — a critical hit is still possible since the to-hit roll still happens — otherwise 0
-    to 30), and **Dice** again (damage dice, 1 to 6).
+An ordered list of **attacker cards**, each with a drag handle (⋮⋮) on its left edge — press and
+drag it to reorder attackers relative to each other. Each card represents one attacker (a model, a
+caster, an individual figure in a unit) and holds the MAT/RAT/AAT its own attacks share, plus its
+own ordered list of attacks:
+- A **name**: click/tap directly on it to rename in place — no separate button or pop-up — with
+  "Attacker N" shown as dimmed placeholder text until it's renamed, and a small pencil glyph after
+  it as the only hint that it's editable. Its **MAT / RAT / AAT** (0 to 20 each) sit inline next to
+  the name, but only the ones its own attacks actually use — a melee-only attacker shows just MAT,
+  a caster with a melee attack and a spell shows MAT and AAT, and so on. A red trash icon button
+  removes the whole attacker (disabled while it's the only one — at least one attacker always
+  remains).
+- One **attack sub-card** per attack this attacker makes, each with its own drag handle to reorder
+  attacks within that attacker (an attack can't be dragged into a different attacker), showing:
+  - The attack **type** as a dropdown of emoji — 🗡️ melee, 🏹 ranged, 🪄 arcane — which decides
+    whether this attack uses the attacker's MAT, RAT, or AAT, and whether a **Knockdown** triggered
+    earlier in the sequence benefits it (see below).
+  - **ROF** (ranged attacks only — `1`/`d3`/`2d3`, see below), **Dice** (to-hit dice, 1 to 6; 2 by
+    default — the player directly picks this number to represent a boost, rather than entering a
+    separate boost-dice count), **POW** (`-` for an attack that deals no damage at all, e.g. one
+    whose sole purpose is a critical effect like Knockdown — a critical hit is still possible since
+    the to-hit roll still happens — otherwise 0 to 30), and **Dice** again (damage dice, 1 to 6) —
+    all edited directly on the card, spaced evenly across the row.
   - A **compact summary** of its active effects (e.g. `Discard highest (atk)`, `Trash`, `Ice Cage
-    (crit)`), plus a `ROF <value>` tag whenever it's set to `d3`/`2d3` (see below) — so the whole
-    sequence stays scannable without reopening anything.
-  - A **⚙ (cog)** icon button that opens a pop-up to edit the attack — Type, **ROF** (ranged only:
-    `1`/`d3`/`2d3`, see below), Dice, POW, Dice, and every special effect (the same toggle-button
-    breakdown as before, see below) — and a **✕** button that removes just this attack (disabled
-    while it's the only attack on this attacker — remove the whole attacker instead).
+    (crit)`) — so the whole sequence stays scannable without reopening anything.
+  - A blue **⚙ (cog)** icon button that opens the **Effects** pop-up (the same toggle-button
+    breakdown described below) — Type/ROF/Dice/POW live on the card itself, not in this pop-up — and
+    a red trash icon button that removes just this attack (disabled while it's the only attack on
+    this attacker — remove the whole attacker instead).
   - A **"+ Add attack"** button inside the card adds a new attack to *this* attacker, copying the
-    values of its own last attack (type, dice, POW, every effect — MAT/RAT/AAT don't need copying,
-    they already live on the attacker) — since chaining similar attacks is the most common case,
-    the player only needs to adjust the few fields that change.
+    values of its own last attack (type, ROF, dice, POW, every effect — MAT/RAT/AAT don't need
+    copying, they already live on the attacker) — since chaining similar attacks is the most common
+    case, the player only needs to adjust the few fields that change.
 
 **ROF** (Rate of Fire, ranged attacks only): `1` (default), `d3`, or `2d3` — how many independent
 shots this attack actually fires. The shot count is rolled once, before any of this attack's own
@@ -100,17 +105,17 @@ dice, exactly like on the tabletop: with `d3` or `2d3`, this one attack fires th
 to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier shots in the
 SAME volley already inflicted), rather than just one.
 
-Each effect in the edit pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
+Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
 - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
 - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
 - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
 - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
 - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
-- **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" attack instead of unchecking effects one by one — Type/ROF/Dice/POW aren't touched by this, only effects.
+- **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" attack instead of unchecking effects one by one — Type/ROF/Dice/POW live on the card itself and aren't touched by this.
 
 The **"+ Add attacker"** button below the list adds a new attacker with one default attack.
 
-**Card order is resolution order.** The app doesn't automatically search for the best possible order: attacks resolve top attacker to bottom, top attack to bottom within each attacker — this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table.
+**Card order is resolution order.** The app doesn't automatically search for the best possible order: attacks resolve top attacker to bottom, top attack to bottom within each attacker — this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table, using the drag handles to arrange attacker and attack cards accordingly.
 
 ### 3. Results
 
@@ -118,7 +123,7 @@ By default, only two figures are shown:
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
 - **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
-A small **"+"** icon next to the "Results" title (rather than a full-width button, to keep this fixed section as compact as possible — see "Compact layout" below) opens a pop-up with the full breakdown:
+A small **query_stats** icon next to the Average damage gauge (rather than a full-width button or a section title, to keep this fixed section as compact as possible — see "Compact layout" above) opens a pop-up with the full breakdown:
 - **Step by step**: for each attack in the sequence, in order: *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). All three are conditional on the target still being alive at that point in the sequence, and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome).
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 

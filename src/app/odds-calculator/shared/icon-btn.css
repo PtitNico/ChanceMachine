@@ -91,3 +91,42 @@
 .icon-btn.icon-btn--stats:hover:not(:disabled) {
   color: #f2cd7e;
 }
+
+/* Reorder handle for a draggable attacker/attack card (cdkDragHandle) - not a button, just a grip
+   the user presses and drags. `touch-action: none` stops the browser's own touch-scroll gesture
+   from fighting a drag on phones, which is the whole reason this needs a dedicated handle instead
+   of making the entire card draggable (that would also swallow taps on every select/button/the
+   contenteditable name inside it). */
+.drag-handle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  color: var(--text-dim);
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:hover {
+  color: var(--brass-bright);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* CDK's placeholder is the gap left behind at the drop target while dragging - a dashed outline
+   matches the app's existing "empty slot" affordance (the +Add attacker/+Add attack buttons). */
+.cdk-drag-placeholder {
+  opacity: 0.3;
+  border: 1px dashed var(--brass);
+}
+
+/* The floating clone that follows the pointer while dragging - lifted above everything else
+   (dialogs included) and given a shadow so it visually separates from the list underneath it. */
+.cdk-drag-preview {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}

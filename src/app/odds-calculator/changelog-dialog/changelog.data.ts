@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       'Attacks are now grouped by attacker: each attacker is its own card with a name and MAT/RAT/AAT shared by all its attacks (only shown for the types it actually has - a melee-only attacker no longer shows RAT or AAT), holding one sub-card per attack.',
       'Condensed the layout to fit more on screen: the DEF/ARM/Boxes row now shares a line with the Target title, and the standalone "Attack sequence" and "Results" titles were removed since the cards already make each section clear.',
+      'Attackers and attacks can now be reordered by dragging - grab the handle on the left of each card.',
     ],
   },
   {

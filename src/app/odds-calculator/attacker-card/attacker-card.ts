@@ -1,3 +1,4 @@
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, afterNextRender, computed, input, output } from '@angular/core';
 import { AttackType } from '../../engine/attack-model';
 import { AttackRow, STAT_OPTIONS } from '../attack-row.model';
@@ -14,7 +15,7 @@ import { toNumber } from '../select.util';
 @Component({
   selector: 'app-attacker-card',
   standalone: true,
-  imports: [AttackSubCard, MiniFieldSelect],
+  imports: [CdkDropList, CdkDrag, CdkDragHandle, AttackSubCard, MiniFieldSelect],
   templateUrl: './attacker-card.html',
   styleUrls: ['../shared/icon-btn.css', './attacker-card.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,5 +67,13 @@ export class AttackerCard {
       span.textContent = '';
     }
     this.attacker().name.set(text);
+  }
+
+  /** Reorders this attacker's own attacks by dragging an `AttackSubCard`'s handle - a separate
+   *  drop list per attacker card, so dragging never moves an attack to a different attacker. */
+  protected onAttackDrop(event: CdkDragDrop<AttackRow[]>): void {
+    const reordered = [...this.attacker().attacks()];
+    moveItemInArray(reordered, event.previousIndex, event.currentIndex);
+    this.attacker().attacks.set(reordered);
   }
 }

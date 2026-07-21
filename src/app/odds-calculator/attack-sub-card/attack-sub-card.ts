@@ -1,3 +1,4 @@
+import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { AttackType } from '../../engine/attack-model';
 import { AttackRow, DICE_OPTIONS, POW_OPTIONS, ROF_OPTIONS, TYPE_EMOJI, effectsSummary, parsePow } from '../attack-row.model';
@@ -12,7 +13,7 @@ import { toNumber } from '../select.util';
 @Component({
   selector: 'app-attack-sub-card',
   standalone: true,
-  imports: [EffectTags, MiniFieldSelect],
+  imports: [CdkDragHandle, EffectTags, MiniFieldSelect],
   templateUrl: './attack-sub-card.html',
   styleUrls: ['../shared/icon-btn.css', './attack-sub-card.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
