@@ -24,4 +24,8 @@ export class MiniFieldSelect<T> {
   readonly options = input.required<readonly T[]>();
   readonly narrow = input(false);
   readonly parse = input<(raw: string) => T>((raw) => raw as unknown as T);
+  /** How each `<option>` is displayed - defaults to the raw value's own string form (correct for
+   *  every numeric/RofValue field). Type's own select overrides this to prefix the weapon-type
+   *  emoji (🗡️/🏹/🪄). */
+  readonly optionLabel = input<(v: T) => string>((v) => `${v}`);
 }

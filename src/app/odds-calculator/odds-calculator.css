@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
 :host {
   --bg: #1a1c1f;
@@ -83,23 +83,25 @@
   flex-direction: column;
 }
 
-.attack-list {
+.attacker-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  gap: 0.6rem;
   margin-bottom: 1rem;
   /* Hidden scrollbar (still fully scrollable by touch/trackpad/drag) - a visible
-     scrollbar track here would sit right next to the attack rows' fields. */
+     scrollbar track here would sit right next to the attacker cards' own controls. */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* legacy Edge */
 }
 
-.attack-list::-webkit-scrollbar {
+.attacker-list::-webkit-scrollbar {
   display: none; /* Chrome, Safari, modern Edge */
 }
 
+/* "+ Add attacker", the top-level button below the attacker list. */
 .add-attack-btn {
   width: 100%;
   padding: 0.7rem;

@@ -15,3 +15,26 @@
 .target-row .icon-btn {
   align-self: flex-end;
 }
+
+/* Puts the section title on the same line as the DEF/ARM/Boxes row instead of its own row above -
+   saves a line of vertical space. .target-row keeps its own centering/scroll behavior within
+   whatever width is left after the title (see shared/scrollable-row.css); the title itself drops
+   the title's usual bottom border/margin (see shared/section.css), since that read as a divider
+   between a title row and the fields below it - redundant now that they're the same row. */
+.target-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.target-header .console__title {
+  flex-shrink: 0;
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.target-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}

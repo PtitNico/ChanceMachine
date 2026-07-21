@@ -1,9 +1,10 @@
-/* Shared by .target-row (Target section) and .attack-row (each attack row): both are meant
-   to fit on a single line even on a narrow phone screen (flex-wrap: nowrap) - if a viewport
-   is ever too narrow for all their fields, the row scrolls horizontally instead of breaking
-   onto a second line, with no visible scrollbar (touch/trackpad/drag scrolling still works). */
-.target-row,
-.attack-row {
+/* Used by .target-row (the Target section's DEF/ARM/Boxes row): meant to fit on a single line
+   even on a narrow phone screen (flex-wrap: nowrap) - if a viewport is ever too narrow for all its
+   fields, the row scrolls horizontally instead of breaking onto a second line, with no visible
+   scrollbar (touch/trackpad/drag scrolling still works). Attack rows used to share this too,
+   before attacks moved into cards (see the attacker-grouping docs) - kept as a shared partial
+   since a future single-line row (this one, or a new one) would want the exact same treatment. */
+.target-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-end;
@@ -16,7 +17,6 @@
   -ms-overflow-style: none; /* legacy Edge */
 }
 
-.target-row::-webkit-scrollbar,
-.attack-row::-webkit-scrollbar {
+.target-row::-webkit-scrollbar {
   display: none; /* Chrome, Safari, modern Edge */
 }

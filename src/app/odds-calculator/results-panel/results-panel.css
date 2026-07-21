@@ -7,13 +7,22 @@
   min-width: 0;
 }
 
+/* Grid + the "Show details" button side by side - the button used to sit inside a title row
+   above the grid (removed, along with the "Results" title itself, to save vertical space); now
+   it lines up with the right edge of the Average damage gauge instead. */
+.readout__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .readout__grid {
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
-  margin-bottom: 1.25rem;
 }
 
 .gauge {

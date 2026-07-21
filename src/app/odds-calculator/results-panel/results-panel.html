@@ -1,17 +1,18 @@
 <section class="readout" aria-label="Results">
-  <h2 class="console__title console__title--with-action">
-    Results
-    <button type="button" class="icon-btn" (click)="showDetails.emit()" aria-label="Show details">+</button>
-  </h2>
+  <div class="readout__row">
+    <div class="readout__grid">
+      <div class="gauge gauge--highlight">
+        <span class="gauge__value">{{ pct(sequence().finalDestroyChance) }}</span>
+        <span class="gauge__label">Chance to destroy</span>
+      </div>
+      <div class="gauge">
+        <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
+        <span class="gauge__label">Average damage</span>
+      </div>
+    </div>
 
-  <div class="readout__grid">
-    <div class="gauge gauge--highlight">
-      <span class="gauge__value">{{ pct(sequence().finalDestroyChance) }}</span>
-      <span class="gauge__label">Chance to destroy</span>
-    </div>
-    <div class="gauge">
-      <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
-      <span class="gauge__label">Average damage</span>
-    </div>
+    <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit()" aria-label="Show details">
+      <span class="material-symbols-outlined">query_stats</span>
+    </button>
   </div>
 </section>

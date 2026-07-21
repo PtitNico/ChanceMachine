@@ -24,3 +24,70 @@
   color: #d97a6a;
   border-color: #d97a6a;
 }
+
+/* Material Symbols icon font - the trash/remove icon (.icon-btn--trash below) and the
+   settings/edit-effects icon (.icon-btn--settings below) both want real glyphs plain Unicode
+   doesn't have a good equivalent for; every other icon in this app stays a plain Unicode glyph. */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.15rem;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Borderless, always-red variant for the trash/remove icon specifically - a delete action already
+   reads clearly through the icon plus color alone, so it doesn't need the bordered box every
+   other icon-btn gets (unlike .icon-btn--danger, bordered and only turning red on hover). */
+.icon-btn.icon-btn--trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #d97a6a;
+}
+
+.icon-btn.icon-btn--trash:hover:not(:disabled) {
+  color: #e8927f;
+}
+
+/* Borderless, always-blue variant for the settings/effects icon - same treatment as
+   .icon-btn--trash above, just blue (var(--steel), already used elsewhere for the same accent)
+   instead of red. */
+.icon-btn.icon-btn--settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--steel);
+}
+
+.icon-btn.icon-btn--settings:hover:not(:disabled) {
+  color: #8fb4d1;
+}
+
+/* Borderless, always-brass variant for the "show details" stats icon - same treatment as
+   .icon-btn--trash/--settings above, colored to match the section titles (var(--brass-bright))
+   instead of red/blue. */
+.icon-btn.icon-btn--stats {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--brass-bright);
+}
+
+.icon-btn.icon-btn--stats:hover:not(:disabled) {
+  color: #f2cd7e;
+}

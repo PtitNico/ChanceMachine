@@ -19,6 +19,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-21',
+    items: [
+      'MAT/RAT/AAT on an attacker card now only show for the attack types it actually has - a melee-only attacker no longer shows RAT or AAT.',
+      'Condensed the layout to fit more on screen: the DEF/ARM/Boxes row now shares a line with the Target title, and the standalone "Attack sequence" and "Results" titles were removed since the cards already make each section clear.',
+    ],
+  },
+  {
+    date: '2026-07-20',
+    items: [
+      'Attacks are now grouped by attacker: each attacker is its own card with a name and MAT/RAT/AAT shared by all its attacks, holding one sub-card per attack.',
+      'Editing an attack now opens a single pop-up for both its values and its effects, instead of a separate Effects pop-up.',
+    ],
+  },
+  {
     date: '2026-07-17',
     items: ['Added Rate of Fire (ROF) for ranged attacks: fire d3 or 2d3 shots instead of just one, resolved in sequence against the target.'],
   },

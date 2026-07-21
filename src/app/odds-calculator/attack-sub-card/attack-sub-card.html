@@ -1,0 +1,30 @@
+<div class="attack-sub-card">
+  <div class="attack-sub-card__row">
+    <div class="attack-sub-card__fields">
+      <app-mini-field-select label="Type" [signal]="row().type" [options]="attackTypes" [optionLabel]="typeOptionLabel" [narrow]="true" />
+      @if (row().type() === 'ranged') {
+        <app-mini-field-select label="ROF" [signal]="row().rof" [options]="rofOptions" [narrow]="true" />
+      }
+      <app-mini-field-select label="POW" [signal]="row().pow" [options]="powOptions" [parse]="parsePow" [narrow]="true" />
+      <app-mini-field-select label="Atk 🎲" [signal]="row().diceCount" [options]="diceOptions" [parse]="toNumber" [narrow]="true" />
+      <app-mini-field-select label="Dmg 🎲" [signal]="row().damageDiceCount" [options]="diceOptions" [parse]="toNumber" [narrow]="true" />
+    </div>
+
+    <div class="attack-sub-card__actions">
+      <button type="button" class="icon-btn icon-btn--settings" (click)="edit.emit()" aria-label="Effects">
+        <span class="material-symbols-outlined">settings</span>
+      </button>
+      <button
+        type="button"
+        class="icon-btn icon-btn--trash"
+        (click)="remove.emit()"
+        [disabled]="!removable()"
+        aria-label="Remove attack"
+      >
+        <span class="material-symbols-outlined">delete</span>
+      </button>
+    </div>
+  </div>
+
+  <app-effect-tags [tags]="effectsSummary(row())" />
+</div>

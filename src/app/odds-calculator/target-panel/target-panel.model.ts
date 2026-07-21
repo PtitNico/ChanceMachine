@@ -96,9 +96,9 @@ export interface TargetState {
   readonly spellBonuses: WritableSignal<SpellBonusRow[]>;
 }
 
-const DEFAULT_DEF = 13;
+const DEFAULT_DEF = 15;
 const DEFAULT_ARM = 15;
-const DEFAULT_BOXES = 5;
+const DEFAULT_BOXES = 15;
 
 export function createTargetState(): TargetState {
   return {

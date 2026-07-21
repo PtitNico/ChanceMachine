@@ -26,6 +26,9 @@ export const ARM_PENALTY_OPTIONS = range(1, 10);
 export const ROF_OPTIONS: RofValue[] = ['1', 'd3', '2d3'];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
+/** Shown next to Type everywhere it appears - the attack sub-card's own type indicator and the
+ *  attack-edit pop-up's Type select options alike. */
+export const TYPE_EMOJI: Record<AttackType, string> = { melee: '🗡️', ranged: '🏹', arcane: '🪄' };
 
 const STAT_EFFECT_TYPES: StatEffectType[] = [
   'knockdown',
@@ -198,7 +201,6 @@ export function effectsFor(row: AttackRow, keys: readonly TriggerEffectKey[]): T
 export interface AttackRow {
   readonly id: string;
   readonly type: WritableSignal<AttackType>;
-  readonly stat: WritableSignal<number>;
   readonly diceCount: WritableSignal<number>;
   readonly pow: WritableSignal<number | '-'>;
   readonly damageDiceCount: WritableSignal<number>;
@@ -215,7 +217,6 @@ export function createAttackRow(): AttackRow {
   return {
     id: `attack-${nextRowId++}`,
     type: signal<AttackType>('melee'),
-    stat: signal(6),
     diceCount: signal(2),
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
@@ -229,7 +230,6 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
   return {
     id: `attack-${nextRowId++}`,
     type: signal(source.type()),
-    stat: signal(source.stat()),
     diceCount: signal(source.diceCount()),
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
@@ -290,8 +290,10 @@ function isEffectOn(row: AttackRow, key: TriggerEffectKey): boolean {
   return triggerOf(row, key) !== undefined;
 }
 
-/** Projects one UI row into the plain object shape the engine expects. */
-export function toSequencedAttack(row: AttackRow, index: number): SequencedAttack {
+/** Projects one UI row into the plain object shape the engine expects. `stat`/`attackerName` are
+ *  no longer the row's own values - they live on the parent `Attacker` now (`statFor`/
+ *  `attackerDisplayName` in `attacker.model.ts`), resolved by the caller and passed in here. */
+export function toSequencedAttack(row: AttackRow, index: number, stat: number, attackerName: string): SequencedAttack {
   const statEffects: StatEffect[] = row.triggerEffects
     .filter((e) => isStatEffectKey(e.key) && e.trigger() !== 'off')
     .map(
@@ -304,10 +306,10 @@ export function toSequencedAttack(row: AttackRow, index: number): SequencedAttac
 
   return {
     id: row.id,
-    attackerName: '',
+    attackerName,
     label: `Attack ${index + 1}`,
     type: row.type(),
-    stat: row.stat(),
+    stat,
     rof: row.rof(),
     modifiers: {
       boostDice: toBoostDice(row.diceCount()),

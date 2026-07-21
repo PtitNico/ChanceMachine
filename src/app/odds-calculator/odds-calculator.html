@@ -15,21 +15,21 @@
     <app-target-panel [target]="target" (openProfile)="targetProfileDialogRef.open()" />
 
     <section class="console console--attacks" aria-label="Attack sequence">
-      <h2 class="console__title">Attack sequence</h2>
-
-      <div class="attack-list">
-        @for (row of rows(); track row.id; let i = $index; let count = $count) {
-          <app-attack-row
-            [row]="row"
+      <div class="attacker-list">
+        @for (attacker of attackers(); track attacker.id; let i = $index; let count = $count) {
+          <app-attacker-card
+            [attacker]="attacker"
             [index]="i"
             [removable]="count > 1"
-            (openEffects)="effectsDialogRef.open(row)"
-            (remove)="removeAttack(row.id)"
+            (addAttack)="onAddAttack(attacker)"
+            (editAttack)="attackEditDialogRef.open($event)"
+            (removeAttack)="onRemoveAttack(attacker, $event)"
+            (remove)="onRemoveAttacker(attacker.id)"
           />
         }
       </div>
 
-      <button type="button" class="add-attack-btn" (click)="addAttack()">+ Add attack</button>
+      <button type="button" class="add-attack-btn" (click)="onAddAttacker()">+ Add attacker</button>
     </section>
 
     <app-results-panel
@@ -39,7 +39,7 @@
     />
   </div>
 
-  <app-effects-dialog #effectsDialogRef />
+  <app-attack-edit-dialog #attackEditDialogRef />
 
   <app-target-profile-dialog #targetProfileDialogRef [target]="target" />
 

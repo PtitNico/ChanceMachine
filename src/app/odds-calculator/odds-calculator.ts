@@ -3,12 +3,13 @@ import { OddsEngine } from '../engine/odds-engine';
 import { SequencedAttack } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
-import { AttackRow, cloneAttackRow, createAttackRow, toSequencedAttack } from './attack-row.model';
-import { AttackRowComponent } from './attack-row/attack-row';
+import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
+import { toSequencedAttack } from './attack-row.model';
+import { AttackerCard } from './attacker-card/attacker-card';
+import { Attacker, addAttackTo, attackerDisplayName, createAttacker, removeAttackFrom, statFor } from './attacker.model';
 import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
 import { DamagePoint } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
-import { EffectsDialog } from './effects-dialog/effects-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
 import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
 import { ResultsPanel } from './results-panel/results-panel';
@@ -33,9 +34,9 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
   standalone: true,
   imports: [
     TargetPanel,
-    AttackRowComponent,
+    AttackerCard,
     ResultsPanel,
-    EffectsDialog,
+    AttackEditDialog,
     DetailsDialog,
     TargetProfileDialog,
     AppMenu,
@@ -57,12 +58,22 @@ export class OddsCalculator {
   // --- Target (shared across the whole sequence) ---
   protected readonly target: TargetState = createTargetState();
 
-  // --- Attack sequence ---
-  protected readonly rows = signal<AttackRow[]>([createAttackRow()]);
+  // --- Attack sequence, grouped by attacker ---
+  protected readonly attackers = signal<Attacker[]>([createAttacker()]);
 
-  private readonly sequencedAttacks = computed<SequencedAttack[]>(() =>
-    this.rows().map((row, i) => toSequencedAttack(row, i))
-  );
+  /** Attacks still resolve as ONE flat ordered sequence for the engine, regardless of which
+   *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see
+   *  attacker.model.ts), so they're resolved here from the row's parent attacker. */
+  private readonly sequencedAttacks = computed<SequencedAttack[]>(() => {
+    const result: SequencedAttack[] = [];
+    this.attackers().forEach((attacker, attackerIndex) => {
+      const name = attackerDisplayName(attacker, attackerIndex);
+      for (const row of attacker.attacks()) {
+        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name));
+      }
+    });
+    return result;
+  });
 
   private static readonly MAX_RESOURCE_POINTS = 10;
 
@@ -123,23 +134,29 @@ export class OddsCalculator {
     Math.max(...this.damageDistributionPoints().map((p) => p.probability), 0.0001)
   );
 
-  /** Copies the previous attack by default - most sequences chain similar attacks. */
-  protected addAttack(): void {
-    this.rows.update((rows) => {
-      const last = rows.at(-1);
-      return [...rows, last ? cloneAttackRow(last) : createAttackRow()];
-    });
+  protected onAddAttacker(): void {
+    this.attackers.update((list) => [...list, createAttacker()]);
   }
 
-  protected removeAttack(id: string): void {
-    this.rows.update((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+  /** An attacker can't be removed while it's the only one - mirrors the same "always >=1" rule
+   *  the sequence has always had, just moved up one level now that attacks are grouped. */
+  protected onRemoveAttacker(attackerId: string): void {
+    this.attackers.update((list) => (list.length > 1 ? list.filter((a) => a.id !== attackerId) : list));
+  }
+
+  protected onAddAttack(attacker: Attacker): void {
+    addAttackTo(attacker);
+  }
+
+  protected onRemoveAttack(attacker: Attacker, rowId: string): void {
+    removeAttackFrom(attacker, rowId);
   }
 
   /** Hamburger menu's "Reset": wipes the target's profile AND its DEF/ARM/Boxes (unlike the
    *  Target profile pop-up's own Reset, which only touches the profile), and collapses the
-   *  attack sequence back down to a single default row. */
+   *  attack sequence back down to a single default attacker with a single default attack. */
   protected resetAll(): void {
     resetTargetFully(this.target);
-    this.rows.set([createAttackRow()]);
+    this.attackers.set([createAttacker()]);
   }
 }

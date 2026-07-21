@@ -66,27 +66,51 @@ The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, o
 
 ### 2. Attack sequence
 
-An ordered list of "attack" rows. Each row represents **one attack** and carries:
-- An order number, and a **✕** button (remove — at least one attack always remains). There's no button to reorder rows: the order is built by adding attacks in the intended order.
-- **Type**: `melee` / `ranged` / `arcane` — determines whether a **Knockdown** triggered earlier in the sequence benefits this attack (see below), and changes the next field's label.
-- **ROF** (Ranged attacks only): `1` (default), `d3`, or `2d3` — how many independent shots this attack actually fires. The shot count is rolled once, before any of this attack's own dice, exactly like on the tabletop: with `d3` or `2d3`, this one row fires that many separate to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier shots in the SAME volley already inflicted), rather than just one.
-- **MAT / RAT / AAT** (the label adapts to the chosen type): 0 to 20.
-- **Dice**: total number of dice rolled to hit, 1 to 6 (2 by default; the player directly picks this number to represent a boost, rather than entering a separate boost-dice count).
-- **POW**: `-` (the attack deals no damage at all — useful for an attack whose sole purpose is a critical effect like Knockdown; a critical hit is still possible since the to-hit roll still happens), then 0 to 30.
-- **Dice** (second occurrence): total number of dice rolled for damage, 1 to 6.
-- A **⚙ (cog)** icon button — same icon as the Target row's own — that opens a pop-up grouping this attack's special effects. Once the pop-up is closed, a **compact summary** of this attack's active effects is shown in small text **below the row** (e.g. `Discard highest (atk)`, `Trash`, `Ice Cage (crit)`), so the whole sequence stays scannable without reopening each pop-up.
+An ordered list of **attacker cards**. Each card represents one attacker (a model, a caster, an
+individual figure in a unit) and holds the MAT/RAT/AAT its own attacks share, plus its own ordered
+list of attacks:
+- A **name**, auto-numbered "Attacker N" until renamed, and its **MAT / RAT / AAT** (0 to 20 each),
+  shown on the card face. A **⚙ (cog)** icon button opens a small pop-up to rename the attacker and
+  edit these three stats; a **✕** button removes the whole attacker (disabled while it's the only
+  one — at least one attacker always remains).
+- One **attack sub-card** per attack this attacker makes, each showing:
+  - The attack **type** as an emoji — 🗡️ melee, 🏹 ranged, 🪄 arcane — which decides whether this
+    attack uses the attacker's MAT, RAT, or AAT, and whether a **Knockdown** triggered earlier in
+    the sequence benefits it (see below).
+  - **Dice** (to-hit dice, 1 to 6; 2 by default — the player directly picks this number to
+    represent a boost, rather than entering a separate boost-dice count), **POW** (`-` for an
+    attack that deals no damage at all, e.g. one whose sole purpose is a critical effect like
+    Knockdown — a critical hit is still possible since the to-hit roll still happens — otherwise 0
+    to 30), and **Dice** again (damage dice, 1 to 6).
+  - A **compact summary** of its active effects (e.g. `Discard highest (atk)`, `Trash`, `Ice Cage
+    (crit)`), plus a `ROF <value>` tag whenever it's set to `d3`/`2d3` (see below) — so the whole
+    sequence stays scannable without reopening anything.
+  - A **⚙ (cog)** icon button that opens a pop-up to edit the attack — Type, **ROF** (ranged only:
+    `1`/`d3`/`2d3`, see below), Dice, POW, Dice, and every special effect (the same toggle-button
+    breakdown as before, see below) — and a **✕** button that removes just this attack (disabled
+    while it's the only attack on this attacker — remove the whole attacker instead).
+  - A **"+ Add attack"** button inside the card adds a new attack to *this* attacker, copying the
+    values of its own last attack (type, dice, POW, every effect — MAT/RAT/AAT don't need copying,
+    they already live on the attacker) — since chaining similar attacks is the most common case,
+    the player only needs to adjust the few fields that change.
 
-  Each effect in the pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
-  - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
-  - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
-  - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
-  - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
-  - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
-  - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" row instead of unchecking effects one by one.
+**ROF** (Rate of Fire, ranged attacks only): `1` (default), `d3`, or `2d3` — how many independent
+shots this attack actually fires. The shot count is rolled once, before any of this attack's own
+dice, exactly like on the tabletop: with `d3` or `2d3`, this one attack fires that many separate
+to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier shots in the
+SAME volley already inflicted), rather than just one.
 
-The **"+ Add attack"** button adds a new attack at the bottom of the list, **copying the values of the last attack in the list** (type, stats, dice, every effect) — since chaining similar attacks is the most common case, the player only needs to adjust the few fields that change instead of re-entering everything.
+Each effect in the edit pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
+- **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
+- **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores every Stat-type spell bonus on the target — see "Spell bonuses" below).
+- **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
+- **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
+- **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
+- **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" attack instead of unchecking effects one by one — Type/ROF/Dice/POW aren't touched by this, only effects.
 
-**Row order is resolution order.** The app doesn't automatically search for the best possible order: this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table.
+The **"+ Add attacker"** button below the list adds a new attacker with one default attack.
+
+**Card order is resolution order.** The app doesn't automatically search for the best possible order: attacks resolve top attacker to bottom, top attack to bottom within each attacker — this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table.
 
 ### 3. Results
 
@@ -213,7 +237,6 @@ Some rules points were implemented using the most commonly accepted formulation 
 
 Rough sizing (S/M/L/XL), for prioritization purposes only - not a commitment on scope or order:
 
-- **Group attacks by attacker** (move MAT/RAT/AAT up to a new attacker level, keep POW on each individual attack) — **M**. Mainly a UI/data-model restructuring (a new "attacker" grouping above today's flat attack list, nested add/remove, a shared stat wired into every attack under it) rather than new probability math - the engine already resolves each attack's `stat` independently, so it would keep receiving the same value it does today, just sourced from the parent attacker instead of repeated per row.
 - **Damage grids for warjacks** (location-based systems - Movement, arms, etc. - each with their own boxes, crippled independently, plus a "chance to cripple system X" stat) — **XL**. The biggest item here by a wide margin: today's model is one target with one box pool: this needs a genuinely new sub-model (hit-location resolution, per-system boxes and crippled state, grid degradation) that current results (single "chance to destroy") don't map onto directly.
 - **Attacker Focus/Fury with optimal buy/boost strategy** (spending points on boosted rolls or bought extra attacks, played optimally across the whole sequence) — **L/XL**. The target's defensive Focus/Fury (already implemented) only ever chooses "spend this one point now or don't" - the attacker's version has a much bigger decision space (boost which roll, of which attack, or buy a whole extra attack instead), which likely means a new backward-induction dimension layered on top of the target's existing one, with real risk of state-space blowup to manage carefully (same kind of caution Critical Shred's recursion needed).
 - **Puppet Master** (a single shared reroll token, usable on any one roll across all of one attacker's attacks) — **M**. A new optimal-stopping problem, but a scoped one: "spend my one reroll now or save it" only needs a binary yes/no resource dimension (much smaller than a numeric Focus/Fury pool), reusing the same backward-induction shape at a smaller scale.

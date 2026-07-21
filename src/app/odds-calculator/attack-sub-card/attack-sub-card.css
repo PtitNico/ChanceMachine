@@ -1,0 +1,46 @@
+:host {
+  display: block;
+}
+
+/* --panel, not --bg: the effect/ROF tags underneath (shared/effect-tags.css) are themselves
+   --bg, and would have no contrast against a sub-card background of the same color. --panel
+   also keeps this visually distinct from the parent AttackerCard's own --panel-raised. */
+.attack-sub-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.6rem;
+}
+
+/* Wraps (not nowrap+scroll like the main list's rows) - this card already sits inside a
+   vertically-scrolling list, and a second, nested horizontally-scrolling strip here would be an
+   awkward double-scroll. */
+.attack-sub-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+/* Spread evenly across whatever width is left after the action buttons, rather than clustering
+   together with a fixed gap - `space-between` rather than `space-evenly` so the first/last field
+   stay flush with the row's own edges instead of getting extra padding of their own. */
+.attack-sub-card__fields {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+/* Keeps the two action buttons grouped together as a single unit even when the row wraps,
+   instead of each button wrapping independently. */
+.attack-sub-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.attack-sub-card .icon-btn {
+  flex-shrink: 0;
+}

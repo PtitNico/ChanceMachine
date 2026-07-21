@@ -14,7 +14,7 @@
     <label class="field field--stacked">
       <span class="field__label">Message</span>
       <textarea
-        class="feedback__textarea"
+        class="dialog__text-input feedback__textarea"
         rows="5"
         placeholder="What's on your mind?"
         [ngModel]="message()"
@@ -26,7 +26,7 @@
       <span class="field__label">Email (optional, if you'd like a reply)</span>
       <input
         type="email"
-        class="feedback__input"
+        class="dialog__text-input"
         placeholder="you@example.com"
         [ngModel]="email()"
         (ngModelChange)="email.set($event)"

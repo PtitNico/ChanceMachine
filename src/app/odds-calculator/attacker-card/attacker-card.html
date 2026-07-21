@@ -1,0 +1,49 @@
+<div class="attacker-card">
+  <div class="attacker-card__header">
+    <div class="attacker-card__name-row">
+      <span
+        #nameSpan
+        class="attacker-card__name"
+        contenteditable="true"
+        role="textbox"
+        aria-label="Attacker name"
+        [attr.data-placeholder]="'Attacker ' + (index() + 1)"
+        (blur)="onNameBlur(nameSpan)"
+        (keydown.enter)="$event.preventDefault(); nameSpan.blur()"
+      ></span>
+    </div>
+
+    @if (presentTypes().has('melee')) {
+      <app-mini-field-select label="MAT" [signal]="attacker().mat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+    }
+    @if (presentTypes().has('ranged')) {
+      <app-mini-field-select label="RAT" [signal]="attacker().rat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+    }
+    @if (presentTypes().has('arcane')) {
+      <app-mini-field-select label="AAT" [signal]="attacker().aat" [options]="statOptions" [parse]="toNumber" [narrow]="true" />
+    }
+
+    <button
+      type="button"
+      class="icon-btn icon-btn--trash"
+      (click)="remove.emit()"
+      [disabled]="!removable()"
+      aria-label="Remove attacker"
+    >
+      <span class="material-symbols-outlined">delete</span>
+    </button>
+  </div>
+
+  <div class="attacker-card__attacks">
+    @for (row of attacker().attacks(); track row.id; let count = $count) {
+      <app-attack-sub-card
+        [row]="row"
+        [removable]="count > 1"
+        (edit)="editAttack.emit(row)"
+        (remove)="removeAttack.emit(row.id)"
+      />
+    }
+  </div>
+
+  <button type="button" class="attacker-card__add-attack-btn" (click)="addAttack.emit()">+ Add attack</button>
+</div>

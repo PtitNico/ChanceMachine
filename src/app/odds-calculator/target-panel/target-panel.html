@@ -1,12 +1,16 @@
 <section class="console" aria-label="Target">
-  <h2 class="console__title">Target</h2>
+  <div class="target-header">
+    <h2 class="console__title">Target</h2>
 
-  <div class="target-row">
-    <app-mini-field-select label="DEF" [signal]="target().def" [options]="defOptions" [parse]="parseDef" />
-    <app-mini-field-select label="ARM" [signal]="target().arm" [options]="armOptions" [parse]="toNumber" />
-    <app-mini-field-select label="Boxes" [signal]="target().boxes" [options]="boxesOptions" [parse]="toNumber" />
+    <div class="target-row">
+      <app-mini-field-select label="DEF" [signal]="target().def" [options]="defOptions" [parse]="parseDef" />
+      <app-mini-field-select label="ARM" [signal]="target().arm" [options]="armOptions" [parse]="toNumber" />
+      <app-mini-field-select label="Boxes" [signal]="target().boxes" [options]="boxesOptions" [parse]="toNumber" />
 
-    <button type="button" class="icon-btn" (click)="openProfile.emit()" aria-label="Target profile">⚙</button>
+      <button type="button" class="icon-btn icon-btn--settings" (click)="openProfile.emit()" aria-label="Target profile">
+        <span class="material-symbols-outlined">settings</span>
+      </button>
+    </div>
   </div>
 
   <app-effect-tags [tags]="targetSummary(target())" />

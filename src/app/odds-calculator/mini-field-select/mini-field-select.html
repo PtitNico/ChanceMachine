@@ -7,7 +7,7 @@
     (ngModelChange)="signal().set(parse()($event))"
   >
     @for (v of options(); track v) {
-      <option [value]="v">{{ v }}</option>
+      <option [value]="v">{{ optionLabel()(v) }}</option>
     }
   </select>
 </label>
