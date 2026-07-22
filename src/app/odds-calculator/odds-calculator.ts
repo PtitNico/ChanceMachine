@@ -7,6 +7,7 @@ import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
 import { toSequencedAttack } from './attack-row.model';
 import { AttackerCard } from './attacker-card/attacker-card';
+import { AttackerRulesDialog } from './attacker-rules-dialog/attacker-rules-dialog';
 import { Attacker, addAttackTo, attackerDisplayName, createAttacker, removeAttackFrom, statFor } from './attacker.model';
 import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
 import { DamagePoint } from './details-dialog/details-dialog.model';
@@ -40,6 +41,7 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
     AttackerCard,
     ResultsPanel,
     AttackEditDialog,
+    AttackerRulesDialog,
     DetailsDialog,
     TargetProfileDialog,
     AppMenu,
@@ -66,13 +68,15 @@ export class OddsCalculator {
 
   /** Attacks still resolve as ONE flat ordered sequence for the engine, regardless of which
    *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see
-   *  attacker.model.ts), so they're resolved here from the row's parent attacker. */
+   *  attacker.model.ts), so they're resolved here from the row's parent attacker. `attackerIndex`
+   *  (this loop's own index, not the display name) is Puppet Master's stable grouping key - see
+   *  `sequence.ts`'s `SequencedAttack` doc comment for why `attackerName` can't be used for that. */
   private readonly sequencedAttacks = computed<SequencedAttack[]>(() => {
     const result: SequencedAttack[] = [];
     this.attackers().forEach((attacker, attackerIndex) => {
       const name = attackerDisplayName(attacker, attackerIndex);
       for (const row of attacker.attacks()) {
-        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name));
+        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster()));
       }
     });
     return result;

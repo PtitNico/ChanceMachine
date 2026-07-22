@@ -17,6 +17,28 @@ export interface Attacker {
   readonly rat: WritableSignal<number>;
   readonly aat: WritableSignal<number>;
   readonly attacks: WritableSignal<AttackRow[]>;
+  /** Grants this attacker a single reroll, shared across every roll it makes (across every attack
+   *  it owns) - spent on the first missed attack roll, or a below-average damage roll once nothing
+   *  is left to miss, see `sequence.ts`'s Puppet Master section for the exact fixed rule. Edited via
+   *  the attacker's "special rules" pop-up, not inline on the card. */
+  readonly puppetMaster: WritableSignal<boolean>;
+}
+
+/** Short "label" summary tag for an active attacker-level special rule, shown under the attacker
+ *  card - the attacker-level equivalent of `EffectSummaryTag`/`effectsSummary` for an attack row. */
+export interface AttackerRuleSummaryTag {
+  readonly key: 'puppetMaster';
+  readonly label: string;
+}
+
+/** Currently just Puppet Master - more attacker-level toggles land here as they're added, the same
+ *  way `effectsSummary` grows with new attack effects. */
+export function attackerRulesSummary(attacker: Attacker): AttackerRuleSummaryTag[] {
+  const tags: AttackerRuleSummaryTag[] = [];
+  if (attacker.puppetMaster()) {
+    tags.push({ key: 'puppetMaster', label: 'Puppet Master' });
+  }
+  return tags;
 }
 
 export function createAttacker(): Attacker {
@@ -27,6 +49,7 @@ export function createAttacker(): Attacker {
     rat: signal(6),
     aat: signal(6),
     attacks: signal([createAttackRow()]),
+    puppetMaster: signal(false),
   };
 }
 

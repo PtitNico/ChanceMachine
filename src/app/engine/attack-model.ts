@@ -146,8 +146,11 @@ function keptDiceCount(base: number, mods?: RollModifiers, extraDice = 0): numbe
   return Math.max(0, base + (mods?.boostDice ?? 0) + extraDice - discarded);
 }
 
-/** A below-average raw dice sum is always worth rerolling (strictly maximizes expected damage). */
-function isBadDamageRoll(outcome: DicePoolOutcome, diceCount: number): boolean {
+/** A below-average raw dice sum is always worth rerolling (strictly maximizes expected damage) -
+ *  the row's own Reroll toggle already uses this; Puppet Master's own below-average check (see
+ *  `splitAttackDamageForPuppetMaster`) uses the exact same criterion, on whatever's actually being
+ *  rolled (after the row's own Reroll, if any, has already been applied). */
+export function isBadDamageRoll(outcome: DicePoolOutcome, diceCount: number): boolean {
   return outcome.sum < 3.5 * diceCount;
 }
 
@@ -175,7 +178,7 @@ function isHitOutcome(outcome: DicePoolOutcome, neededDiceSum: number, diceCount
   return outcome.sum >= neededDiceSum;
 }
 
-function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number): Map<number, number> {
+export function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number): Map<number, number> {
   const dist = new Map<number, number>();
   for (const outcome of pool) {
     const dealt = Math.max(0, outcome.sum + pow - arm);
@@ -202,6 +205,36 @@ function appliesOnCritHit(trigger: EffectTrigger | undefined): boolean {
   return trigger === 'hit' || trigger === 'crit';
 }
 
+/** Armor Piercing halves only the printed base ARM - every buff/debuff currently in play
+ *  (Shield, spell bonuses, Unyielding/Carapace, persistent ARM penalties like Ice Cage's) still
+ *  applies on top, same as normal. `target.arm - baseArm` is that net modifier total, since
+ *  `target.arm` is already the fully-resolved ARM (base + every modifier folded in). */
+function resolveArm(effects: AttackEffects | undefined, target: { arm: number; baseArm?: number }, variant: 'nonCrit' | 'crit'): number {
+  const baseArm = target.baseArm ?? target.arm;
+  const armorPiercingArm = Math.ceil(baseArm / 2) + (target.arm - baseArm);
+  const applies = variant === 'nonCrit' ? appliesOnNonCritHit(effects?.armorPiercing) : appliesOnCritHit(effects?.armorPiercing);
+  return applies ? armorPiercingArm : target.arm;
+}
+
+/** The dice pool actually being rolled for this attack's damage (Trash/Shatter's conditional
+ *  extra die already folded in, and the row's own Reroll toggle already applied if configured) -
+ *  shared by `buildAttackProfile` and by Puppet Master's own below-average check
+ *  (`splitAttackDamageForPuppetMaster` in sequence.ts's Puppet Master section) so neither
+ *  duplicates the other's resolution of extra dice/reroll. `extraDice` is ONLY Brutal Damage's
+ *  dice (0 for a non-crit roll) - Trash/Shatter are resolved internally from `effects`/`target`. */
+export function damagePoolFor(
+  damage: AttackInput['damage'],
+  effects: AttackEffects | undefined,
+  target: Pick<AttackInput['target'], 'knockedDown' | 'stationary'>,
+  extraDice: number
+): { pool: DicePoolOutcome[]; diceCount: number } {
+  const conditionalExtraDice = (effects?.trash && target.knockedDown ? 1 : 0) + (effects?.shatter && target.stationary ? 1 : 0);
+  const totalExtra = extraDice + conditionalExtraDice;
+  const pool = buildPool(BASE_DICE, damage.modifiers, totalExtra);
+  const diceCount = keptDiceCount(BASE_DICE, damage.modifiers, totalExtra);
+  return { pool: applyRerollIfConfigured(pool, damage.modifiers, (o) => isBadDamageRoll(o, diceCount)), diceCount };
+}
+
 /**
  * An attack's full probabilistic profile, independent of the target's
  * remaining boxes. This is the piece that enumerates dice pools, so it's
@@ -225,27 +258,10 @@ export function buildAttackProfile(
   effects: AttackEffects | undefined,
   autoHit: boolean
 ): AttackProfile {
-  const baseArm = target.baseArm ?? target.arm;
-  // Armor Piercing halves only the printed base ARM - every buff/debuff currently in play
-  // (Shield, spell bonuses, Unyielding/Carapace, persistent ARM penalties like Ice Cage's) still
-  // applies on top, same as normal. `target.arm - baseArm` is that net modifier total, since
-  // `target.arm` is already the fully-resolved ARM (base + every modifier folded in).
-  const armorPiercingArm = Math.ceil(baseArm / 2) + (target.arm - baseArm);
-  const nonCritArm = appliesOnNonCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
-  const critArm = appliesOnCritHit(effects?.armorPiercing) ? armorPiercingArm : target.arm;
+  const nonCritArm = resolveArm(effects, target, 'nonCrit');
+  const critArm = resolveArm(effects, target, 'crit');
 
-  // Trash/Shatter: an extra damage die if the target is currently in the matching state.
-  const conditionalExtraDice =
-    (effects?.trash && target.knockedDown ? 1 : 0) + (effects?.shatter && target.stationary ? 1 : 0);
-
-  const buildDamagePool = (extraDice: number): DicePoolOutcome[] => {
-    const totalExtra = extraDice + conditionalExtraDice;
-    const pool = buildPool(BASE_DICE, damage.modifiers, totalExtra);
-    const diceCount = keptDiceCount(BASE_DICE, damage.modifiers, totalExtra);
-    return applyRerollIfConfigured(pool, damage.modifiers, (o) => isBadDamageRoll(o, diceCount));
-  };
-
-  let nonCritDamage = damageDistFromPool(buildDamagePool(0), damage.pow, nonCritArm);
+  let nonCritDamage = damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, nonCritArm);
   if (appliesOnNonCritHit(effects?.decapitation)) nonCritDamage = doubleDamageValues(nonCritDamage);
 
   if (autoHit) {
@@ -270,15 +286,53 @@ export function buildAttackProfile(
   const brutalDice = effects?.brutalDamageDice ?? 0;
   let critDamage: Map<number, number>;
   if (brutalDice > 0) {
-    critDamage = damageDistFromPool(buildDamagePool(brutalDice), damage.pow, critArm);
+    critDamage = damageDistFromPool(damagePoolFor(damage, effects, target, brutalDice).pool, damage.pow, critArm);
   } else if (critArm === nonCritArm) {
     critDamage = nonCritDamage; // same dice, same ARM -> identical distribution, reuse it
   } else {
-    critDamage = damageDistFromPool(buildDamagePool(0), damage.pow, critArm);
+    critDamage = damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, critArm);
   }
   if (appliesOnCritHit(effects?.decapitation)) critDamage = doubleDamageValues(critDamage);
 
   return { missChance, hitNonCritChance, hitCritChance, nonCritDamage, critDamage };
+}
+
+export interface DamageAverageSplit {
+  /** This damage roll's distribution conditional on already being at/above average (unaffected by
+   *  Puppet Master - identical to the corresponding slice of `AttackProfile`'s own map). */
+  atOrAboveAverage: Map<number, number>;
+  /** Probability this damage roll's underlying dice sum is below average (see `isBadDamageRoll`) -
+   *  if Puppet Master rerolls it, the reroll's own result is drawn fresh from the SAME pool (an
+   *  i.i.d. redraw), which is mathematically identical to the corresponding FULL, unconditional
+   *  `AttackProfile` map again - see sequence.ts's Puppet Master section for why that means the
+   *  caller doesn't need this function to also return a "rerolled" distribution. */
+  belowAverageMass: number;
+}
+
+/** Splits a damage roll (non-crit or crit) by whether its own dice sum is below average - the
+ *  same criterion the row's own Reroll toggle already uses - so Puppet Master (sequence.ts) can
+ *  tell whether its own below-average check would trigger, without duplicating Trash/Shatter/Armor
+ *  Piercing/Brutal Damage/Decapitation's resolution here. Mirrors `buildAttackProfile`'s own
+ *  nonCritDamage/critDamage derivation exactly, just reporting the split instead of one blended map. */
+export function splitAttackDamageForPuppetMaster(
+  damage: AttackInput['damage'],
+  effects: AttackEffects | undefined,
+  target: Pick<AttackInput['target'], 'arm' | 'baseArm' | 'knockedDown' | 'stationary'>,
+  variant: 'nonCrit' | 'crit'
+): DamageAverageSplit {
+  const arm = resolveArm(effects, target, variant);
+  const extraDice = variant === 'crit' ? (effects?.brutalDamageDice ?? 0) : 0;
+  const { pool, diceCount } = damagePoolFor(damage, effects, target, extraDice);
+  const isBad = (o: DicePoolOutcome) => isBadDamageRoll(o, diceCount);
+  const belowAverageMass = pool.reduce((acc, o) => (isBad(o) ? acc + o.probability : acc), 0);
+  let atOrAboveAverage = damageDistFromPool(
+    pool.filter((o) => !isBad(o)),
+    damage.pow,
+    arm
+  );
+  const doubles = variant === 'nonCrit' ? appliesOnNonCritHit(effects?.decapitation) : appliesOnCritHit(effects?.decapitation);
+  if (doubles) atOrAboveAverage = doubleDamageValues(atOrAboveAverage);
+  return { atOrAboveAverage, belowAverageMass };
 }
 
 export interface AppliedOutcome {

@@ -6,7 +6,7 @@
 .attacker-card {
   background: var(--panel-raised);
   border: 1px solid var(--line);
-  padding: 0.6rem 0.7rem;
+  padding: 0.2rem 0.3rem;
 }
 
 /* Name, MAT/RAT/AAT, and the remove button all share one row now - wraps (rather than the main
@@ -15,9 +15,30 @@
 .attacker-card__header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+/* The name (and its drag handle) aren't a labeled field like MAT/RAT/AAT, so bottom-aligning them
+   with those (the header's own default, for the selects/buttons) would read oddly - centered on
+   the row, with the handle following the name it drags, looks right instead. */
+.attacker-card__header > .drag-handle,
+.attacker-card__name-row {
+  align-self: center;
+}
+
+/* Tighter gap above the special-rules tags (collapses with the header's own margin-bottom above,
+   so this only shrinks it) and a clear gap below before the first attack sub-card - only applied
+   when a tag is actually showing, so a plain header (no special rules active) keeps its normal
+   0.5rem gap straight into the attacks list, same as before this row existed. */
+.attacker-card__header:has(+ app-effect-tags:not(:empty)) {
+  margin-bottom: 0.2rem;
+}
+
+.attacker-card > app-effect-tags ::ng-deep .effect-tags {
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
 }
 
 .attacker-card__name-row {
@@ -61,12 +82,12 @@
 .attacker-card__attacks {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.2rem;
 }
 
 .attacker-card__add-attack-btn {
   width: 100%;
-  margin-top: 0.5rem;
+  margin-top: 0.2rem;
   padding: 0.45rem;
   background: transparent;
   border: 1px dashed var(--line);

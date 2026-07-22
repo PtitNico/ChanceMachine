@@ -1,0 +1,18 @@
+<app-dialog-shell #shell [title]="title()" [framed]="true">
+  @if (attacker(); as a) {
+    <div class="toggle-group">
+      <button
+        type="button"
+        class="toggle-btn"
+        [class.toggle-btn--active]="a.puppetMaster()"
+        (click)="a.puppetMaster.set(!a.puppetMaster())"
+      >
+        Puppet Master
+      </button>
+    </div>
+  }
+
+  <div dialogActions class="dialog__actions">
+    <button type="button" class="dialog__done-btn" (click)="shell.close()">Done</button>
+  </div>
+</app-dialog-shell>

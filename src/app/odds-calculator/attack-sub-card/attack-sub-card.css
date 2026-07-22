@@ -8,7 +8,7 @@
 .attack-sub-card {
   background: var(--panel);
   border: 1px solid var(--line);
-  padding: 0.5rem 0.6rem;
+  padding: 0.2rem 0.3rem;
 }
 
 /* Wraps (not nowrap+scroll like the main list's rows) - this card already sits inside a

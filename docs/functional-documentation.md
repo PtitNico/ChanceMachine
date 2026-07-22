@@ -74,9 +74,10 @@ own ordered list of attacks:
   "Attacker N" shown as dimmed placeholder text until it's renamed, and a small pencil glyph after
   it as the only hint that it's editable. Its **MAT / RAT / AAT** (0 to 20 each) sit inline next to
   the name, but only the ones its own attacks actually use — a melee-only attacker shows just MAT,
-  a caster with a melee attack and a spell shows MAT and AAT, and so on. A red trash icon button
-  removes the whole attacker (disabled while it's the only one — at least one attacker always
-  remains).
+  a caster with a melee attack and a spell shows MAT and AAT, and so on. A blue **⚙ (cog)** icon
+  button opens the **Attacker's special rules** pop-up (currently just Puppet Master — see below);
+  a red trash icon button removes the whole attacker (disabled while it's the only one — at least
+  one attacker always remains).
 - One **attack sub-card** per attack this attacker makes, each with its own drag handle to reorder
   attacks within that attacker (an attack can't be dragged into a different attacker), showing:
   - The attack **type** as a dropdown of emoji — 🗡️ melee, 🏹 ranged, 🪄 arcane — which decides
@@ -104,6 +105,18 @@ shots this attack actually fires. The shot count is rolled once, before any of t
 dice, exactly like on the tabletop: with `d3` or `2d3`, this one attack fires that many separate
 to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier shots in the
 SAME volley already inflicted), rather than just one.
+
+**Puppet Master** (toggled in the attacker's special rules pop-up): grants that attacker a single
+reroll, shared across every roll it makes over the whole sequence — used on the **first attack roll
+that would otherwise miss**. If every one of its remaining attacks is already guaranteed to auto-hit
+(or it's already down to its very last attack), the reroll targets a **below-average damage roll**
+instead. It's entirely possible for the reroll to go **unused** — if none of its attack rolls ever
+miss and its final damage roll is already fine, there was simply never a good moment to spend it.
+This is deliberately **not** the mathematically best possible use of the reroll: an optimal spend
+would let the app claim a higher chance to destroy the target than a real player could actually
+achieve, since they don't know in advance which roll will turn out to be the best one to save it
+for. Puppet Master instead follows the same simple, mechanical rule a player would apply at the
+table, watching the sequence unfold roll by roll.
 
 Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
 - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
@@ -223,6 +236,7 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **Effects: a short, exact list rather than a generic, fully configurable system** — priority given to the correctness of implemented rules over broad but approximate coverage. The list has grown (roll modifiers, per-attack effects, persistent target effects, target capabilities) but remains a named, closed list, not an engine for arbitrary effects.
 - **Spell bonuses are the one deliberate exception, by necessity**: since Warmachine/Hordes has far too many spells to name individually, the Target profile's Spells section is a small generic system (name + Stat-or-Rule + Dispellable tag) rather than a named list — the only place in the app where the player enters a raw stat bonus instead of picking a named, pre-validated effect. Reusing the same "Special rules" toggles for the Rule case keeps attack-type conditions (Unyielding/Carapace) and Tough/Tough Steady exclusivity correct for free, rather than reimplementing them a second time for the spell path. Blessed and Dispel then read the Dispellable/Stat-or-Rule tags directly, so this generic system pays off across both the Spells section itself and the two attack effects that interact with it.
 - **Reroll with no configurable threshold**: rather than asking the player to pick a reroll threshold, the app always applies the optimal policy (reroll a missed to-hit roll, or a below-average damage roll) — avoiding an extra configuration field for a mathematically equivalent or better result.
+- **Puppet Master deliberately does NOT spend its reroll optimally**, unlike the target's own Focus/Fury: an omniscient-optimal spend would let the app claim a higher chance to destroy the target than a real player could actually achieve, since a real player doesn't know in advance which future roll would have been the best one to save the reroll for. Instead it follows the same simple, mechanical, no-lookahead rule described above (first missed attack roll, or a below-average damage roll once nothing's left to miss) — the reroll can end up unused, exactly as it could for a real player.
 - **Additive DEF penalties, with Knocked Down/Stationary/Paralysis as a floor**: the named penalties (Ice Cage, Shadowbind, Blind, Flare, Weaken) all stack with each other; Knocked Down/Stationary/Paralysis cap DEF at 5 first rather than stacking like the others, reflecting their in-game wording ("DEF reduced to 5" rather than "−X DEF").
 - **Persistent effects don't stack unless stated otherwise**: a given named effect can only apply once to a target (Ice Cage and the generic "-X ARM" being the only explicitly stackable exceptions), staying faithful to the "unless specified" wording provided by the user.
 - **Tough vs. Knocked Down is now correctly modeled**: an earlier version of the app let Tough succeed even while the target was already Knocked Down, which isn't how the tabletop rule works. Fixing this was necessary for Tough Steady (a capability that's specifically defined as "Tough, but immune to that negation") to mean anything at all.
@@ -244,6 +258,5 @@ Rough sizing (S/M/L/XL), for prioritization purposes only - not a commitment on 
 
 - **Damage grids for warjacks** (location-based systems - Movement, arms, etc. - each with their own boxes, crippled independently, plus a "chance to cripple system X" stat) — **XL**. The biggest item here by a wide margin: today's model is one target with one box pool: this needs a genuinely new sub-model (hit-location resolution, per-system boxes and crippled state, grid degradation) that current results (single "chance to destroy") don't map onto directly.
 - **Attacker Focus/Fury with optimal buy/boost strategy** (spending points on boosted rolls or bought extra attacks, played optimally across the whole sequence) — **L/XL**. The target's defensive Focus/Fury (already implemented) only ever chooses "spend this one point now or don't" - the attacker's version has a much bigger decision space (boost which roll, of which attack, or buy a whole extra attack instead), which likely means a new backward-induction dimension layered on top of the target's existing one, with real risk of state-space blowup to manage carefully (same kind of caution Critical Shred's recursion needed).
-- **Puppet Master** (a single shared reroll token, usable on any one roll across all of one attacker's attacks) — **M**. A new optimal-stopping problem, but a scoped one: "spend my one reroll now or save it" only needs a binary yes/no resource dimension (much smaller than a numeric Focus/Fury pool), reusing the same backward-induction shape at a smaller scale.
 - **Custom reroll strategy** (reroll on a miss, reroll if not a critical, etc., instead of always the mathematically optimal policy) — **S/M**. `rerollPoolOnceIf` (`dice-pool.ts`) already takes an arbitrary "is this roll bad?" predicate - today's fixed policy is just the ONE predicate the app happens to expose. Mostly UI work (a way to pick the condition) plus a handful of new named predicates; low architectural risk since the underlying mechanism already generalizes.
 - **Enemy rerolls with a counter** (Bone Working / Knowledge of the Damned - reroll a failed defensive roll, up to N times) — **M**. Similar in shape to Tough's existing fail-chance mechanic, but needs a new "charges remaining" counter in the resource state (comparable to Focus/Fury's own counter, though likely simpler if the reroll is always worth using rather than a strategic choice, closer to the existing fixed-policy reroll than to optimal Focus/Fury spending).

@@ -27,6 +27,7 @@
             (editAttack)="attackEditDialogRef.open($event)"
             (removeAttack)="onRemoveAttack(attacker, $event)"
             (remove)="onRemoveAttacker(attacker.id)"
+            (openRules)="attackerRulesDialogRef.open(attacker, i)"
           />
         }
       </div>
@@ -42,6 +43,8 @@
   </div>
 
   <app-attack-edit-dialog #attackEditDialogRef />
+
+  <app-attacker-rules-dialog #attackerRulesDialogRef />
 
   <app-target-profile-dialog #targetProfileDialogRef [target]="target" />
 

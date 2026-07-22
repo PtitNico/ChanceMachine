@@ -292,8 +292,18 @@ function isEffectOn(row: AttackRow, key: TriggerEffectKey): boolean {
 
 /** Projects one UI row into the plain object shape the engine expects. `stat`/`attackerName` are
  *  no longer the row's own values - they live on the parent `Attacker` now (`statFor`/
- *  `attackerDisplayName` in `attacker.model.ts`), resolved by the caller and passed in here. */
-export function toSequencedAttack(row: AttackRow, index: number, stat: number, attackerName: string): SequencedAttack {
+ *  `attackerDisplayName` in `attacker.model.ts`), resolved by the caller and passed in here.
+ *  `attackerIndex`/`hasPuppetMaster` are the same idea for Puppet Master's shared reroll token -
+ *  see `sequence.ts`'s `SequencedAttack` doc comment for why `attackerIndex`, not `attackerName`,
+ *  is the grouping key. */
+export function toSequencedAttack(
+  row: AttackRow,
+  index: number,
+  stat: number,
+  attackerName: string,
+  attackerIndex: number,
+  hasPuppetMaster: boolean
+): SequencedAttack {
   const statEffects: StatEffect[] = row.triggerEffects
     .filter((e) => isStatEffectKey(e.key) && e.trigger() !== 'off')
     .map(
@@ -337,5 +347,7 @@ export function toSequencedAttack(row: AttackRow, index: number, stat: number, a
     blessed: isEffectOn(row, 'blessed') || undefined,
     chainWeapon: isEffectOn(row, 'chainWeapon') || undefined,
     criticalShred: isEffectOn(row, 'criticalShred') || undefined,
+    attackerIndex,
+    hasPuppetMaster: hasPuppetMaster || undefined,
   };
 }

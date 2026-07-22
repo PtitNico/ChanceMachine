@@ -19,6 +19,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-22',
+    items: [
+      'Added Puppet Master: toggle it per-attacker (the gear icon on the attacker card) to grant that attacker a single reroll, used on the first missed attack roll among its own attacks - or, once nothing is left to miss, a below-average damage roll instead. It can go unused if neither ever comes up.',
+    ],
+  },
+  {
     date: '2026-07-21',
     items: [
       'Attacks are now grouped by attacker: each attacker is its own card with a name and MAT/RAT/AAT shared by all its attacks (only shown for the types it actually has - a melee-only attacker no longer shows RAT or AAT), holding one sub-card per attack.',

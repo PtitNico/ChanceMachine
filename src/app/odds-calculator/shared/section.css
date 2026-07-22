@@ -6,7 +6,7 @@
 .readout {
   flex-shrink: 0;
   background: var(--panel);
-  padding: 0.65rem 0.85rem;
+  padding: 0.5rem 0.6rem;
   min-width: 0;
 }
 

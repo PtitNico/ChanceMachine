@@ -1287,3 +1287,185 @@ describe('sequence engine - Rate of Fire', () => {
     expect(elapsedMs).toBeLessThan(2000);
   });
 });
+
+describe('sequence engine - Puppet Master', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when hasPuppetMaster/attackerIndex are entirely absent (regression safety)', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2' })];
+    const explicitlyOff = attacks.map((a) => ({ ...a, hasPuppetMaster: false, attackerIndex: 0 }));
+    const withoutFields = computeSequenceOdds(attacks, target);
+    const withExplicitFalse = computeSequenceOdds(explicitlyOff, target);
+    expect(withExplicitFalse.finalDestroyChance).toBeCloseTo(withoutFields.finalDestroyChance, 9);
+  });
+
+  it('strictly improves the destroy chance for a single marginal attack', () => {
+    const withoutPM = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const withPM = computeSequenceOdds([attack({ stat: 6, pow: 12, hasPuppetMaster: true, attackerIndex: 0 })], target);
+    expect(withPM.finalDestroyChance).toBeGreaterThan(withoutPM.finalDestroyChance);
+  });
+
+  it('spends the token on the FIRST missed attack roll - a fixed positional rule, not "whichever roll is best"', () => {
+    // Attack 1 can NEVER hit - a single die (discarding the other) against a needed sum no roll
+    // can reach, which also exempts it from the "natural 6 always hits" rule (see attack-model.ts)
+    // - so the token is GUARANTEED to be spent there, never left to possibly carry over to attack
+    // 2 (which, being any real roll, always has SOME nonzero hit chance - see below). An
+    // omniscient-optimal spender might prefer saving the token for attack 2 instead (a "better"
+    // roll to fix), but Puppet Master isn't optimal - it's exactly "the first missed attack roll".
+    const neverHits = attack({ id: '1', stat: -500, modifiers: { discard: { lowest: 1 } } });
+    const normalAttack = attack({ id: '2', stat: 6, pow: 12 });
+
+    const withPM = computeSequenceOdds(
+      [
+        { ...neverHits, hasPuppetMaster: true, attackerIndex: 0 },
+        { ...normalAttack, hasPuppetMaster: true, attackerIndex: 0 },
+      ],
+      target
+    );
+    // If the rule is genuinely positional, this should match manually rerolling ONLY attack 1's
+    // own to-hit roll (the row's own Reroll toggle, applied to the exact roll Puppet Master
+    // should be targeting) - not some smarter alternative that instead targeted attack 2. Exact
+    // match (not just an improvement) is possible here specifically because attack 1 can never
+    // hit even after a reroll, so the token is deterministically consumed there every time.
+    const manualRerollFirstAttackOnly = computeSequenceOdds([{ ...neverHits, modifiers: { ...neverHits.modifiers, reroll: true } }, normalAttack], target);
+
+    expect(withPM.finalDestroyChance).toBeCloseTo(manualRerollFirstAttackOnly.finalDestroyChance, 9);
+  });
+
+  it("still applies on top of the row's own already-configured reroll, if that roll still misses (stacks, doesn't skip it)", () => {
+    // Already has its own Reroll toggled - still misses often even after that (stat -50) - Puppet
+    // Master's rule is purely "did THIS roll (as actually configured) miss", so it applies its own
+    // reroll again on top, rather than treating an already-rerolled roll as ineligible.
+    const alreadyRerolling = attack({ stat: -50, modifiers: { reroll: true } });
+    const withoutPM = computeSequenceOdds([alreadyRerolling], target);
+    const withPM = computeSequenceOdds([{ ...alreadyRerolling, hasPuppetMaster: true, attackerIndex: 0 }], target);
+    expect(withPM.finalDestroyChance).toBeGreaterThan(withoutPM.finalDestroyChance);
+  });
+
+  it('an auto-hit attack does NOT get a damage-roll check while a later real (missable) roll still exists', () => {
+    // Attack 1 auto-hits with a deliberately weak (but not literally unimprovable) damage roll.
+    // Attack 2 is any real roll, existing purely so attack 1 is NOT "guaranteed auto-hit for the
+    // rest" (attack 2 could still miss) and isn't the last attack either - so attack 1 must NOT
+    // get a damage check at all.
+    const autoHitWeakDamage = attack({ id: '1', forceAutoHit: true, stat: 0, pow: 15 });
+    const laterRealRoll = attack({ id: '2', stat: 6, pow: 12 });
+
+    const withoutPM = computeSequenceOdds([autoHitWeakDamage, laterRealRoll], target);
+    const withPM = computeSequenceOdds(
+      [
+        { ...autoHitWeakDamage, hasPuppetMaster: true, attackerIndex: 0 },
+        { ...laterRealRoll, hasPuppetMaster: true, attackerIndex: 0 },
+      ],
+      target
+    );
+    // Attack 1's OWN step statistics are entirely determined by whether IT is eligible for the
+    // damage check - a fact known before any dice are rolled (see the module doc comment), so this
+    // is unaffected by anything attack 2 does and should be an EXACT match, not just "close":
+    // if attack 1 were (wrongly) treated as eligible, its own average damage would rise.
+    expect(withPM.steps[0].averageDamage).toBeCloseTo(withoutPM.steps[0].averageDamage, 9);
+  });
+
+  it("an auto-hit attack DOES get a damage-roll check once it's the attacker's last attack", () => {
+    const realRollFirst = attack({ id: '1', stat: 50, pow: 12 }); // near-guaranteed hit (35/36) - rarely uses the token itself
+    const autoHitLastWeakDamage = attack({ id: '2', forceAutoHit: true, stat: 0, pow: 15 }); // pow=arm: raw 2d6 damage, clearly improvable by rerolling a below-average roll
+
+    const withoutPM = computeSequenceOdds([realRollFirst, autoHitLastWeakDamage], target);
+    const withPM = computeSequenceOdds(
+      [
+        { ...realRollFirst, hasPuppetMaster: true, attackerIndex: 0 },
+        { ...autoHitLastWeakDamage, hasPuppetMaster: true, attackerIndex: 0 },
+      ],
+      target
+    );
+    // The improvement shows up specifically on attack 2's OWN average damage - proof the check
+    // reached the last (auto-hit) attack, not just a non-auto-hit roll somewhere in the sequence.
+    expect(withPM.steps[1].averageDamage).toBeGreaterThan(withoutPM.steps[1].averageDamage);
+  });
+
+  it('degenerates to a no-op on an auto-hit attack whose damage roll can never matter either', () => {
+    // forceAutoHit means there's no to-hit roll to reroll at all; pow=100 against boxes=1 means
+    // even the WORST possible damage roll still destroys the target, so the damage reroll can't
+    // matter either - both Puppet Master variants tie with "don't spend" here.
+    const lethalTarget = { def: 13, arm: 15, boxes: 1 };
+    const withoutPM = computeSequenceOdds([attack({ forceAutoHit: true, pow: 100 })], lethalTarget);
+    const withPM = computeSequenceOdds([attack({ forceAutoHit: true, pow: 100, hasPuppetMaster: true, attackerIndex: 0 })], lethalTarget);
+    expect(withPM.finalDestroyChance).toBeCloseTo(withoutPM.finalDestroyChance, 9);
+    expect(withPM.finalDestroyChance).toBeCloseTo(1, 9);
+  });
+
+  it('two different attackers each get their own independent token', () => {
+    const attackerA = attack({ id: 'a', stat: 6, pow: 12, hasPuppetMaster: true, attackerIndex: 0 });
+    const attackerB = attack({ id: 'b', stat: 6, pow: 12, hasPuppetMaster: true, attackerIndex: 1 });
+    const attackerBNoPM = attack({ id: 'b', stat: 6, pow: 12 });
+
+    const bothPM = computeSequenceOdds([attackerA, attackerB], target);
+    const onlyAPM = computeSequenceOdds([attackerA, attackerBNoPM], target);
+
+    expect(bothPM.finalDestroyChance).toBeGreaterThan(onlyAPM.finalDestroyChance);
+  });
+
+  it('Rate of Fire: still improves the result when a persistent effect makes shots within the volley asymmetric', () => {
+    // Weaken (-2 DEF) triggers on a hit, so if an early shot in the volley hits, every LATER shot
+    // faces an easier target than the first did - shots are no longer interchangeable, so this
+    // exercises the token genuinely being re-evaluated shot by shot, not fixed once up front.
+    const marginalRanged: Partial<SequencedAttack> = {
+      type: 'ranged',
+      stat: 5,
+      pow: 10,
+      rof: 'd3',
+      statEffects: [{ type: 'weaken', trigger: 'hit' }],
+    };
+    const rofTarget = { def: 15, arm: 10, boxes: 5 };
+    const withoutPM = computeSequenceOdds([attack(marginalRanged)], rofTarget);
+    const withPM = computeSequenceOdds([attack({ ...marginalRanged, hasPuppetMaster: true, attackerIndex: 0 })], rofTarget);
+    expect(withoutPM.finalDestroyChance).toBeGreaterThan(0);
+    expect(withPM.finalDestroyChance).toBeGreaterThan(withoutPM.finalDestroyChance);
+  });
+
+  it('Critical Shred: still improves the chain-wide expected damage with the token active', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    const withoutPM = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
+    const withPM = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true, hasPuppetMaster: true, attackerIndex: 0 })], target);
+    expect(withPM.steps[0].averageDamage).toBeGreaterThan(withoutPM.steps[0].averageDamage);
+  });
+
+  it('composes correctly with the target\'s own Focus spending (nested two-sided optimization)', () => {
+    const attacks = [attack({ id: '1', stat: 6, pow: 12 }), attack({ id: '2', stat: 6, pow: 12 })];
+    const withPmFlags = (list: SequencedAttack[]) => list.map((a) => ({ ...a, hasPuppetMaster: true, attackerIndex: 0 }));
+
+    const neither = computeSequenceOdds(attacks, { def: 13, arm: 15, boxes: 5 });
+    const focusOnly = computeSequenceOdds(attacks, { def: 13, arm: 15, boxes: 5, focusPoints: 1 });
+    const pmOnly = computeSequenceOdds(withPmFlags(attacks), { def: 13, arm: 15, boxes: 5 });
+    const both = computeSequenceOdds(withPmFlags(attacks), { def: 13, arm: 15, boxes: 5, focusPoints: 1 });
+
+    // Adding the attacker's token can only ever help the attacker (raise or hold destroy chance);
+    // adding the target's Focus can only ever help the target (lower or hold it) - both should
+    // compose monotonically, with "both" sandwiched between the two single-side results.
+    expect(pmOnly.finalDestroyChance).toBeGreaterThanOrEqual(neither.finalDestroyChance);
+    expect(focusOnly.finalDestroyChance).toBeLessThanOrEqual(neither.finalDestroyChance);
+    expect(both.finalDestroyChance).toBeLessThanOrEqual(pmOnly.finalDestroyChance);
+    expect(both.finalDestroyChance).toBeGreaterThanOrEqual(focusOnly.finalDestroyChance);
+  });
+
+  it('probability mass is conserved with the token active', () => {
+    const attacks = [
+      attack({ id: '1', hasPuppetMaster: true, attackerIndex: 0 }),
+      attack({ id: '2', hasPuppetMaster: true, attackerIndex: 0 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+});

@@ -27,6 +27,10 @@
       <app-mini-field-select label="AAT" [signal]="attacker().aat" [options]="statOptions" [parse]="toNumber" />
     }
 
+    <button type="button" class="icon-btn icon-btn--settings" (click)="openRules.emit()" aria-label="Attacker special rules">
+      <span class="material-symbols-outlined">settings</span>
+    </button>
+
     <button
       type="button"
       class="icon-btn icon-btn--trash"
@@ -37,6 +41,8 @@
       <span class="material-symbols-outlined">delete</span>
     </button>
   </div>
+
+  <app-effect-tags [tags]="attackerRulesSummary(attacker())" />
 
   <div class="attacker-card__attacks" cdkDropList (cdkDropListDropped)="onAttackDrop($event)">
     @for (row of attacker().attacks(); track row.id; let count = $count) {
