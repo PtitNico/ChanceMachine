@@ -32,6 +32,36 @@
     </select>
   </div>
 
+  <h3 class="dialog__section-title">Knowledge of the Damned</h3>
+  <div class="resource-row">
+    <label class="field">
+      <span class="field__label">Offensive</span>
+      <select
+        class="field__select field__select--narrow"
+        title="Offensive Knowledge of the Damned charges"
+        [ngModel]="t.offensiveKnowledgeOfTheDamned()"
+        (ngModelChange)="t.offensiveKnowledgeOfTheDamned.set(toNumber($event))"
+      >
+        @for (v of kotdOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+    <label class="field">
+      <span class="field__label">Defensive</span>
+      <select
+        class="field__select field__select--narrow"
+        title="Defensive Knowledge of the Damned charges"
+        [ngModel]="t.defensiveKnowledgeOfTheDamned()"
+        (ngModelChange)="t.defensiveKnowledgeOfTheDamned.set(toNumber($event))"
+      >
+        @for (v of kotdOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
   <h3 class="dialog__section-title">Special rules</h3>
   <div class="toggle-group">
     <button

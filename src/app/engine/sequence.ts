@@ -62,10 +62,11 @@
  * requires another crit and therefore contributes probability that shrinks geometrically
  * (`critChance^depth`); truncating there leaves an error far below floating-point-visible
  * precision for any realistic crit chance, the same kind of documented simplification as Tough's
- * "no once-per-turn limit". `computeReachableDebuffStates` widens its over-approximation to match:
- * a Shred chain can trigger the SAME crit-only persistent effect (Ice Cage, "-X ARM") repeatedly,
- * once per instance in the chain, so it explores up to `MAX_SHRED_DEPTH + 1` repeated crit
- * applications for a shredding attack instead of just one. In the step-by-step breakdown, "Avg
+ * "no once-per-turn limit". A Shred chain can trigger the SAME crit-only persistent effect (Ice
+ * Cage, "-X ARM") repeatedly, once per instance in the chain - `getValueTableAt` (see "Lazy value
+ * tables" below) needs no special handling for this: whatever `DebuffState` a real chain instance
+ * actually produces gets its own value table built on first request, regardless of how many
+ * repeated crit applications it took to reach. In the step-by-step breakdown, "Avg
  * damage" is the TOTAL expected damage across a whole chain (what actually happens at that
  * position), but "Hit"/"Crit" chance stay the ORIGINAL roll's own - a single well-defined
  * probability, unlike "average damage" which stays meaningful however many rolls occurred.
@@ -148,6 +149,60 @@
  * shot, not just an attack's first roll: both already thread their own state through
  * `attackChainValue` the same way `pmMask` does.
  *
+ * Knowledge of the Damned (`SequenceTarget.offensiveKnowledgeOfTheDamned`/
+ * `defensiveKnowledgeOfTheDamned`, `kotdOffLeft`/`kotdDefLeft`) is TWO more reroll-granting
+ * resources, both living on the TARGET (unlike Puppet Master, which is per-attacker) and shared
+ * across EVERY attacker in the sequence - a pool of 0-10 charges each, not a single token.
+ *
+ * Offensive Knowledge of the Damned is, mechanically, Puppet Master generalized from "1 token,
+ * scoped to one attacker" to "N pooled charges, shared globally" - same fixed, no-lookahead rule
+ * (`resolveKotdOffSplit`): reroll any missed attack roll unconditionally; reroll a below-average
+ * damage roll only once it's SAFE to (the "reserve rule" - `damageRerollEligibleForOffKotd`):
+ * eligible only when the charges that would remain afterward are enough to cover
+ * `remainingMissableRollCount` - every remaining roll, system-wide across every attacker, that
+ * could still miss. This collapses EXACTLY onto Puppet Master's own rule when `kotdOffLeft` is 1
+ * (the only way `charges - 1 >= remainingCount` can hold with 1 charge is `remainingCount === 0`,
+ * i.e. nothing left to miss - Puppet Master's exact condition). A Rate of Fire attack's OWN
+ * remaining shots count exactly (`shotsRemainingThisRow`, already known once inside that row's own
+ * volley - see the Rate of Fire section above); a LATER row's own ROF shot count isn't decided yet
+ * at evaluation time, so its worst case (`maxShots`) is used as a safe upper bound. A Critical
+ * Shred-active row is deliberately NOT expanded into multiple units, matching
+ * `isAutoHitGuaranteedForRest`'s own row-level treatment.
+ *
+ * Defensive Knowledge of the Damned is architecturally the new piece: the TARGET'S genuinely
+ * OPTIMAL choice (full sequence lookahead, exactly like Focus/Fury's own assumption) of whether to
+ * force a reroll of EITHER the attack roll (if it's currently a hit) or the damage roll (if it's
+ * currently above average) - whichever lowers the destroy chance more, or neither
+ * (`resolveKotdDefChoice`). Unlike Focus/Fury (which only ever transforms a single already-REALIZED
+ * damage number, post-hoc, inside `bestAction`), a reroll changes the underlying DICE - so this has
+ * to live at the SAME profile level Puppet Master/Offensive Knowledge of the Damned already operate
+ * at, comparing whole-profile candidates via `profileScore` (a new helper that aggregates
+ * `bestAction`'s own `outcomeScore`/`isBetterScore` lexicographic comparison across every outcome a
+ * candidate profile can produce, not just one) rather than `bestAction`'s own single-outcome
+ * comparison.
+ *
+ * Both share a KEY principle with Puppet Master, made explicit now that THREE reroll stages can
+ * apply to the same roll in sequence: a "reroll" is always an i.i.d. redraw from the roll's TRUE,
+ * fully unconditional distribution (`trueOriginal = profileFor(k, atk, debuffState)`, computed ONCE
+ * per roll and shared by every stage) - never from whatever partially-conditioned profile an
+ * upstream stage happens to be holding (`inputProfile`). These two profiles are only identical for
+ * Puppet Master (the first stage); every function below Puppet Master's own level takes BOTH
+ * explicitly. The full pipeline, run once per roll inside `attackChainValue`: the row's own
+ * `reroll` toggle (baked in by `buildAttackProfile` already) -> Puppet Master (`resolvePmSplit`,
+ * per-attacker, fixed) -> Offensive Knowledge of the Damned (`resolveKotdOffSplit`, global, fixed)
+ * -> Defensive Knowledge of the Damned (`resolveKotdDefChoice`, global, optimal - run once per
+ * Puppet-Master-population x Offensive-Knowledge-of-the-Damned-population, since its optimal choice
+ * can legitimately differ per resulting resource combination). This composition is exactly what
+ * makes "a roll can be rerolled once by each rule, but by both an attacker-side rule AND the
+ * target's own Defensive Knowledge of the Damned" hold: each stage transforms whatever profile the
+ * previous stage produced, strictly sequentially, so a given physical roll is touched by at most
+ * one Puppet-Master decision, at most one Offensive-Knowledge-of-the-Damned decision, and at most
+ * one Defensive-Knowledge-of-the-Damned decision - never twice by the same rule.
+ *
+ * `kotdOffLeft`/`kotdDefLeft` thread through the exact same grid `pmMask` already occupies
+ * (`tableKey`, `ExtendedValueLookup`, `FwdState`/`fwdKey`) - `bestAction`/`ValueTable`/`ValueLookup`
+ * stay entirely unaware either exists, for the same reason they stay unaware of `pmMask`.
+ *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
  * distribution over the target's *state* (boxes remaining, debuffs, focus/fury
@@ -156,10 +211,20 @@
  * (DEF, ARM, status) context it's actually resolved against - contexts are
  * few in practice (bounded by how many debuff-inflicting effects are
  * actually configured across the sequence), so this stays effectively
- * instant even for ~10 attacks.
+ * instant even for ~10 attacks. `pmMask x kotdOffLeft x kotdDefLeft` (on top of the existing
+ * `focusLeft x furyLeft`) IS a genuine multiplicative state-space cost when several of these
+ * resources are configured at once with large point totals - the `MAX_RESOURCE_POINTS` cap (10,
+ * same as Focus/Fury) is a direct, intentional part of this feature's spec rather than a
+ * pathological edge case to guard against further, so the mitigation is on the OTHER side of that
+ * cap instead: `getValueTableAt` (see "Lazy value tables" below) only ever builds a table for a
+ * `(debuffState, pmMask, kotdOffLeft, kotdDefLeft)` combination some real branch of the computation
+ * actually reaches, rather than eagerly building the full cross product regardless of reachability -
+ * a short sequence can never actually spend anywhere near 10 charges, so most of that configured
+ * range is never built at all in practice, even though the cap itself stays at 10.
  */
 
 import {
+  AppliedOutcome,
   AttackEffects,
   AttackProfile,
   AttackType,
@@ -167,7 +232,7 @@ import {
   RollModifiers,
   applyProfile,
   buildAttackProfile,
-  splitAttackDamageForPuppetMaster,
+  splitAttackDamageByAverage,
 } from './attack-model';
 
 /** Named persistent target debuffs an attack can inflict on a hit or a crit. See doc comments on
@@ -261,6 +326,15 @@ export interface SequenceTarget {
   focusPoints?: number;
   /** Fury points the target can spend, one per attack, after damage is rolled: negates that hit's damage entirely (transferred to a warbeast). */
   furyPoints?: number;
+  /** Offensive Knowledge of the Damned: a 0-10 pool of forced rerolls shared across EVERY attacker
+   *  (not per-attacker like Puppet Master), spent via the same kind of fixed, no-lookahead rule
+   *  Puppet Master uses - see `resolveKotdOffSplit` and the module doc comment's Knowledge of the
+   *  Damned section. */
+  offensiveKnowledgeOfTheDamned?: number;
+  /** Defensive Knowledge of the Damned: a 0-10 pool of forced rerolls the TARGET can spend against
+   *  any attacker's attack or damage roll, chosen optimally with full sequence lookahead (like
+   *  Focus/Fury) - see `resolveKotdDefChoice`. */
+  defensiveKnowledgeOfTheDamned?: number;
   /** Flat ARM bonus from Shield specifically (kept apart from `spellArmBonus` so Chain Weapon can
    *  ignore just this component) - added on top of `arm`, but deliberately NOT included in the
    *  "base ARM" Armor Piercing halves (see `profileFor`). Not itself Dispel-aware: a spell-granted
@@ -448,79 +522,6 @@ function rofOutcomes(atk: SequencedAttack): { count: number; probability: number
   return [...dist.entries()].sort(([a], [b]) => a - b).map(([count, probability]) => ({ count, probability }));
 }
 
-/** Every DebuffState reachable from ONE resolution of `atk`, starting from `state` - miss/no
- *  trigger, a "hit" trigger, or (if Critical Shred is active) up to MAX_SHRED_DEPTH+1 repeated
- *  "crit" triggers from the chain's own successive instances. */
-function attackTransitionCandidates(state: DebuffState, atk: SequencedAttack): DebuffState[] {
-  const candidates = [
-    state, // miss, or a hit/crit that triggers nothing
-    applyStatEffectsForOutcome(state, atk.statEffects, false),
-  ];
-  // A Critical Shred attack can trigger its own crit-only statEffects repeatedly - a stacking
-  // effect (Ice Cage, "-X ARM") can end up applied once per instance in the chain, not just
-  // once. Over-approximate by exploring every "N repeated crits" state up to the same depth
-  // cap the actual chain resolution uses (see `attackChainValue`), so every state the real
-  // resolution can reach always has a value table built for it in the next step.
-  let critState = state;
-  const maxCrits = atk.criticalShred ? MAX_SHRED_DEPTH + 1 : 1;
-  for (let i = 0; i < maxCrits; i++) {
-    critState = applyStatEffectsForOutcome(critState, atk.statEffects, true);
-    candidates.push(critState);
-  }
-  return candidates;
-}
-
-/**
- * The set of debuff states reachable just BEFORE each attack resolves (index 0 = before the
- * first attack, ... index n = after the last). Debuff transitions don't depend on boxes or
- * Focus/Fury at all, so this can be precomputed as its own small pass - it's what lets the
- * main computation below avoid a dense table over every debuff dimension: only debuff states
- * that can actually occur for THIS sequence ever get a value-table built for them.
- *
- * Deliberately over-approximates rather than tracking exact probabilities: it doesn't matter
- * if a listed state turns out to carry zero probability once autoHit/thresholds are taken into
- * account, only that every state that COULD carry nonzero probability is included.
- */
-function computeReachableDebuffStates(
-  attacks: SequencedAttack[],
-  startsKnockedDown: boolean,
-  hasAnyTough: boolean
-): DebuffState[][] {
-  const perStep: DebuffState[][] = [];
-  const initial = startsKnockedDown ? { ...INITIAL_DEBUFFS, knockedDown: true } : INITIAL_DEBUFFS;
-  let current = new Map<string, DebuffState>([[debuffKey(initial), initial]]);
-  perStep.push([...current.values()]);
-
-  for (const atk of attacks) {
-    // A Rate of Fire attack fires up to `maxShots` independent shots against this same target
-    // before the NEXT row resolves - each shot can independently trigger the attack's own
-    // statEffects (and, if Critical Shred is also active, its own chain of those - see
-    // attackTransitionCandidates), so the reachable-state exploration below runs once per
-    // possible shot rather than once total.
-    const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
-    for (let shot = 0; shot < maxShots; shot++) {
-      const next = new Map<string, DebuffState>();
-      const add = (s: DebuffState) => {
-        const k = debuffKey(s);
-        if (!next.has(k)) next.set(k, s);
-      };
-      for (const state of current.values()) {
-        for (const candidate of attackTransitionCandidates(state, atk)) {
-          add(candidate);
-          // Surviving a Tough or Tough Steady roll always also knocks the target down (see
-          // damageBranches), regardless of which of the candidates above it happens on top of.
-          if (hasAnyTough && !candidate.knockedDown) {
-            add({ ...candidate, knockedDown: true });
-          }
-        }
-      }
-      current = next;
-    }
-    perStep.push([...current.values()]);
-  }
-  return perStep;
-}
-
 // --- Resource (boxes / Focus / Fury) branching, independent of WHICH debuff state we're in ---
 
 interface ResourceBranch {
@@ -534,11 +535,21 @@ interface ResourceBranch {
 
 type ValueLookup = (boxes: number, debuffState: DebuffState, focusLeft: number, furyLeft: number) => number;
 
-/** Like `ValueLookup`, but Puppet-Master-aware - used only above `bestAction`'s own level
- *  (`attackChainValue`/`buildShotsValue`/the forward-pass equivalents), since `pmMask` only ever
- *  changes once, atomically, before a roll's outcome is even enumerated - see the module doc
- *  comment's Puppet Master section. */
-type MaskedValueLookup = (boxes: number, debuffState: DebuffState, focusLeft: number, furyLeft: number, pmMask: number) => number;
+/** Like `ValueLookup`, but aware of every FIXED-rule/optimal-choice resource dimension that lives
+ *  ABOVE `bestAction`'s own level (`attackChainValue`/`buildShotsValue`/the forward-pass
+ *  equivalents) - Puppet Master's `pmMask`, Offensive Knowledge of the Damned's `kotdOffLeft`, and
+ *  Defensive Knowledge of the Damned's `kotdDefLeft`. All three only ever change once, atomically,
+ *  before a roll's outcome is even enumerated - see the module doc comment's Knowledge of the
+ *  Damned section. */
+type ExtendedValueLookup = (
+  boxes: number,
+  debuffState: DebuffState,
+  focusLeft: number,
+  furyLeft: number,
+  pmMask: number,
+  kotdOffLeft: number,
+  kotdDefLeft: number
+) => number;
 
 /** One genuinely-occurring sub-population arising from Puppet Master's fixed rule at THIS roll -
  *  see `resolvePmSplit`. Unlike Focus/Fury's `bestAction`, this is never a competing CHOICE between
@@ -785,6 +796,14 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   if (maxFocus > MAX_RESOURCE_POINTS || maxFury > MAX_RESOURCE_POINTS) {
     throw new Error(`focusPoints/furyPoints=${maxFocus}/${maxFury} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
   }
+  const maxKotdOff = Math.floor(target.offensiveKnowledgeOfTheDamned ?? 0);
+  const maxKotdDef = Math.floor(target.defensiveKnowledgeOfTheDamned ?? 0);
+  if (maxKotdOff < 0 || maxKotdDef < 0) {
+    throw new Error('offensiveKnowledgeOfTheDamned and defensiveKnowledgeOfTheDamned must not be negative');
+  }
+  if (maxKotdOff > MAX_RESOURCE_POINTS || maxKotdDef > MAX_RESOURCE_POINTS) {
+    throw new Error(`Knowledge of the Damned charges=${maxKotdOff}/${maxKotdDef} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
+  }
   const toughRules: ToughRules = {
     hasTough: !!target.tough,
     hasToughSteady: !!target.toughSteady,
@@ -812,8 +831,6 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   const unyieldingPostDispel = !!target.unyieldingPostDispel;
   const carapace = !!target.carapace;
   const carapacePostDispel = !!target.carapacePostDispel;
-
-  const debuffStatesPerStep = computeReachableDebuffStates(attacks, startsKnockedDown, hasAnyTough);
 
   // Puppet Master: one bit per DISTINCT attacker index that has it active (not per attack, and
   // never shared across attackers) - see the module doc comment's Puppet Master section. With no
@@ -846,26 +863,60 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     return !!list && list[list.length - 1] === k;
   }
 
-  /** Is it ALREADY clear, given `debuffState` as of entering attack `k`, that every one of this
-   *  attacker's own attacks from `k` onward (inclusive) is guaranteed to auto-hit? Knocked
-   *  Down/Stationary never clears once inflicted (see `DebuffState`), so if the target is
-   *  immobilized now, it stays immobilized for every later attack too - meaning this needs no
-   *  lookahead into how any later roll actually turns out, only the CURRENT state plus each
-   *  remaining attack's own static `type`/`forceAutoHit`. See the module doc comment. */
-  function isAutoHitGuaranteedForRest(k: number, atk: SequencedAttack, debuffState: DebuffState): boolean {
-    const list = pmAttackIndicesByAttacker.get(atk.attackerIndex ?? -1) ?? [];
-    const immobilized = isKnockedDownOrStationary(debuffState);
-    return list
-      .filter((j) => j >= k)
-      .every((j) => attacks[j].forceAutoHit || (immobilized && attacks[j].type === 'melee'));
+  /** Is THIS ONE ROW (regardless of ROF shot count or Critical Shred depth - both deliberately
+   *  treated as "one roll opportunity", see the module doc comment's Knowledge of the Damned
+   *  section) guaranteed to auto-hit given `debuffState`? Pure/no-lookahead: only static per-attack
+   *  fields (`forceAutoHit`/`type`) plus whether `debuffState` is currently immobilizing - Knocked
+   *  Down/Stationary never clears once inflicted, so this is safe to evaluate for ANY row (not just
+   *  `k` itself) using the state as of THIS point. */
+  function rowIsAutoHitGuaranteed(atk: SequencedAttack, debuffState: DebuffState): boolean {
+    return !!atk.forceAutoHit || (isKnockedDownOrStationary(debuffState) && atk.type === 'melee');
   }
 
-  // `pmMask` is a small, densely-enumerated resource dimension exactly like focus/fury, NOT a
-  // sparse reachability-pruned one like `DebuffState` - so it's folded into the same composite Map
-  // key `DebuffState` already uses (one `ValueTable` per reachable (debuffState, pmMask) pair),
-  // rather than adding a 4th array axis to `ValueTable` itself.
-  function tableKey(s: DebuffState, pmMask: number): string {
-    return `${debuffKey(s)}|${pmMask}`;
+  /** Is it ALREADY clear, given `debuffState` as of entering attack `k`, that every one of this
+   *  attacker's own attacks from `k` onward (inclusive) is guaranteed to auto-hit? See the module
+   *  doc comment's Knowledge of the Damned section. */
+  function isAutoHitGuaranteedForRest(k: number, atk: SequencedAttack, debuffState: DebuffState): boolean {
+    const list = pmAttackIndicesByAttacker.get(atk.attackerIndex ?? -1) ?? [];
+    return list.filter((j) => j >= k).every((j) => rowIsAutoHitGuaranteed(attacks[j], debuffState));
+  }
+
+  /** Count of rolls, system-wide across EVERY attacker, that could still miss - from `k`'s own
+   *  remaining shots (`shotsRemainingThisRow`, already exactly known once inside this row's own ROF
+   *  volley - see the module doc comment's Rate of Fire section) through the end of the sequence.
+   *  This is the "reserve" Offensive Knowledge of the Damned's damage-roll check needs, generalizing
+   *  Puppet Master's own single-token "is there anything left to miss" rule to N pooled charges. A
+   *  LATER row's own ROF shot count isn't decided yet at decision time `k`, so its worst case
+   *  (`maxShots`) is used - a safe upper bound, never an under-count. A Critical-Shred-active row is
+   *  deliberately NOT expanded into multiple units, matching `isAutoHitGuaranteedForRest`'s own
+   *  row-level treatment exactly. Pure/no-lookahead, same reasoning as `isAutoHitGuaranteedForRest`. */
+  function remainingMissableRollCount(k: number, debuffState: DebuffState, shotsRemainingThisRow: number): number {
+    const thisRow = rowIsAutoHitGuaranteed(attacks[k], debuffState) ? 0 : shotsRemainingThisRow;
+    const laterRows = attacks.slice(k + 1).reduce((sum, row) => {
+      if (rowIsAutoHitGuaranteed(row, debuffState)) return sum;
+      const maxShots = Math.max(...rofOutcomes(row).map((o) => o.count));
+      return sum + maxShots;
+    }, 0);
+    return thisRow + laterRows;
+  }
+
+  /** The "reserve rule": safe to spend an Offensive Knowledge of the Damned charge on a
+   *  below-average damage roll only when enough charges would remain AFTERWARD to cover every
+   *  remaining roll that could still miss - see the module doc comment. Collapses exactly onto
+   *  Puppet Master's own "isAutoHitGuaranteedForRest OR isLastAttackOfAttacker" rule when
+   *  `kotdOffLeft` is 1 (the only way `kotdOffLeft - 1 >= 0` remaining-count can hold is when that
+   *  count is itself 0, i.e. nothing left to miss - exactly Puppet Master's condition). */
+  function damageRerollEligibleForOffKotd(kotdOffLeft: number, k: number, debuffState: DebuffState, shotsRemainingThisRow: number): boolean {
+    return kotdOffLeft > 0 && kotdOffLeft - 1 >= remainingMissableRollCount(k, debuffState, shotsRemainingThisRow);
+  }
+
+  // `pmMask`/`kotdOffLeft`/`kotdDefLeft` are all small, densely-enumerated resource dimensions
+  // exactly like focus/fury, NOT a sparse reachability-pruned one like `DebuffState` - so they're
+  // folded into the same composite Map key `DebuffState` already uses (one `ValueTable` per
+  // reachable (debuffState, pmMask, kotdOffLeft, kotdDefLeft) tuple), rather than adding more array
+  // axes to `ValueTable` itself.
+  function tableKey(s: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number): string {
+    return `${debuffKey(s)}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}`;
   }
 
   // Attack profiles depend on the target's CURRENT debuffs (DEF/ARM/status), so they can't be
@@ -917,46 +968,83 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     return profile;
   }
 
+  /** One sub-population arising from a below/above-average-damage-roll check - `spent: true` means
+   *  this rule's reroll actually fired in this slice. Shared by every FIXED reroll rule (Puppet
+   *  Master, Offensive Knowledge of the Damned) - see the module doc comment's "two profiles, not
+   *  one" section: `hitMassToCheck` is THIS STAGE's own current mass (how much, and which portion,
+   *  is even eligible here), while `trueOriginal` is the roll's true unconditional distribution
+   *  (what a fresh reroll actually draws from) - these coincide for Puppet Master (the first stage)
+   *  but diverge once Offensive Knowledge of the Damned sits downstream of it. */
+  interface AverageRerollPopulation {
+    profile: AttackProfile;
+    spent: boolean;
+  }
+
+  /** Rescales `map` so it sums to 1 - `splitAttackDamageByAverage`'s `kept` map deliberately sums
+   *  to `1 - rerollMass` (a filtered SUBSET of the full dice pool, each entry keeping its own
+   *  original probability), which is only safe to pair with an UNREDUCED `hitNonCritChance`/
+   *  `hitCritChance` scalar if the resulting profile is consumed directly by `applyProfile` and
+   *  never treated as a properly-normalized `AttackProfile` by anything downstream (as Defensive
+   *  Knowledge of the Damned's `rerollDamageIfAboveAverage` does, via `mergeWeighted`) - see
+   *  `damageRerollPopulations`, which uses this to keep every profile it returns honoring the
+   *  normal `AttackProfile` contract (scalar x 1-summing map = absolute mass) throughout the whole
+   *  pipeline, not just when Puppet Master is the only stage. */
+  function normalizeMap(map: Map<number, number>, sum: number): Map<number, number> {
+    if (sum <= 0) return map;
+    const normalized = new Map<number, number>();
+    for (const [d, p] of map) normalized.set(d, p / sum);
+    return normalized;
+  }
+
   /** The two (non-crit and, if it can even happen, crit) sub-populations arising from a
-   *  below-average-damage-roll check on `original`'s HIT portion - shared by both places
-   *  `resolvePmSplit` needs it (an auto-hit roll's only possible hit flavor is non-crit; a
-   *  non-auto-hit roll's hit could be either). Each hit flavor present in `original` (nonzero
-   *  chance) contributes an "at/above average, stays unspent" population and, if any mass is
-   *  below average, a "rerolled, now spent" population using `original`'s own FULL damage map
-   *  again (a reroll is an i.i.d. redraw from the SAME pool - see the module doc comment). */
-  function damageCheckPopulations(atk: SequencedAttack, debuffState: DebuffState, original: AttackProfile, unspentMask: number, spentMask: number): PmPopulation[] {
+   *  below-average-damage-roll check on `hitMassToCheck` - shared by every place that needs it (an
+   *  auto-hit roll's only possible hit flavor is non-crit; a non-auto-hit roll's hit could be
+   *  either). Each hit flavor present in `hitMassToCheck` (nonzero chance) contributes an "at/above
+   *  average, stays unspent" population (properly renormalized via `normalizeMap`, with
+   *  `hitNonCritChance`/`hitCritChance` correspondingly REDUCED to the true absolute mass - see
+   *  `normalizeMap`'s doc comment) and, if any mass is below average, a "rerolled, now spent"
+   *  population using `trueOriginal`'s own FULL damage map again (a reroll is an i.i.d. redraw from
+   *  the SAME pool - see the module doc comment). */
+  function damageRerollPopulations(
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    hitMassToCheck: Pick<AttackProfile, 'hitNonCritChance' | 'hitCritChance'>,
+    trueOriginal: AttackProfile
+  ): AverageRerollPopulation[] {
     const { arm } = contextFor(atk, debuffState);
     const target = { arm, baseArm, knockedDown: debuffState.knockedDown, stationary: isStationary(debuffState) };
     const damage = { pow: atk.pow, modifiers: atk.damageModifiers };
-    const populations: PmPopulation[] = [];
+    const populations: AverageRerollPopulation[] = [];
 
-    if (original.hitNonCritChance > 0) {
-      const split = splitAttackDamageForPuppetMaster(damage, atk.effects, target, 'nonCrit');
-      if (split.atOrAboveAverage.size > 0) {
+    if (hitMassToCheck.hitNonCritChance > 0) {
+      const split = splitAttackDamageByAverage(damage, atk.effects, target, 'nonCrit', 'rerollBelowAverage');
+      const keptMass = hitMassToCheck.hitNonCritChance * (1 - split.rerollMass);
+      if (keptMass > 0) {
         populations.push({
-          profile: { missChance: 0, hitNonCritChance: original.hitNonCritChance, hitCritChance: 0, nonCritDamage: split.atOrAboveAverage, critDamage: new Map() },
-          resultingMask: unspentMask,
+          profile: { missChance: 0, hitNonCritChance: keptMass, hitCritChance: 0, nonCritDamage: normalizeMap(split.kept, 1 - split.rerollMass), critDamage: new Map() },
+          spent: false,
         });
       }
-      if (split.belowAverageMass > 0) {
+      if (split.rerollMass > 0) {
         populations.push({
-          profile: { missChance: 0, hitNonCritChance: original.hitNonCritChance * split.belowAverageMass, hitCritChance: 0, nonCritDamage: original.nonCritDamage, critDamage: new Map() },
-          resultingMask: spentMask,
+          profile: { missChance: 0, hitNonCritChance: hitMassToCheck.hitNonCritChance * split.rerollMass, hitCritChance: 0, nonCritDamage: trueOriginal.nonCritDamage, critDamage: new Map() },
+          spent: true,
         });
       }
     }
-    if (original.hitCritChance > 0) {
-      const split = splitAttackDamageForPuppetMaster(damage, atk.effects, target, 'crit');
-      if (split.atOrAboveAverage.size > 0) {
+    if (hitMassToCheck.hitCritChance > 0) {
+      const split = splitAttackDamageByAverage(damage, atk.effects, target, 'crit', 'rerollBelowAverage');
+      const keptMass = hitMassToCheck.hitCritChance * (1 - split.rerollMass);
+      if (keptMass > 0) {
         populations.push({
-          profile: { missChance: 0, hitNonCritChance: 0, hitCritChance: original.hitCritChance, nonCritDamage: new Map(), critDamage: split.atOrAboveAverage },
-          resultingMask: unspentMask,
+          profile: { missChance: 0, hitNonCritChance: 0, hitCritChance: keptMass, nonCritDamage: new Map(), critDamage: normalizeMap(split.kept, 1 - split.rerollMass) },
+          spent: false,
         });
       }
-      if (split.belowAverageMass > 0) {
+      if (split.rerollMass > 0) {
         populations.push({
-          profile: { missChance: 0, hitNonCritChance: 0, hitCritChance: original.hitCritChance * split.belowAverageMass, nonCritDamage: new Map(), critDamage: original.critDamage },
-          resultingMask: spentMask,
+          profile: { missChance: 0, hitNonCritChance: 0, hitCritChance: hitMassToCheck.hitCritChance * split.rerollMass, nonCritDamage: new Map(), critDamage: trueOriginal.critDamage },
+          spent: true,
         });
       }
     }
@@ -969,15 +1057,18 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
    * section for the exact rule. Unlike Focus/Fury's `bestAction`, this is never a CHOICE: every
    * returned population actually occurs, in a different slice of this roll, each pre-scaled to its
    * own share of the mass entering it - the caller just sums over them like any other outcome.
-   * Degenerates to `[{ profile: profileFor(...), resultingMask: pmMask }]` (today's exact
+   * Degenerates to `[{ profile: trueOriginal, resultingMask: pmMask }]` (today's exact
    * pre-Puppet-Master behavior) whenever this attacker has no unspent token, which is always true
-   * when no attacker has Puppet Master active at all.
+   * when no attacker has Puppet Master active at all. `trueOriginal` is `profileFor(k, atk,
+   * debuffState)` - computed ONCE by the caller and shared with every later stage (Offensive/
+   * Defensive Knowledge of the Damned), since Puppet Master is always the FIRST stage in the
+   * composition pipeline (see the module doc comment) and so is the only stage where "the mass in
+   * front of me" and "what a reroll draws" ever coincide.
    */
-  function resolvePmSplit(k: number, atk: SequencedAttack, debuffState: DebuffState, pmMask: number): PmPopulation[] {
-    const original = profileFor(k, atk, debuffState);
+  function resolvePmSplit(k: number, atk: SequencedAttack, debuffState: DebuffState, pmMask: number, trueOriginal: AttackProfile): PmPopulation[] {
     const pmBit = pmBitOf.get(atk.attackerIndex ?? -1);
     const pmAvailable = pmBit !== undefined && (pmMask & pmBit) === 0;
-    if (!pmAvailable) return [{ profile: original, resultingMask: pmMask }];
+    if (!pmAvailable) return [{ profile: trueOriginal, resultingMask: pmMask }];
 
     const spentMask = pmMask | pmBit;
     const { usesAutoHit } = contextFor(atk, debuffState);
@@ -987,15 +1078,15 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     if (!usesAutoHit) {
       // "The first missed attack roll": the miss portion gets a full fresh redraw from the SAME
       // pool (a reroll IS an i.i.d. redraw - see the module doc comment), which is mathematically
-      // identical to `original` itself, scaled down to just its own missChance-sized share.
-      if (original.missChance > 0) {
+      // identical to `trueOriginal` itself, scaled down to just its own missChance-sized share.
+      if (trueOriginal.missChance > 0) {
         populations.push({
           profile: {
-            missChance: original.missChance * original.missChance,
-            hitNonCritChance: original.missChance * original.hitNonCritChance,
-            hitCritChance: original.missChance * original.hitCritChance,
-            nonCritDamage: original.nonCritDamage,
-            critDamage: original.critDamage,
+            missChance: trueOriginal.missChance * trueOriginal.missChance,
+            hitNonCritChance: trueOriginal.missChance * trueOriginal.hitNonCritChance,
+            hitCritChance: trueOriginal.missChance * trueOriginal.hitCritChance,
+            nonCritDamage: trueOriginal.nonCritDamage,
+            critDamage: trueOriginal.critDamage,
           },
           resultingMask: spentMask,
         });
@@ -1004,24 +1095,162 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
       // (a second chance on a hit that turned out to be this attacker's last real opportunity) -
       // see the module doc comment's point 3.
       if (damageCheckEligible) {
-        populations.push(...damageCheckPopulations(atk, debuffState, original, pmMask, spentMask));
-      } else if (original.hitNonCritChance + original.hitCritChance > 0) {
+        for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal)) {
+          populations.push({ profile: p.profile, resultingMask: p.spent ? spentMask : pmMask });
+        }
+      } else if (trueOriginal.hitNonCritChance + trueOriginal.hitCritChance > 0) {
         populations.push({
-          profile: { missChance: 0, hitNonCritChance: original.hitNonCritChance, hitCritChance: original.hitCritChance, nonCritDamage: original.nonCritDamage, critDamage: original.critDamage },
+          profile: { missChance: 0, hitNonCritChance: trueOriginal.hitNonCritChance, hitCritChance: trueOriginal.hitCritChance, nonCritDamage: trueOriginal.nonCritDamage, critDamage: trueOriginal.critDamage },
           resultingMask: pmMask,
         });
       }
     } else if (damageCheckEligible) {
       // Auto-hit: there's no attack roll to miss, so the only possible check is the damage roll
       // (always non-crit - an auto-hit attack can never crit, see attack-model.ts).
-      populations.push(...damageCheckPopulations(atk, debuffState, original, pmMask, spentMask));
+      for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal)) {
+        populations.push({ profile: p.profile, resultingMask: p.spent ? spentMask : pmMask });
+      }
     } else {
       // Auto-hit, but not (yet) eligible for the damage check either - nothing to do at this roll,
       // the token stays reserved for a later opportunity.
-      populations.push({ profile: original, resultingMask: pmMask });
+      populations.push({ profile: trueOriginal, resultingMask: pmMask });
     }
 
     return populations;
+  }
+
+  /** One genuinely-occurring sub-population arising from Offensive Knowledge of the Damned's fixed
+   *  rule at THIS roll - shaped like `PmPopulation` but tracking a charge COUNT (`resultingLeft`)
+   *  rather than a bitmask, since Offensive Knowledge of the Damned's charges are fungible (a GLOBAL
+   *  pool shared by every attacker, unlike Puppet Master's per-attacker token) - only HOW MANY
+   *  charges remain matters, not which one was spent. */
+  interface KotdPopulation {
+    profile: AttackProfile;
+    resultingLeft: number;
+  }
+
+  /**
+   * Every sub-population that genuinely happens when resolving attack `k` under Offensive Knowledge
+   * of the Damned's fixed rule, given `kotdOffLeft` charges remaining entering this roll - a GLOBAL
+   * pool shared by every attacker (unlike Puppet Master's per-attacker token), generalizing Puppet
+   * Master's exact rule via the "reserve" eligibility check (`damageRerollEligibleForOffKotd`)
+   * instead of PM's own per-attacker `isAutoHitGuaranteedForRest`/`isLastAttackOfAttacker`.
+   * `inputProfile` is whatever profile the PREVIOUS stage (Puppet Master) produced for this
+   * population; `trueOriginal` is always `profileFor(k, atk, debuffState)`, shared by every stage -
+   * see the module doc comment's "two profiles" section. Never a CHOICE - every population returned
+   * genuinely happens, pre-scaled to its own share, exactly like `resolvePmSplit`.
+   */
+  function resolveKotdOffSplit(
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    kotdOffLeft: number,
+    shotsRemainingThisRow: number,
+    inputProfile: AttackProfile,
+    trueOriginal: AttackProfile
+  ): KotdPopulation[] {
+    if (kotdOffLeft === 0) return [{ profile: inputProfile, resultingLeft: 0 }];
+
+    const { usesAutoHit } = contextFor(atk, debuffState);
+    const damageEligible = damageRerollEligibleForOffKotd(kotdOffLeft, k, debuffState, shotsRemainingThisRow);
+    const populations: KotdPopulation[] = [];
+
+    if (!usesAutoHit) {
+      // Unconditional: any miss gets rerolled immediately, mirroring Puppet Master's own rule 1 -
+      // never gated by the reserve check (only the DAMAGE-roll fallback needs to reserve charges).
+      if (inputProfile.missChance > 0) {
+        populations.push({
+          profile: {
+            missChance: inputProfile.missChance * trueOriginal.missChance,
+            hitNonCritChance: inputProfile.missChance * trueOriginal.hitNonCritChance,
+            hitCritChance: inputProfile.missChance * trueOriginal.hitCritChance,
+            nonCritDamage: trueOriginal.nonCritDamage,
+            critDamage: trueOriginal.critDamage,
+          },
+          resultingLeft: kotdOffLeft - 1,
+        });
+      }
+      if (damageEligible) {
+        for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal)) {
+          populations.push({ profile: p.profile, resultingLeft: p.spent ? kotdOffLeft - 1 : kotdOffLeft });
+        }
+      } else if (inputProfile.hitNonCritChance + inputProfile.hitCritChance > 0) {
+        populations.push({
+          profile: { missChance: 0, hitNonCritChance: inputProfile.hitNonCritChance, hitCritChance: inputProfile.hitCritChance, nonCritDamage: inputProfile.nonCritDamage, critDamage: inputProfile.critDamage },
+          resultingLeft: kotdOffLeft,
+        });
+      }
+    } else if (damageEligible) {
+      for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal)) {
+        populations.push({ profile: p.profile, resultingLeft: p.spent ? kotdOffLeft - 1 : kotdOffLeft });
+      }
+    } else {
+      populations.push({ profile: inputProfile, resultingLeft: kotdOffLeft });
+    }
+
+    return populations;
+  }
+
+  /** Reroll the attack roll if it's currently a hit - the mirror image of Puppet Master/Offensive
+   *  Knowledge of the Damned's own miss-reroll (see the module doc comment's "two profiles"
+   *  section): pure arithmetic on `AttackProfile`'s three chance scalars, no attack-model.ts helper
+   *  needed (hit/crit/miss are exact `AttackProfile` aggregates, not lossy post-ARM buckets, unlike
+   *  a damage roll). Only meaningful for a non-auto-hit roll - `resolveKotdDefChoice` guards that. */
+  function rerollAttackRollIfHit(inputProfile: AttackProfile, trueOriginal: AttackProfile): AttackProfile {
+    const hitMass = inputProfile.hitNonCritChance + inputProfile.hitCritChance;
+    return {
+      missChance: inputProfile.missChance + hitMass * trueOriginal.missChance,
+      hitNonCritChance: hitMass * trueOriginal.hitNonCritChance,
+      hitCritChance: hitMass * trueOriginal.hitCritChance,
+      nonCritDamage: trueOriginal.nonCritDamage,
+      critDamage: trueOriginal.critDamage,
+    };
+  }
+
+  /** Blends a below-average-rerolled-away damage map (`kept`, already scaled to sum to `1 -
+   *  rerollMass`) with the rerolled-away mass redrawn fresh from `trueOriginalMap` (which sums to
+   *  1) into ONE properly-normalized conditional distribution (summing back to 1) - used by
+   *  `rerollDamageIfAboveAverage` to produce a single merged CANDIDATE profile, unlike
+   *  `damageRerollPopulations`'s two disjoint populations (Defensive Knowledge of the Damned
+   *  compares whole-profile candidates, it doesn't split mass into populations that all happen). */
+  function mergeWeighted(kept: Map<number, number>, rerollMass: number, trueOriginalMap: Map<number, number>): Map<number, number> {
+    const merged = new Map<number, number>(kept);
+    if (rerollMass > 0) {
+      for (const [d, p] of trueOriginalMap) {
+        merged.set(d, (merged.get(d) ?? 0) + rerollMass * p);
+      }
+    }
+    return merged;
+  }
+
+  /** Reroll the damage roll if it's currently above average - the mirror image of Puppet
+   *  Master/Offensive Knowledge of the Damned's own below-average check, via
+   *  `splitAttackDamageByAverage(..., 'rerollAboveAverage')`. Produces ONE merged profile (via
+   *  `mergeWeighted`) rather than splitting into two disjoint populations, since Defensive Knowledge
+   *  of the Damned picks a single whole-profile CANDIDATE to compare, not a mixture that always
+   *  happens. `hitNonCritChance`/`hitCritChance` stay exactly `inputProfile`'s own - only the damage
+   *  MAPS change, since the reroll-or-keep mixture is folded entirely into them (see `mergeWeighted`). */
+  function rerollDamageIfAboveAverage(
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    inputProfile: AttackProfile,
+    trueOriginal: AttackProfile
+  ): AttackProfile {
+    const { arm } = contextFor(atk, debuffState);
+    const target = { arm, baseArm, knockedDown: debuffState.knockedDown, stationary: isStationary(debuffState) };
+    const damage = { pow: atk.pow, modifiers: atk.damageModifiers };
+
+    let nonCritDamage = inputProfile.nonCritDamage;
+    if (inputProfile.hitNonCritChance > 0) {
+      const split = splitAttackDamageByAverage(damage, atk.effects, target, 'nonCrit', 'rerollAboveAverage');
+      nonCritDamage = mergeWeighted(split.kept, split.rerollMass, trueOriginal.nonCritDamage);
+    }
+    let critDamage = inputProfile.critDamage;
+    if (inputProfile.hitCritChance > 0) {
+      const split = splitAttackDamageByAverage(damage, atk.effects, target, 'crit', 'rerollAboveAverage');
+      critDamage = mergeWeighted(split.kept, split.rerollMass, trueOriginal.critDamage);
+    }
+    return { missChance: inputProfile.missChance, hitNonCritChance: inputProfile.hitNonCritChance, hitCritChance: inputProfile.hitCritChance, nonCritDamage, critDamage };
   }
 
   // Declared up here (rather than down by the forward simulation that mainly uses it) because
@@ -1032,8 +1261,130 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     focusLeft: number;
     furyLeft: number;
     pmMask: number;
+    kotdOffLeft: number;
+    kotdDefLeft: number;
   }
-  const fwdKey = (s: FwdState) => `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.pmMask}`;
+  const fwdKey = (s: FwdState) =>
+    `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.pmMask}|${s.kotdOffLeft}|${s.kotdDefLeft}`;
+
+  /** Resolves one already-realized `AppliedOutcome` of attack `k` into its `ResourceBranch[]` (via
+   *  the existing `bestAction`/Focus-Fury choice, unaffected by anything above this level) plus the
+   *  `ValueLookup` continuation that produced them - shared by `attackChainValue`'s own outer
+   *  accumulation loop AND `profileScore` (Defensive Knowledge of the Damned's candidate scorer),
+   *  so Critical Shred's recursive continuation logic is never duplicated (the single biggest
+   *  correctness risk in this feature - see the module doc comment). */
+  function resolveOneOutcome(
+    outcome: AppliedOutcome,
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    resultingMask: number,
+    resultingOffKotdLeft: number,
+    resultingDefKotdLeft: number,
+    shotsRemainingThisRow: number,
+    depthRemaining: number,
+    outerValueAt: ExtendedValueLookup,
+    cache: Map<string, number>
+  ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup } {
+    const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
+    const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+    const continuationValueAt: ValueLookup = continuesChain
+      ? (b, d, f, fu) =>
+          attackChainValue(k, atk, d, b, f, fu, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow, depthRemaining - 1, outerValueAt, cache)
+      : (b, d, f, fu) => outerValueAt(b, d, f, fu, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft);
+    const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focusLeft, furyLeft, toughRules, healingRules, continuationValueAt);
+    return { branches, continuationValueAt };
+  }
+
+  /** Aggregates `outcomeScore` (the SAME lexicographic survival-value/probability/expected-boxes
+   *  triple `bestAction` already uses for Focus/Fury) across every outcome a WHOLE profile can
+   *  produce, weighted by each outcome's own probability - the piece `bestAction` itself never
+   *  needed, since it only ever scores a single already-realized outcome. Used ONLY to compare
+   *  Defensive Knowledge of the Damned's candidate profiles against each other. */
+  function profileScore(
+    profile: AttackProfile,
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    resultingMask: number,
+    resultingOffKotdLeft: number,
+    candidateDefKotdLeft: number,
+    shotsRemainingThisRow: number,
+    depthRemaining: number,
+    outerValueAt: ExtendedValueLookup,
+    cache: Map<string, number>
+  ): [number, number, number] {
+    let score: [number, number, number] = [0, 0, 0];
+    for (const outcome of applyProfile(profile)) {
+      const { branches, continuationValueAt } = resolveOneOutcome(
+        outcome, k, atk, debuffState, boxes, focusLeft, furyLeft,
+        resultingMask, resultingOffKotdLeft, candidateDefKotdLeft, shotsRemainingThisRow,
+        depthRemaining, outerValueAt, cache
+      );
+      const s = outcomeScore(branches, continuationValueAt);
+      score = [score[0] + outcome.probability * s[0], score[1] + outcome.probability * s[1], score[2] + outcome.probability * s[2]];
+    }
+    return score;
+  }
+
+  /**
+   * Defensive Knowledge of the Damned's genuine optimal choice (unlike Puppet Master/Offensive
+   * Knowledge of the Damned's fixed-rule population splits): compares up to 3 whole-profile
+   * candidates - don't spend / reroll the attack roll if it's a hit / reroll the damage roll if
+   * it's above average - via `profileScore`, picking whichever candidate MAXIMIZES the target's
+   * survival value, exactly the same `isBetterScore` comparison `bestAction` already uses for
+   * Focus/Fury. `inputProfile` is Offensive Knowledge of the Damned's own output for this
+   * population; `trueOriginal` is shared by every stage - see the module doc comment.
+   */
+  function resolveKotdDefChoice(
+    k: number,
+    atk: SequencedAttack,
+    debuffState: DebuffState,
+    kotdDefLeft: number,
+    inputProfile: AttackProfile,
+    trueOriginal: AttackProfile,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    resultingMask: number,
+    resultingOffKotdLeft: number,
+    shotsRemainingThisRow: number,
+    depthRemaining: number,
+    outerValueAt: ExtendedValueLookup,
+    cache: Map<string, number>
+  ): { profile: AttackProfile; resultingLeft: number } {
+    if (kotdDefLeft === 0) return { profile: inputProfile, resultingLeft: 0 };
+
+    const scoreOf = (profile: AttackProfile, candidateLeft: number) =>
+      profileScore(profile, k, atk, debuffState, boxes, focusLeft, furyLeft, resultingMask, resultingOffKotdLeft, candidateLeft, shotsRemainingThisRow, depthRemaining, outerValueAt, cache);
+
+    let best = { profile: inputProfile, resultingLeft: kotdDefLeft };
+    let bestScore = scoreOf(inputProfile, kotdDefLeft);
+
+    const { usesAutoHit } = contextFor(atk, debuffState);
+    if (!usesAutoHit) {
+      const candidate = rerollAttackRollIfHit(inputProfile, trueOriginal);
+      const score = scoreOf(candidate, kotdDefLeft - 1);
+      if (isBetterScore(score, bestScore)) {
+        best = { profile: candidate, resultingLeft: kotdDefLeft - 1 };
+        bestScore = score;
+      }
+    }
+
+    const dmgCandidate = rerollDamageIfAboveAverage(atk, debuffState, inputProfile, trueOriginal);
+    const dmgScore = scoreOf(dmgCandidate, kotdDefLeft - 1);
+    if (isBetterScore(dmgScore, bestScore)) {
+      best = { profile: dmgCandidate, resultingLeft: kotdDefLeft - 1 };
+    }
+
+    return best;
+  }
 
   /**
    * Resolves one instance of attack `k` starting from the given state, and - if that instance
@@ -1042,16 +1393,20 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
    * `MAX_SHRED_DEPTH` deep. Attacks without Critical Shred take the `outerValueAt` branch on
    * every outcome, so this degenerates to exactly the pre-Shred single-instance computation - it
    * replaces the plain `bestAction`+`branchesValue` call at every use site, shred or not.
-   * Memoized per (depthRemaining, debuffState, boxes, focus, fury, pmMask): the same state is
-   * frequently reachable via multiple different paths through both the recursion and the
-   * surrounding (boxes x focus x fury x pmMask) grid this is called from.
+   * Memoized per (depthRemaining, debuffState, boxes, focus, fury, pmMask, kotdOffLeft,
+   * kotdDefLeft): the same state is frequently reachable via multiple different paths through both
+   * the recursion and the surrounding grid this is called from.
    *
-   * Also where Puppet Master's fixed rule actually applies (`resolvePmSplit`, see the module doc
-   * comment): sums over every sub-population `resolvePmSplit` returns for this roll (never a
-   * choice - every population genuinely happens, in its own slice of the roll), each with its own
-   * outcomes and its own resulting mask. The Shred self-recursion below passes each population's
-   * OWN `resultingMask` forward, not the incoming `pmMask` - which is what makes the token
-   * correctly re-evaluable on every instance of a chain, not just its first roll.
+   * Composes the full Knowledge of the Damned pipeline (see the module doc comment): Puppet
+   * Master's `resolvePmSplit` -> Offensive Knowledge of the Damned's `resolveKotdOffSplit` -> Defensive
+   * Knowledge of the Damned's `resolveKotdDefChoice`, each stage consuming the previous stage's
+   * output profile, all three sharing the SAME `trueOriginal` (the roll's true unconditional
+   * distribution - what a fresh reroll actually draws from). The first two are pure SUMS over
+   * every population that genuinely happens; the third is a genuine CHOICE, run once per (Puppet
+   * Master population x Offensive Knowledge of the Damned population). The Shred self-recursion
+   * inside `resolveOneOutcome` passes each stage's OWN resulting resource values forward, not the
+   * incoming ones - which is what makes every one of these resources correctly re-evaluable on
+   * every instance of a chain, not just its first roll.
    */
   function attackChainValue(
     k: number,
@@ -1061,24 +1416,36 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     focusLeft: number,
     furyLeft: number,
     pmMask: number,
+    kotdOffLeft: number,
+    kotdDefLeft: number,
+    shotsRemainingThisRow: number,
     depthRemaining: number,
-    outerValueAt: MaskedValueLookup,
+    outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
   ): number {
-    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${pmMask}`;
+    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}`;
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
 
+    const trueOriginal = profileFor(k, atk, debuffState);
     let total = 0;
-    for (const { profile, resultingMask } of resolvePmSplit(k, atk, debuffState, pmMask)) {
-      for (const outcome of applyProfile(profile)) {
-        const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
-        const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
-        const continuationValueAt: ValueLookup = continuesChain
-          ? (b, d, f, fu) => attackChainValue(k, atk, d, b, f, fu, resultingMask, depthRemaining - 1, outerValueAt, cache)
-          : (b, d, f, fu) => outerValueAt(b, d, f, fu, resultingMask);
-        const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focusLeft, furyLeft, toughRules, healingRules, continuationValueAt);
-        total += outcome.probability * branchesValue(branches, continuationValueAt);
+    for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, debuffState, pmMask, trueOriginal)) {
+      for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
+        k, atk, debuffState, kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal
+      )) {
+        const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
+          k, atk, debuffState, kotdDefLeft, offProfile, trueOriginal,
+          boxes, focusLeft, furyLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
+          depthRemaining, outerValueAt, cache
+        );
+        for (const outcome of applyProfile(finalProfile)) {
+          const { branches, continuationValueAt } = resolveOneOutcome(
+            outcome, k, atk, debuffState, boxes, focusLeft, furyLeft,
+            resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
+            depthRemaining, outerValueAt, cache
+          );
+          total += outcome.probability * branchesValue(branches, continuationValueAt);
+        }
       }
     }
 
@@ -1115,15 +1482,18 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     focusLeft: number,
     furyLeft: number,
     pmMask: number,
+    kotdOffLeft: number,
+    kotdDefLeft: number,
+    shotsRemainingThisRow: number,
     probability: number,
-    outerValueAt: MaskedValueLookup,
+    outerValueAt: ExtendedValueLookup,
     shredCache: Map<string, number>,
     stats: { hitMass: number; critMass: number; damageMass: number },
     next: Map<string, { state: FwdState; probability: number }>,
     destroyed: { mass: number },
     trackHitCrit: boolean
   ): void {
-    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, pmMask };
+    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, pmMask, kotdOffLeft, kotdDefLeft };
     let current = new Map<string, { state: FwdState; probability: number }>([
       [fwdKey(initialState), { state: initialState, probability }],
     ]);
@@ -1135,50 +1505,56 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
 
       for (const { state, probability: p0 } of current.values()) {
         if (p0 <= 0) continue;
-        // Re-derives the SAME split the backward pass already made for this exact state (not a
+        // Re-derives the SAME pipeline the backward pass already ran for this exact state (not a
         // fresh/independent one) - see `resolvePmSplit`'s own doc comment for why this is
-        // guaranteed to match whatever `attackChainValue` summed over. Every population returned
-        // genuinely happens (never a competing choice), so this loops over ALL of them, not a
-        // single "winner".
-        for (const { profile, resultingMask } of resolvePmSplit(k, atk, state.debuffState, state.pmMask)) {
-          for (const outcome of applyProfile(profile)) {
-            const p = p0 * outcome.probability;
-            if (p <= 0) continue;
-            if (topLevel && trackHitCrit) {
-              if (outcome.isHit) stats.hitMass += p;
-              if (outcome.isCrit) stats.critMass += p;
-            }
-            stats.damageMass += p * outcome.damageDealt;
-
-            const newDebuffState = applyStatEffectsForOutcome(state.debuffState, atk.statEffects, outcome.isCrit);
-            const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
-            const continuationValueAt: ValueLookup = continuesChain
-              ? (b, d, f, fu) => attackChainValue(k, atk, d, b, f, fu, resultingMask, depthRemaining - 1, outerValueAt, shredCache)
-              : (b, d, f, fu) => outerValueAt(b, d, f, fu, resultingMask);
-            const branches = bestAction(
-              state.boxes,
-              outcome.damageDealt,
-              newDebuffState,
-              state.focusLeft,
-              state.furyLeft,
-              toughRules,
-              healingRules,
-              continuationValueAt
+        // guaranteed to match whatever `attackChainValue` summed over/chose. Puppet Master and
+        // Offensive Knowledge of the Damned are never a competing choice, so this loops over ALL
+        // of their populations; Defensive Knowledge of the Damned's choice is recomputed fresh
+        // (pure function of reproducible inputs, exactly like `bestAction` already is in both
+        // passes today).
+        const trueOriginal = profileFor(k, atk, state.debuffState);
+        for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, state.debuffState, state.pmMask, trueOriginal)) {
+          for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
+            k, atk, state.debuffState, state.kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal
+          )) {
+            const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
+              k, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
+              state.boxes, state.focusLeft, state.furyLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
+              depthRemaining, outerValueAt, shredCache
             );
-
-            for (const b of branches) {
-              const pp = p * b.probability;
-              if (pp <= 0) continue;
-              if (b.destroyed) {
-                destroyed.mass += pp;
-                continue;
+            for (const outcome of applyProfile(finalProfile)) {
+              const p = p0 * outcome.probability;
+              if (p <= 0) continue;
+              if (topLevel && trackHitCrit) {
+                if (outcome.isHit) stats.hitMass += p;
+                if (outcome.isCrit) stats.critMass += p;
               }
-              const fwd: FwdState = { boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft, pmMask: resultingMask };
-              const key = fwdKey(fwd);
-              const target = continuesChain ? continuing : next;
-              const existing = target.get(key);
-              if (existing) existing.probability += pp;
-              else target.set(key, { state: fwd, probability: pp });
+              stats.damageMass += p * outcome.damageDealt;
+
+              const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+              const { branches } = resolveOneOutcome(
+                outcome, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
+                resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
+                depthRemaining, outerValueAt, shredCache
+              );
+
+              for (const b of branches) {
+                const pp = p * b.probability;
+                if (pp <= 0) continue;
+                if (b.destroyed) {
+                  destroyed.mass += pp;
+                  continue;
+                }
+                const fwd: FwdState = {
+                  boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft,
+                  pmMask: resultingMask, kotdOffLeft: resultingOffKotdLeft, kotdDefLeft: resultingDefKotdLeft,
+                };
+                const key = fwdKey(fwd);
+                const target = continuesChain ? continuing : next;
+                const existing = target.get(key);
+                if (existing) existing.probability += pp;
+                else target.set(key, { state: fwd, probability: pp });
+              }
             }
           }
         }
@@ -1196,7 +1572,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
    * average over an unknown future (see the module doc comment). `shotsValue(s, ...)` is built as
    * a small recursive value function, one memoized "level" per remaining-shot-count s (0..maxShots
    * for this attack), rather than a single blended lookahead: `shotsValue(0, ...)` is exactly
-   * "attacks k+1 onward" (`nextTables`); `shotsValue(s, ...)` for s > 0 is "resolve one more shot
+   * "attacks k+1 onward" (`getNextTable`); `shotsValue(s, ...)` for s > 0 is "resolve one more shot
    * of this attack (`attackChainValue`, which already handles that one shot's own Critical Shred
    * chain if any), then `shotsValue(s-1, ...)` afterward". A single cache PER LEVEL s (not one per
    * grid point) is safe and sufficient, exactly like the plain per-attack `shredCache` used to be:
@@ -1204,21 +1580,32 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
    * no matter which debuffState/grid-point this level was entered from. Returned rather than
    * inlined so the forward pass below can reuse the exact same functions (and their caches) as its
    * own per-shot lookahead, keeping the replayed Focus/Fury policy consistent with what the
-   * backward pass actually optimized for.
+   * backward pass actually optimized for. `getNextTable` is a LAZY, memoized accessor (see "Lazy
+   * value tables" below) rather than a pre-built `Map` - `shotsValue`'s own base case is exactly
+   * the point where "attacks k+1 onward" is first actually needed, so this is where that laziness
+   * bottoms out into a real (and then cached) computation.
    */
   function buildShotsValue(
     k: number,
     atk: SequencedAttack,
-    nextTables: Map<string, ValueTable>
-  ): (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number) => number {
+    getNextTable: (debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => ValueTable
+  ): (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number {
     const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
     const cachesByShotsRemaining: Map<string, number>[] = Array.from({ length: maxShots + 1 }, () => new Map());
 
-    function shotsValue(shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number): number {
+    function shotsValue(
+      shotsRemaining: number,
+      debuffState: DebuffState,
+      boxes: number,
+      focusLeft: number,
+      furyLeft: number,
+      pmMask: number,
+      kotdOffLeft: number,
+      kotdDefLeft: number
+    ): number {
       if (shotsRemaining === 0) {
-        const table = nextTables.get(tableKey(debuffState, pmMask));
-        // Should always be present - computeReachableDebuffStates over-approximates, never under.
-        return table ? readValueTable(table, boxes, focusLeft, furyLeft) : 0;
+        const table = getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft);
+        return readValueTable(table, boxes, focusLeft, furyLeft);
       }
       return attackChainValue(
         k,
@@ -1228,8 +1615,11 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
         focusLeft,
         furyLeft,
         pmMask,
+        kotdOffLeft,
+        kotdDefLeft,
+        shotsRemaining - 1,
         MAX_SHRED_DEPTH,
-        (b, d, f, fu, m) => shotsValue(shotsRemaining - 1, d, b, f, fu, m),
+        (b, d, f, fu, m, o, dk) => shotsValue(shotsRemaining - 1, d, b, f, fu, m, o, dk),
         cachesByShotsRemaining[shotsRemaining]
       );
     }
@@ -1238,38 +1628,55 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
   }
 
   // --- Backward induction ---
-  // valueTables[k] = one (boxes x focus x fury) table PER reachable debuff state, giving
-  // P(survive attacks[k..n-1] onward | state), playing the optimal Focus/Fury policy.
-  // valueTables[n] is the base case: no attacks left, so any alive state has already survived.
-  const valueTables: Map<string, ValueTable>[] = new Array(n + 1);
-  valueTables[n] = new Map();
-  for (const debuffState of debuffStatesPerStep[n]) {
-    for (let mask = 0; mask < maxPmMask; mask++) {
-      valueTables[n].set(tableKey(debuffState, mask), buildValueTable(initialBoxes, maxFocus, maxFury, () => 1));
-    }
-  }
+  // getValueTableAt[k](debuffState, pmMask, kotdOffLeft, kotdDefLeft) gives one (boxes x focus x
+  // fury) table, giving P(survive attacks[k..n-1] onward | state), playing the optimal Focus/Fury
+  // policy. getValueTableAt[n] is the base case: no attacks left, so any alive state has already
+  // survived - the SAME table regardless of state, built once and shared, never keyed at all.
+  //
+  // Lazy value tables: earlier versions of this engine eagerly built a table for EVERY reachable
+  // debuffState (via a dedicated `computeReachableDebuffStates` precomputation pass) x every
+  // `pmMask`/`kotdOffLeft`/`kotdDefLeft` combination, at every step k, before any of it was known
+  // to be needed. Once Knowledge of the Damned's charge counters made that cross product genuinely
+  // large (up to 11 x 11 per debuffState x mask), most of that eager work turned out to be wasted:
+  // a short sequence can never actually reach a state that has spent more charges than it has had
+  // rolls, for instance, so entire slices of the grid were built and then never read. Each
+  // `getValueTableAt[k]` below is instead a memoized accessor (`cache`, one `Map` per k, replacing
+  // the old eager `valueTables[k]` Map one-for-one) that builds a table THE FIRST TIME it's asked
+  // for a given `(debuffState, pmMask, kotdOffLeft, kotdDefLeft)` tuple, and returns the cached
+  // table on every later ask - so only combinations some real branch of the computation actually
+  // reaches ever get built at all, and each still only ever gets built once. This is exactly the
+  // same "compute on demand, remember it" idea `attackChainValue`'s own `cache` parameter already
+  // uses one level down - just applied to the (boxes x focus x fury) table as a whole instead of a
+  // single number. Building the accessors bottom-up (`k = n` down to `0`, same order as before)
+  // still matters: `getValueTableAt[k]`'s own build step calls `shotsValueByAttack[k]`, which in
+  // turn calls `getValueTableAt[k + 1]` at its own base case - so accessors must exist before a
+  // LATER one's build step can call into them, even though no actual TABLE gets built until the
+  // forward simulation below first asks for one.
+  const baseValueTable = buildValueTable(initialBoxes, maxFocus, maxFury, () => 1);
+  const getValueTableAt: ((debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => ValueTable)[] = new Array(n + 1);
+  getValueTableAt[n] = () => baseValueTable;
 
   // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
-  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number) => number)[] =
+  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number)[] =
     new Array(n);
 
   for (let k = n - 1; k >= 0; k--) {
     const atk = attacks[k];
-    const nextTables = valueTables[k + 1];
-    valueTables[k] = new Map();
-    const shotsValue = buildShotsValue(k, atk, nextTables);
+    const shotsValue = buildShotsValue(k, atk, getValueTableAt[k + 1]);
     shotsValueByAttack[k] = shotsValue;
     const rofDist = rofOutcomes(atk);
+    const cache = new Map<string, ValueTable>();
 
-    for (const debuffState of debuffStatesPerStep[k]) {
-      for (let mask = 0; mask < maxPmMask; mask++) {
-        const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) =>
-          rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, mask), 0)
-        );
-
-        valueTables[k].set(tableKey(debuffState, mask), table);
-      }
-    }
+    getValueTableAt[k] = (debuffState, mask, off, def) => {
+      const key = tableKey(debuffState, mask, off, def);
+      const cached = cache.get(key);
+      if (cached) return cached;
+      const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) =>
+        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, mask, off, def), 0)
+      );
+      cache.set(key, table);
+      return table;
+    };
   }
 
   /**
@@ -1291,7 +1698,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     k: number,
     atk: SequencedAttack,
     initialDist: Map<string, { state: FwdState; probability: number }>,
-    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number) => number,
+    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number,
     stats: { hitMass: number; critMass: number; damageMass: number },
     next: Map<string, { state: FwdState; probability: number }>,
     destroyed: { mass: number }
@@ -1312,7 +1719,7 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
         const isLastShot = shotIndex === count;
         const shredCache = new Map<string, number>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
-        const valueAt: MaskedValueLookup = (b, d, f, fu, m) => shotsValue(shotsRemainingAfter, d, b, f, fu, m);
+        const valueAt: ExtendedValueLookup = (b, d, f, fu, m, o, dk) => shotsValue(shotsRemainingAfter, d, b, f, fu, m, o, dk);
 
         for (const { state, probability } of current.values()) {
           resolveAttackChainForward(
@@ -1323,6 +1730,9 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
             state.focusLeft,
             state.furyLeft,
             state.pmMask,
+            state.kotdOffLeft,
+            state.kotdDefLeft,
+            shotsRemainingAfter,
             probability,
             valueAt,
             shredCache,
@@ -1347,6 +1757,8 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
     focusLeft: maxFocus,
     furyLeft: maxFury,
     pmMask: 0,
+    kotdOffLeft: maxKotdOff,
+    kotdDefLeft: maxKotdDef,
   };
   dist.set(fwdKey(initialState), { state: initialState, probability: 1 });
 

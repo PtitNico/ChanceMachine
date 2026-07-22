@@ -104,6 +104,8 @@ export class OddsCalculator {
       furyPoints: OddsCalculator.clampResourcePoints(
         this.target.resourceKind() === 'fury' ? this.target.resourcePoints() : 0
       ),
+      offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
+      defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
       shieldArmBonus: shieldArmBonus(this.target),
       spellArmBonus: spellArmBonus(this.target),
       spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),

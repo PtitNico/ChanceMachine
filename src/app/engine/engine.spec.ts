@@ -1469,3 +1469,200 @@ describe('sequence engine - Puppet Master', () => {
     expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
   });
 });
+
+describe('sequence engine - Knowledge of the Damned', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when both counters are 0/absent, even with Puppet Master + Focus + Fury active (regression safety)', () => {
+    const attacks = [attack({ id: '1', hasPuppetMaster: true, attackerIndex: 0 }), attack({ id: '2', stat: 6, pow: 12 })];
+    const targetWithResources = { ...target, focusPoints: 1, furyPoints: 1 };
+    const withoutFields = computeSequenceOdds(attacks, targetWithResources);
+    const withZeroKotd = computeSequenceOdds(attacks, {
+      ...targetWithResources,
+      offensiveKnowledgeOfTheDamned: 0,
+      defensiveKnowledgeOfTheDamned: 0,
+    });
+    expect(withZeroKotd.finalDestroyChance).toBeCloseTo(withoutFields.finalDestroyChance, 9);
+  });
+
+  it('Offensive Knowledge of the Damned with exactly 1 charge collapses onto Puppet Master\'s own rule', () => {
+    const neverHits = attack({ id: '1', stat: -500, modifiers: { discard: { lowest: 1 } } });
+    const normalAttack = attack({ id: '2', stat: 6, pow: 12 });
+
+    const withPM = computeSequenceOdds(
+      [
+        { ...neverHits, hasPuppetMaster: true, attackerIndex: 0 },
+        { ...normalAttack, hasPuppetMaster: true, attackerIndex: 0 },
+      ],
+      target
+    );
+    const withOffKotd = computeSequenceOdds([neverHits, normalAttack], { ...target, offensiveKnowledgeOfTheDamned: 1 });
+
+    expect(withOffKotd.finalDestroyChance).toBeCloseTo(withPM.finalDestroyChance, 9);
+  });
+
+  it("the reserve rule: 2 charges are enough to also check position 1's damage roll, but 1 charge is not", () => {
+    // Position 1 auto-hits with a deliberately weak (but improvable - pow=arm, raw damage is plain
+    // 2d6) damage roll. Position 2 is a real (missable) roll, so position 1 is NOT "guaranteed
+    // auto-hit for the rest" and isn't the last attack - the reserve rule needs charges-after-here
+    // >= 1 (the one remaining missable roll at position 2) for position 1 to be checked at all.
+    const autoHitWeakDamage = attack({ id: '1', forceAutoHit: true, stat: 0, pow: 15 });
+    const laterRealRoll = attack({ id: '2', stat: 6, pow: 12 });
+
+    const without = computeSequenceOdds([autoHitWeakDamage, laterRealRoll], target);
+    const with1Charge = computeSequenceOdds([autoHitWeakDamage, laterRealRoll], { ...target, offensiveKnowledgeOfTheDamned: 1 });
+    const with2Charges = computeSequenceOdds([autoHitWeakDamage, laterRealRoll], { ...target, offensiveKnowledgeOfTheDamned: 2 });
+
+    // 1 charge - 1 spent here = 0 remaining, less than the 1 remaining missable roll at position 2:
+    // NOT eligible, position 1 stays exactly as bad as the no-KotD baseline.
+    expect(with1Charge.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage, 9);
+    // 2 charges - 1 spent here = 1 remaining, exactly covers position 2: a safe surplus, so
+    // position 1's damage roll DOES get checked.
+    expect(with2Charges.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
+  });
+
+  it('is a GLOBAL pool shared across every attacker, unlike Puppet Master\'s per-attacker token', () => {
+    const attackerA = attack({ id: 'a', stat: 6, pow: 12 });
+    const attackerB = attack({ id: 'b', stat: 6, pow: 12 });
+
+    const neither = computeSequenceOdds([attackerA, attackerB], target);
+    const with1Charge = computeSequenceOdds([attackerA, attackerB], { ...target, offensiveKnowledgeOfTheDamned: 1 });
+    const with2Charges = computeSequenceOdds([attackerA, attackerB], { ...target, offensiveKnowledgeOfTheDamned: 2 });
+    const bothWithOwnPmToken = computeSequenceOdds(
+      [
+        { ...attackerA, hasPuppetMaster: true, attackerIndex: 0 },
+        { ...attackerB, hasPuppetMaster: true, attackerIndex: 1 },
+      ],
+      target
+    );
+
+    // A single SHARED charge can only ever fix one of the two attacks' misses - strictly weaker
+    // than giving each attacker their own independent Puppet Master token.
+    expect(with1Charge.finalDestroyChance).toBeGreaterThan(neither.finalDestroyChance);
+    expect(with1Charge.finalDestroyChance).toBeLessThan(bothWithOwnPmToken.finalDestroyChance);
+    expect(with2Charges.finalDestroyChance).toBeGreaterThan(with1Charge.finalDestroyChance);
+  });
+
+  it("the reserve rule counts a Rate of Fire attack's ACTUAL remaining shots, not just 1 per row", () => {
+    const rofAttack: Partial<SequencedAttack> = { type: 'ranged', stat: 6, pow: 15, rof: 'd3' };
+    const rofTarget = { def: 13, arm: 15, boxes: 100 };
+
+    const without = computeSequenceOdds([attack(rofAttack)], rofTarget);
+    const with1Charge = computeSequenceOdds([attack(rofAttack)], { ...rofTarget, offensiveKnowledgeOfTheDamned: 1 });
+    const with3Charges = computeSequenceOdds([attack(rofAttack)], { ...rofTarget, offensiveKnowledgeOfTheDamned: 3 });
+
+    // With 1 charge, only the LAST shot of whichever K a branch drew is ever eligible (0 remaining
+    // shots after it) - some improvement, but strictly less than with 3 charges (enough to cover
+    // even the FIRST shot of a full 3-shot volley), which lets every shot in every branch qualify.
+    expect(with1Charge.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
+    expect(with3Charges.steps[0].averageDamage).toBeGreaterThan(with1Charge.steps[0].averageDamage);
+  });
+
+  it('the reserve rule counts a Critical-Shred-active row as ONE roll opportunity, not expanded by chain depth', () => {
+    const autoHitWeakDamage = attack({ id: '1', forceAutoHit: true, stat: 0, pow: 15 });
+    const laterShredRoll = attack({ id: '2', stat: 6, pow: 12, criticalShred: true });
+
+    const without = computeSequenceOdds([autoHitWeakDamage, laterShredRoll], target);
+    const with2Charges = computeSequenceOdds([autoHitWeakDamage, laterShredRoll], { ...target, offensiveKnowledgeOfTheDamned: 2 });
+
+    // If Critical Shred's chain depth were (wrongly) counted as multiple roll opportunities at
+    // position 2, 2 charges wouldn't be nearly enough of a surplus to check position 1's damage
+    // roll - the reserve rule would keep both charges in reserve instead. Treated correctly (one
+    // opportunity per ROW, regardless of Shred), 2 charges IS enough.
+    expect(with2Charges.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
+  });
+
+  it("still spends its own charge on a roll Puppet Master already rerolled (stacks, doesn't skip it, matching the cumulative spec)", () => {
+    const neverHitsWithPM = attack({ id: '1', stat: -500, modifiers: { discard: { lowest: 1 } }, hasPuppetMaster: true, attackerIndex: 0 });
+    const marginalRow2 = attack({ id: '2', stat: 6, pow: 12 });
+
+    const pmOnly = computeSequenceOdds([neverHitsWithPM, marginalRow2], target);
+    const pmPlusOffKotd = computeSequenceOdds([neverHitsWithPM, marginalRow2], { ...target, offensiveKnowledgeOfTheDamned: 1 });
+
+    // Row 1 can NEVER hit (0% even after any number of rerolls), so the offensive charge achieves
+    // nothing extra there - but it IS still consumed there (stacking with Puppet Master's own token
+    // on the exact same roll, per the "cumulative with other rerolls" spec), not held back for row
+    // 2's genuinely useful miss chance. If it were (wrongly) preserved instead, row 2 would show a
+    // measurable improvement here that this exact-match assertion would catch.
+    expect(pmPlusOffKotd.finalDestroyChance).toBeCloseTo(pmOnly.finalDestroyChance, 9);
+  });
+
+  it('Defensive Knowledge of the Damned picks the ATTACK roll when rerolling it helps more than rerolling damage ever could', () => {
+    // Any hit is guaranteed lethal (pow=100 against boxes=5) - a damage-roll reroll can NEVER
+    // change the outcome, so any improvement here must come from the attack-roll candidate.
+    const overkillAttack = attack({ stat: 8, pow: 100 });
+    const without = computeSequenceOdds([overkillAttack], target);
+    const with1Charge = computeSequenceOdds([overkillAttack], { ...target, defensiveKnowledgeOfTheDamned: 1 });
+    expect(with1Charge.finalDestroyChance).toBeLessThan(without.finalDestroyChance);
+  });
+
+  it('Defensive Knowledge of the Damned picks the DAMAGE roll when the attack auto-hits (no attack roll exists to reroll)', () => {
+    // forceAutoHit means there's no attack roll at all; pow=arm means raw damage is plain 2d6
+    // (2-12), and boxes=8 sits inside that range so some outcomes are lethal and some aren't -
+    // any improvement here must come from the damage-roll candidate.
+    const autoHitVariableDamage = attack({ forceAutoHit: true, stat: 0, pow: 15 });
+    const variableTarget = { def: 13, arm: 15, boxes: 8 };
+    const without = computeSequenceOdds([autoHitVariableDamage], variableTarget);
+    const with1Charge = computeSequenceOdds([autoHitVariableDamage], { ...variableTarget, defensiveKnowledgeOfTheDamned: 1 });
+    expect(with1Charge.finalDestroyChance).toBeLessThan(without.finalDestroyChance);
+  });
+
+  it('more Defensive Knowledge of the Damned charges never makes destroy chance worse (monotonic)', () => {
+    const attacks = [attack({ id: '1', stat: 8, pow: 14 }), attack({ id: '2', stat: 8, pow: 14 })];
+    const c0 = computeSequenceOdds(attacks, { ...target, defensiveKnowledgeOfTheDamned: 0 });
+    const c1 = computeSequenceOdds(attacks, { ...target, defensiveKnowledgeOfTheDamned: 1 });
+    const c2 = computeSequenceOdds(attacks, { ...target, defensiveKnowledgeOfTheDamned: 2 });
+    expect(c1.finalDestroyChance).toBeLessThanOrEqual(c0.finalDestroyChance + 1e-9);
+    expect(c2.finalDestroyChance).toBeLessThanOrEqual(c1.finalDestroyChance + 1e-9);
+  });
+
+  it("composes independently with the target's own Focus spending on the same roll", () => {
+    const attacks = [attack({ id: '1', stat: 8, pow: 14 }), attack({ id: '2', stat: 8, pow: 14 })];
+    const neither = computeSequenceOdds(attacks, target);
+    const focusOnly = computeSequenceOdds(attacks, { ...target, focusPoints: 1 });
+    const kotdDefOnly = computeSequenceOdds(attacks, { ...target, defensiveKnowledgeOfTheDamned: 1 });
+    const both = computeSequenceOdds(attacks, { ...target, focusPoints: 1, defensiveKnowledgeOfTheDamned: 1 });
+
+    expect(focusOnly.finalDestroyChance).toBeLessThanOrEqual(neither.finalDestroyChance);
+    expect(kotdDefOnly.finalDestroyChance).toBeLessThanOrEqual(neither.finalDestroyChance);
+    expect(both.finalDestroyChance).toBeLessThanOrEqual(focusOnly.finalDestroyChance + 1e-9);
+    expect(both.finalDestroyChance).toBeLessThanOrEqual(kotdDefOnly.finalDestroyChance + 1e-9);
+  });
+
+  it(
+    'probability mass is conserved with every mechanic simultaneously active',
+    () => {
+      // Deliberately modest charge/point counts (1 each, not the full 0-10 range) - combining
+      // Focus/Fury/Puppet Master/both Knowledge of the Damned pools/ROF/Critical Shred all at
+      // once is a genuine multiplicative state-space cost (see the module doc comment's
+      // performance note), so this integration check favors BREADTH of active mechanics over
+      // maximum point totals, which the per-mechanic tests above already cover individually.
+      const attacks: SequencedAttack[] = [
+        attack({ id: '1', hasPuppetMaster: true, attackerIndex: 0, criticalShred: true, stat: 9, pow: 8 }),
+        attack({ id: '2', type: 'ranged', rof: 'd3', stat: 5, pow: 10 }),
+      ];
+      const result = computeSequenceOdds(attacks, {
+        ...target,
+        focusPoints: 1,
+        furyPoints: 1,
+        offensiveKnowledgeOfTheDamned: 1,
+        defensiveKnowledgeOfTheDamned: 1,
+      });
+      const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+      expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+    },
+    20000
+  );
+});

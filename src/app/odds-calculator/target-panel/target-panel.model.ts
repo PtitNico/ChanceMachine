@@ -9,6 +9,7 @@ export const BOXES_OPTIONS = range(1, 99);
 export const RESOURCE_OPTIONS = range(0, 15); // Focus/Fury point count
 export const SHIELD_AMOUNT_OPTIONS = range(1, 10);
 export const SPELL_BONUS_OPTIONS = range(0, 10); // 0 = "not granting this stat"
+export const KOTD_OPTIONS = range(0, 10); // Knowledge of the Damned charge count (offensive/defensive)
 
 /** 'off' means neither is active. Tough and Tough Steady are mutually exclusive - Tough Steady
  *  is strictly "Tough, but not negated by Knocked Down/Stationary" (see sequence.ts), so having
@@ -83,6 +84,14 @@ export interface TargetState {
   readonly boxes: WritableSignal<number>;
   readonly resourceKind: WritableSignal<ResourceKind>;
   readonly resourcePoints: WritableSignal<number>;
+  /** Offensive Knowledge of the Damned: a 0-10 pool of forced rerolls shared across EVERY attacker,
+   *  spent via the same kind of fixed, no-lookahead rule Puppet Master uses - see
+   *  `sequence.ts`'s `resolveKotdOffSplit`. */
+  readonly offensiveKnowledgeOfTheDamned: WritableSignal<number>;
+  /** Defensive Knowledge of the Damned: a 0-10 pool of forced rerolls the TARGET can spend against
+   *  any attacker's attack or damage roll, chosen optimally with full sequence lookahead (like
+   *  Focus/Fury) - see `sequence.ts`'s `resolveKotdDefChoice`. */
+  readonly defensiveKnowledgeOfTheDamned: WritableSignal<number>;
   readonly toughKind: WritableSignal<ToughKind>; // always succeeds on 5+ (no configurable threshold)
   readonly shield: WritableSignal<boolean>;
   readonly shieldAmount: WritableSignal<number>;
@@ -107,6 +116,8 @@ export function createTargetState(): TargetState {
     boxes: signal(DEFAULT_BOXES),
     resourceKind: signal<ResourceKind>('focus'),
     resourcePoints: signal(0),
+    offensiveKnowledgeOfTheDamned: signal(0),
+    defensiveKnowledgeOfTheDamned: signal(0),
     toughKind: signal<ToughKind>('off'),
     shield: signal(false),
     shieldAmount: signal(2),
@@ -120,6 +131,8 @@ export function createTargetState(): TargetState {
 export function resetTargetProfile(target: TargetState): void {
   target.resourceKind.set('focus');
   target.resourcePoints.set(0);
+  target.offensiveKnowledgeOfTheDamned.set(0);
+  target.defensiveKnowledgeOfTheDamned.set(0);
   target.toughKind.set('off');
   target.shield.set(false);
   target.unyielding.set(false);
@@ -225,6 +238,12 @@ export function targetSummary(target: TargetState): TargetSummaryTag[] {
       key: 'resource',
       label: `${target.resourceKind() === 'focus' ? 'Focus' : 'Fury'} ${target.resourcePoints()}`,
     });
+  }
+  if (target.offensiveKnowledgeOfTheDamned() > 0) {
+    tags.push({ key: 'kotdOff', label: `Knowledge of the Damned (Off) ${target.offensiveKnowledgeOfTheDamned()}` });
+  }
+  if (target.defensiveKnowledgeOfTheDamned() > 0) {
+    tags.push({ key: 'kotdDef', label: `Knowledge of the Damned (Def) ${target.defensiveKnowledgeOfTheDamned()}` });
   }
   if (target.toughKind() === 'tough') tags.push({ key: 'tough', label: 'Tough' });
   if (target.toughKind() === 'toughSteady') tags.push({ key: 'tough', label: 'Tough Steady' });

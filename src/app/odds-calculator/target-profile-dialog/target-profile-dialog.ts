@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, ViewChild, input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
+  KOTD_OPTIONS,
   RESOURCE_OPTIONS,
   SHIELD_AMOUNT_OPTIONS,
   SPELL_BONUS_OPTIONS,
@@ -29,6 +30,7 @@ export class TargetProfileDialog {
   readonly target = input.required<TargetState>();
 
   protected readonly resourceOptions = RESOURCE_OPTIONS;
+  protected readonly kotdOptions = KOTD_OPTIONS;
   protected readonly shieldAmountOptions = SHIELD_AMOUNT_OPTIONS;
   protected readonly spellBonusOptions = SPELL_BONUS_OPTIONS;
   protected readonly spellRuleOptions = SPELL_RULE_OPTIONS;

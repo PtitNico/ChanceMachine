@@ -297,42 +297,52 @@ export function buildAttackProfile(
   return { missChance, hitNonCritChance, hitCritChance, nonCritDamage, critDamage };
 }
 
+/** Which direction of "away from average" a reroll-granting rule cares about: Puppet Master and
+ *  Offensive Knowledge of the Damned both want to catch a BAD (below-average) roll for the
+ *  attacker's own benefit; Defensive Knowledge of the Damned wants the mirror image - catching a
+ *  GOOD (above-average) roll, for the target's benefit. Both share the exact same strict-inequality
+ *  split logic below, just flipped - see `splitAttackDamageByAverage`. */
+export type DamageRerollDirection = 'rerollBelowAverage' | 'rerollAboveAverage';
+
 export interface DamageAverageSplit {
-  /** This damage roll's distribution conditional on already being at/above average (unaffected by
-   *  Puppet Master - identical to the corresponding slice of `AttackProfile`'s own map). */
-  atOrAboveAverage: Map<number, number>;
-  /** Probability this damage roll's underlying dice sum is below average (see `isBadDamageRoll`) -
-   *  if Puppet Master rerolls it, the reroll's own result is drawn fresh from the SAME pool (an
-   *  i.i.d. redraw), which is mathematically identical to the corresponding FULL, unconditional
-   *  `AttackProfile` map again - see sequence.ts's Puppet Master section for why that means the
-   *  caller doesn't need this function to also return a "rerolled" distribution. */
-  belowAverageMass: number;
+  /** This damage roll's distribution conditional on NOT being rerolled by this direction's rule
+   *  (identical to the corresponding slice of `AttackProfile`'s own map). */
+  kept: Map<number, number>;
+  /** Probability mass this direction's rule would reroll (see `isBadDamageRoll`, or its flipped
+   *  counterpart for the 'rerollAboveAverage' direction) - the reroll's own result is drawn fresh
+   *  from the SAME pool (an i.i.d. redraw), which is mathematically identical to the corresponding
+   *  FULL, unconditional `AttackProfile` map again - see sequence.ts's Knowledge of the Damned
+   *  section for why that means the caller doesn't need this function to also return a "rerolled"
+   *  distribution. */
+  rerollMass: number;
 }
 
-/** Splits a damage roll (non-crit or crit) by whether its own dice sum is below average - the
- *  same criterion the row's own Reroll toggle already uses - so Puppet Master (sequence.ts) can
- *  tell whether its own below-average check would trigger, without duplicating Trash/Shatter/Armor
+/** Splits a damage roll (non-crit or crit) by whether its own dice sum falls on the side of average
+ *  that `direction` cares about - the same criterion the row's own Reroll toggle already uses for
+ *  the below-average direction - so Puppet Master/Knowledge of the Damned (sequence.ts) can tell
+ *  whether their own reroll rule would trigger, without duplicating Trash/Shatter/Armor
  *  Piercing/Brutal Damage/Decapitation's resolution here. Mirrors `buildAttackProfile`'s own
  *  nonCritDamage/critDamage derivation exactly, just reporting the split instead of one blended map. */
-export function splitAttackDamageForPuppetMaster(
+export function splitAttackDamageByAverage(
   damage: AttackInput['damage'],
   effects: AttackEffects | undefined,
   target: Pick<AttackInput['target'], 'arm' | 'baseArm' | 'knockedDown' | 'stationary'>,
-  variant: 'nonCrit' | 'crit'
+  variant: 'nonCrit' | 'crit',
+  direction: DamageRerollDirection
 ): DamageAverageSplit {
   const arm = resolveArm(effects, target, variant);
   const extraDice = variant === 'crit' ? (effects?.brutalDamageDice ?? 0) : 0;
   const { pool, diceCount } = damagePoolFor(damage, effects, target, extraDice);
-  const isBad = (o: DicePoolOutcome) => isBadDamageRoll(o, diceCount);
-  const belowAverageMass = pool.reduce((acc, o) => (isBad(o) ? acc + o.probability : acc), 0);
-  let atOrAboveAverage = damageDistFromPool(
-    pool.filter((o) => !isBad(o)),
+  const rerolls = (o: DicePoolOutcome) => (direction === 'rerollBelowAverage' ? isBadDamageRoll(o, diceCount) : o.sum > 3.5 * diceCount);
+  const rerollMass = pool.reduce((acc, o) => (rerolls(o) ? acc + o.probability : acc), 0);
+  let kept = damageDistFromPool(
+    pool.filter((o) => !rerolls(o)),
     damage.pow,
     arm
   );
   const doubles = variant === 'nonCrit' ? appliesOnNonCritHit(effects?.decapitation) : appliesOnCritHit(effects?.decapitation);
-  if (doubles) atOrAboveAverage = doubleDamageValues(atOrAboveAverage);
-  return { atOrAboveAverage, belowAverageMass };
+  if (doubles) kept = doubleDamageValues(kept);
+  return { kept, rerollMass };
 }
 
 export interface AppliedOutcome {
