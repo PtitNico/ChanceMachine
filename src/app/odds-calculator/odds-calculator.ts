@@ -1,5 +1,16 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Injector,
+  ViewChild,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
 import { SequencedAttack, SequenceTarget } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
@@ -59,6 +70,11 @@ import { TargetProfileDialog } from './target-profile-dialog/target-profile-dial
 })
 export class OddsCalculator {
   private readonly engine = inject(OddsEngine);
+  private readonly injector = inject(Injector);
+
+  /** The scrollable list of attacker cards (see `.attacker-list` in odds-calculator.css) - used
+   *  by `onAddAttacker` to scroll a freshly-added card into view. */
+  @ViewChild('attackerList') private attackerListRef?: ElementRef<HTMLDivElement>;
 
   // --- Target (shared across the whole sequence) ---
   protected readonly target: TargetState = createTargetState();
@@ -162,8 +178,15 @@ export class OddsCalculator {
     Math.max(...this.damageDistributionPoints().map((p) => p.probability), 0.0001)
   );
 
+  /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part
+   *  of the screen that scrolls (see odds-calculator.css), so a sequence with several attackers
+   *  already on screen would otherwise leave the new card (and the "+ Add attacker" button,
+   *  pinned right below the list) off-screen with no visible feedback that the click did anything. */
   protected onAddAttacker(): void {
     this.attackers.update((list) => [...list, createAttacker()]);
+    afterNextRender(() => this.attackerListRef?.nativeElement.lastElementChild?.scrollIntoView({ block: 'nearest' }), {
+      injector: this.injector,
+    });
   }
 
   /** Reorders attackers by dragging their card's handle - doesn't touch which attacks belong to

@@ -1,5 +1,16 @@
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, afterNextRender, computed, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Injector,
+  ViewChild,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { AttackType } from '../../engine/attack-model';
 import { AttackRow, STAT_OPTIONS } from '../attack-row.model';
 import { AttackSubCard } from '../attack-sub-card/attack-sub-card';
@@ -46,6 +57,9 @@ export class AttackerCard {
   );
 
   @ViewChild('nameSpan') private nameSpanRef?: ElementRef<HTMLSpanElement>;
+  @ViewChild('addAttackBtn') private addAttackBtnRef?: ElementRef<HTMLButtonElement>;
+
+  private readonly injector = inject(Injector);
 
   constructor() {
     /* The name span's content is set here, once, imperatively - NOT via a template interpolation
@@ -78,5 +92,17 @@ export class AttackerCard {
     const reordered = [...this.attacker().attacks()];
     moveItemInArray(reordered, event.previousIndex, event.currentIndex);
     this.attacker().attacks.set(reordered);
+  }
+
+  /** Emits `addAttack` (the parent owns the actual mutation - see `attacker.model.ts`'s
+   *  `addAttackTo`), then scrolls this button into view - it's the last element in the card, so
+   *  bringing it into view also reveals as much of the freshly-appended row above it as fits. A
+   *  card with several attacks already can otherwise push both off the bottom of `.attacker-list`'s
+   *  own scroll area (see odds-calculator.css), leaving no visible feedback that the click worked. */
+  protected onAddAttack(): void {
+    this.addAttack.emit();
+    afterNextRender(() => this.addAttackBtnRef?.nativeElement.scrollIntoView({ block: 'nearest' }), {
+      injector: this.injector,
+    });
   }
 }

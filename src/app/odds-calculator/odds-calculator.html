@@ -15,7 +15,7 @@
     <app-target-panel [target]="target" (openProfile)="targetProfileDialogRef.open()" />
 
     <section class="console console--attacks" aria-label="Attack sequence">
-      <div class="attacker-list" cdkDropList (cdkDropListDropped)="onAttackerDrop($event)">
+      <div #attackerList class="attacker-list" cdkDropList (cdkDropListDropped)="onAttackerDrop($event)">
         @for (attacker of attackers(); track attacker.id; let i = $index; let count = $count) {
           <app-attacker-card
             cdkDrag
