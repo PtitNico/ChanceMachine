@@ -38,6 +38,8 @@
     <app-results-panel
       [sequence]="sequence()"
       [boxesInitial]="target.boxes()"
+      [calculating]="calculating()"
+      [progress]="progress()"
       (showDetails)="detailsDialogRef.open()"
     />
   </div>

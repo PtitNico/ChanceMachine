@@ -1,7 +1,7 @@
 import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
-import { SequencedAttack } from '../engine/sequence';
+import { SequencedAttack, SequenceTarget } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -88,36 +88,47 @@ export class OddsCalculator {
     return Math.max(0, Math.min(OddsCalculator.MAX_RESOURCE_POINTS, Math.floor(value || 0)));
   }
 
-  /** Recomputed automatically whenever any row or target input changes. */
-  protected readonly sequence = computed(() =>
-    this.engine.computeSequence(this.sequencedAttacks(), {
-      def: this.target.def(),
-      arm: this.target.arm(),
-      boxes: this.target.boxes(),
-      tough: effectiveToughKind(this.target) === 'tough',
-      toughSteady: effectiveToughKind(this.target) === 'toughSteady',
-      toughPostDispel: this.target.toughKind() === 'tough',
-      toughSteadyPostDispel: this.target.toughKind() === 'toughSteady',
-      focusPoints: OddsCalculator.clampResourcePoints(
-        this.target.resourceKind() === 'focus' ? this.target.resourcePoints() : 0
-      ),
-      furyPoints: OddsCalculator.clampResourcePoints(
-        this.target.resourceKind() === 'fury' ? this.target.resourcePoints() : 0
-      ),
-      offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
-      defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
-      shieldArmBonus: shieldArmBonus(this.target),
-      spellArmBonus: spellArmBonus(this.target),
-      spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),
-      defBonus: spellDefBonus(this.target),
-      defBonusPostDispel: spellDefBonusPostDispel(this.target),
-      unyielding: effectiveUnyielding(this.target),
-      unyieldingPostDispel: this.target.unyielding(),
-      carapace: effectiveCarapace(this.target),
-      carapacePostDispel: this.target.carapace(),
-      rapidHealing: this.target.rapidHealing(),
-    })
-  );
+  /** Recomputed automatically whenever any target input changes. */
+  private readonly sequenceTarget = computed<SequenceTarget>(() => ({
+    def: this.target.def(),
+    arm: this.target.arm(),
+    boxes: this.target.boxes(),
+    tough: effectiveToughKind(this.target) === 'tough',
+    toughSteady: effectiveToughKind(this.target) === 'toughSteady',
+    toughPostDispel: this.target.toughKind() === 'tough',
+    toughSteadyPostDispel: this.target.toughKind() === 'toughSteady',
+    focusPoints: OddsCalculator.clampResourcePoints(
+      this.target.resourceKind() === 'focus' ? this.target.resourcePoints() : 0
+    ),
+    furyPoints: OddsCalculator.clampResourcePoints(
+      this.target.resourceKind() === 'fury' ? this.target.resourcePoints() : 0
+    ),
+    offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
+    defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
+    shieldArmBonus: shieldArmBonus(this.target),
+    spellArmBonus: spellArmBonus(this.target),
+    spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),
+    defBonus: spellDefBonus(this.target),
+    defBonusPostDispel: spellDefBonusPostDispel(this.target),
+    unyielding: effectiveUnyielding(this.target),
+    unyieldingPostDispel: this.target.unyielding(),
+    carapace: effectiveCarapace(this.target),
+    carapacePostDispel: this.target.carapace(),
+    rapidHealing: this.target.rapidHealing(),
+  }));
+
+  /** `OddsEngine` runs the actual computation in a Web Worker (see its own doc comment) - this
+   *  effect just kicks off a new run whenever the inputs change; the result/progress/calculating
+   *  signals below are read straight from the engine, not held here. */
+  constructor() {
+    effect(() => {
+      this.engine.computeSequence(this.sequencedAttacks(), this.sequenceTarget());
+    });
+  }
+
+  protected readonly sequence = this.engine.result;
+  protected readonly calculating = this.engine.calculating;
+  protected readonly progress = this.engine.progress;
 
   /** Total damage dealt over the whole sequence: `survivalDistribution` (boxes remaining if
    *  the target survives) converted to `boxesInitial - boxes`, plus one aggregated bucket for

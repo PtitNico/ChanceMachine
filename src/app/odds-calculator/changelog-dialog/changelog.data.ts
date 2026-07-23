@@ -19,10 +19,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-23',
+    items: [
+      'Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) grants a reroll pool shared across every attacker, spent the same way as Puppet Master; a Defensive counter (0-10) grants the target its own reroll pool, spent optimally against any attack or damage roll to lower the chance of destruction. Both stack with Puppet Master and a row\'s own Reroll toggle.',
+      'Slow calculations (heavy resource counters, big sequences) now show a "Calculating..." indicator with a live progress estimate instead of leaving the page looking frozen.',
+    ],
+  },
+  {
     date: '2026-07-22',
     items: [
       'Added Puppet Master: toggle it per-attacker (the gear icon on the attacker card) to grant that attacker a single reroll, used on the first missed attack roll among its own attacks - or, once nothing is left to miss, a below-average damage roll instead. It can go unused if neither ever comes up.',
-      'Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) grants a reroll pool shared across every attacker, spent the same way as Puppet Master; a Defensive counter (0-10) grants the target its own reroll pool, spent optimally against any attack or damage roll to lower the chance of destruction. Both stack with Puppet Master and a row\'s own Reroll toggle.',
     ],
   },
   {

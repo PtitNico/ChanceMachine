@@ -786,7 +786,18 @@ function readValueTable(table: ValueTable, boxes: number, focusLeft: number, fur
   return table[boxes][focusLeft][furyLeft];
 }
 
-export function computeSequenceOdds(attacks: SequencedAttack[], target: SequenceTarget): SequenceResult {
+/** `onProgress`, if given, is called once per attack in the forward simulation with `(k + 1) / n`
+ *  (1.0 on the last attack) - a coarse, UNEVEN proxy for "how much work is left": the backward
+ *  induction/lazy value-table building that happens before the forward loop even starts (see the
+ *  module doc comment's "Lazy value tables" section) isn't itself instrumented, and the FIRST
+ *  attack's own forward step is typically what triggers most of that work (later steps mostly
+ *  reuse what's already cached) - so progress can jump straight to a large fraction on step 1, then
+ *  crawl for the rest, rather than advancing smoothly. */
+export function computeSequenceOdds(
+  attacks: SequencedAttack[],
+  target: SequenceTarget,
+  onProgress?: (fraction: number) => void
+): SequenceResult {
   const initialBoxes = target.boxes;
   const maxFocus = Math.floor(target.focusPoints ?? 0);
   const maxFury = Math.floor(target.furyPoints ?? 0);
@@ -1794,6 +1805,8 @@ export function computeSequenceOdds(attacks: SequencedAttack[], target: Sequence
       cumulativeDestroyChance: cumulativeDestroy,
       expectedBoxesRemaining,
     });
+
+    onProgress?.((k + 1) / n);
   }
 
   const survivalByBoxes = new Map<number, number>();

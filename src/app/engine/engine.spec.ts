@@ -1666,3 +1666,32 @@ describe('sequence engine - Knowledge of the Damned', () => {
     20000
   );
 });
+
+describe('sequence engine - onProgress', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is called once per attack with monotonically increasing fractions ending at 1', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2' }), attack({ id: '3' })];
+    const seen: number[] = [];
+    computeSequenceOdds(attacks, target, (f) => seen.push(f));
+    expect(seen).toHaveLength(3);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    expect(seen.at(-1)).toBe(1);
+  });
+
+  it('is never called when omitted (regression safety)', () => {
+    expect(() => computeSequenceOdds([attack()], target)).not.toThrow();
+  });
+});

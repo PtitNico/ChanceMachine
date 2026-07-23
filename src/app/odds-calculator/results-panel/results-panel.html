@@ -1,6 +1,6 @@
 <section class="readout" aria-label="Results">
   <div class="readout__row">
-    <div class="readout__grid">
+    <div class="readout__grid" [class.readout__grid--calculating]="calculating()">
       <div class="gauge gauge--highlight">
         <span class="gauge__value">{{ pct(sequence().finalDestroyChance) }}</span>
         <span class="gauge__label">Chance to destroy</span>
@@ -9,6 +9,15 @@
         <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
         <span class="gauge__label">Average damage</span>
       </div>
+
+      @if (calculating()) {
+        <div class="readout__overlay" aria-live="polite">
+          <span class="material-symbols-outlined readout__overlay-gear">settings</span>
+          <span class="readout__overlay-label">
+            Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
+          </span>
+        </div>
+      }
     </div>
 
     <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit()" aria-label="Show details">
