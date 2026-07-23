@@ -3,7 +3,9 @@ import { FormsModule } from '@angular/forms';
 import {
   KOTD_OPTIONS,
   RESOURCE_OPTIONS,
+  SCAPEGOAT_OPTIONS,
   SHIELD_AMOUNT_OPTIONS,
+  SHIELD_GUARD_OPTIONS,
   SPELL_BONUS_OPTIONS,
   SPELL_RULE_LABELS,
   SPELL_RULE_OPTIONS,
@@ -31,6 +33,8 @@ export class TargetProfileDialog {
 
   protected readonly resourceOptions = RESOURCE_OPTIONS;
   protected readonly kotdOptions = KOTD_OPTIONS;
+  protected readonly shieldGuardOptions = SHIELD_GUARD_OPTIONS;
+  protected readonly scapegoatOptions = SCAPEGOAT_OPTIONS;
   protected readonly shieldAmountOptions = SHIELD_AMOUNT_OPTIONS;
   protected readonly spellBonusOptions = SPELL_BONUS_OPTIONS;
   protected readonly spellRuleOptions = SPELL_RULE_OPTIONS;

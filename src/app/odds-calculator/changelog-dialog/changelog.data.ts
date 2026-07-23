@@ -21,7 +21,8 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-07-23',
     items: [
-      'Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) grants a reroll pool shared across every attacker, spent the same way as Puppet Master; a Defensive counter (0-10) grants the target its own reroll pool, spent optimally against any attack or damage roll to lower the chance of destruction. Both stack with Puppet Master and a row\'s own Reroll toggle.',
+      "Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) grants a reroll pool shared across every attacker, spent the same way as Puppet Master; a Defensive counter (0-10) grants the target its own reroll pool, spent optimally against any attack or damage roll to lower the chance of destruction. Both stack with Puppet Master and a row's own Reroll toggle.",
+      'Added Shield Guards (0-10) and Scapegoats (0-4) to the target profile: each blocks one ranged (Shield Guard) or melee (Scapegoat) attack outright - damage and any effects - spent optimally like Focus/Fury.',
       'Slow calculations (heavy resource counters, big sequences) now show a "Calculating..." indicator with a live progress estimate instead of leaving the page looking frozen.',
     ],
   },
@@ -41,7 +42,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     date: '2026-07-17',
-    items: ['Added Rate of Fire (ROF) for ranged attacks: fire d3 or 2d3 shots instead of just one, resolved in sequence against the target.'],
+    items: [
+      'Added Rate of Fire (ROF) for ranged attacks: fire d3 or 2d3 shots instead of just one, resolved in sequence against the target.',
+    ],
   },
   {
     date: '2026-07-16',

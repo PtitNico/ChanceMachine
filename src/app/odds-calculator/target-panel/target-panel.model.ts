@@ -10,6 +10,8 @@ export const RESOURCE_OPTIONS = range(0, 15); // Focus/Fury point count
 export const SHIELD_AMOUNT_OPTIONS = range(1, 10);
 export const SPELL_BONUS_OPTIONS = range(0, 10); // 0 = "not granting this stat"
 export const KOTD_OPTIONS = range(0, 10); // Knowledge of the Damned charge count (offensive/defensive)
+export const SHIELD_GUARD_OPTIONS = range(0, 10);
+export const SCAPEGOAT_OPTIONS = range(0, 4); // capped lower than every other resource here - see sequence.ts's MAX_SCAPEGOATS
 
 /** 'off' means neither is active. Tough and Tough Steady are mutually exclusive - Tough Steady
  *  is strictly "Tough, but not negated by Knocked Down/Stationary" (see sequence.ts), so having
@@ -92,6 +94,12 @@ export interface TargetState {
    *  any attacker's attack or damage roll, chosen optimally with full sequence lookahead (like
    *  Focus/Fury) - see `sequence.ts`'s `resolveKotdDefChoice`. */
   readonly defensiveKnowledgeOfTheDamned: WritableSignal<number>;
+  /** Shield Guards: a 0-10 pool of one-time blocks, each fully negating one RANGED attack (damage
+   *  AND any effects it would have inflicted) - see `sequence.ts`'s `bestAction`. */
+  readonly shieldGuards: WritableSignal<number>;
+  /** Scapegoats: the melee-only mirror of `shieldGuards`, capped lower at 0-4 - see
+   *  `SCAPEGOAT_OPTIONS`. */
+  readonly scapegoats: WritableSignal<number>;
   readonly toughKind: WritableSignal<ToughKind>; // always succeeds on 5+ (no configurable threshold)
   readonly shield: WritableSignal<boolean>;
   readonly shieldAmount: WritableSignal<number>;
@@ -118,6 +126,8 @@ export function createTargetState(): TargetState {
     resourcePoints: signal(0),
     offensiveKnowledgeOfTheDamned: signal(0),
     defensiveKnowledgeOfTheDamned: signal(0),
+    shieldGuards: signal(0),
+    scapegoats: signal(0),
     toughKind: signal<ToughKind>('off'),
     shield: signal(false),
     shieldAmount: signal(2),
@@ -133,6 +143,8 @@ export function resetTargetProfile(target: TargetState): void {
   target.resourcePoints.set(0);
   target.offensiveKnowledgeOfTheDamned.set(0);
   target.defensiveKnowledgeOfTheDamned.set(0);
+  target.shieldGuards.set(0);
+  target.scapegoats.set(0);
   target.toughKind.set('off');
   target.shield.set(false);
   target.unyielding.set(false);
@@ -245,6 +257,8 @@ export function targetSummary(target: TargetState): TargetSummaryTag[] {
   if (target.defensiveKnowledgeOfTheDamned() > 0) {
     tags.push({ key: 'kotdDef', label: `Knowledge of the Damned (Def) ${target.defensiveKnowledgeOfTheDamned()}` });
   }
+  if (target.shieldGuards() > 0) tags.push({ key: 'shieldGuards', label: `Shield Guards ${target.shieldGuards()}` });
+  if (target.scapegoats() > 0) tags.push({ key: 'scapegoats', label: `Scapegoats ${target.scapegoats()}` });
   if (target.toughKind() === 'tough') tags.push({ key: 'tough', label: 'Tough' });
   if (target.toughKind() === 'toughSteady') tags.push({ key: 'tough', label: 'Tough Steady' });
   if (target.shield()) tags.push({ key: 'shield', label: `Shield +${target.shieldAmount()} ARM` });

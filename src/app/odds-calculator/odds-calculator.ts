@@ -83,9 +83,15 @@ export class OddsCalculator {
   });
 
   private static readonly MAX_RESOURCE_POINTS = 10;
+  // Scapegoats are capped lower than every other resource here - see sequence.ts's MAX_SCAPEGOATS.
+  private static readonly MAX_SCAPEGOATS = 4;
+
+  private static clampToCap(value: number, cap: number): number {
+    return Math.max(0, Math.min(cap, Math.floor(value || 0)));
+  }
 
   private static clampResourcePoints(value: number): number {
-    return Math.max(0, Math.min(OddsCalculator.MAX_RESOURCE_POINTS, Math.floor(value || 0)));
+    return OddsCalculator.clampToCap(value, OddsCalculator.MAX_RESOURCE_POINTS);
   }
 
   /** Recomputed automatically whenever any target input changes. */
@@ -105,6 +111,8 @@ export class OddsCalculator {
     ),
     offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
     defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
+    shieldGuards: OddsCalculator.clampResourcePoints(this.target.shieldGuards()),
+    scapegoats: OddsCalculator.clampToCap(this.target.scapegoats(), OddsCalculator.MAX_SCAPEGOATS),
     shieldArmBonus: shieldArmBonus(this.target),
     spellArmBonus: spellArmBonus(this.target),
     spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),

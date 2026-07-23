@@ -335,6 +335,16 @@ export interface SequenceTarget {
    *  any attacker's attack or damage roll, chosen optimally with full sequence lookahead (like
    *  Focus/Fury) - see `resolveKotdDefChoice`. */
   defensiveKnowledgeOfTheDamned?: number;
+  /** Shield Guards: a 0-10 pool of one-time blocks, each fully negating one RANGED attack roll
+   *  (damage AND any statEffects it would have inflicted) - a TRUE block: unlike Fury, it does NOT
+   *  trigger Rapid Healing (the attack never "landed"), and unlike a Critical-Shred-chaining crit
+   *  it negates, a blocked crit does NOT chain (though it still counts toward Hit%/Crit%). Spent
+   *  optimally, once per roll, same lookahead as Focus/Fury - see `bestAction`. Ranged attacks
+   *  only; Scapegoats cover melee. */
+  shieldGuards?: number;
+  /** Scapegoats: the melee-only mirror of `shieldGuards` - a 0-4 pool (a smaller cap than every
+   *  other resource here, see MAX_SCAPEGOATS), same true-block semantics. */
+  scapegoats?: number;
   /** Flat ARM bonus from Shield specifically (kept apart from `spellArmBonus` so Chain Weapon can
    *  ignore just this component) - added on top of `arm`, but deliberately NOT included in the
    *  "base ARM" Armor Piercing halves (see `profileFor`). Not itself Dispel-aware: a spell-granted
@@ -389,6 +399,10 @@ export interface SequenceResult {
 }
 
 const MAX_RESOURCE_POINTS = 10; // far beyond any Warmachine/Hordes caster's focus/fury stat; guards the value-table size.
+
+// Scapegoats are mechanically capped at 4 per the model - a genuinely smaller cap than every other
+// resource here, not a tightened version of MAX_RESOURCE_POINTS.
+const MAX_SCAPEGOATS = 4;
 
 // Caps how many DISTINCT attackers can have Puppet Master active at once - the mask dimension
 // grows as 2^(this many), same guard-rail spirit as MAX_RESOURCE_POINTS above. Realistically 0-2
@@ -530,10 +544,21 @@ interface ResourceBranch {
   debuffState: DebuffState;
   focusLeft: number;
   furyLeft: number;
+  /** Remaining Shield Guards/Scapegoats - see `bestAction`'s doc comment. Pure pass-through on
+   *  every branch except the two block candidates, which decrement their own counter. */
+  shieldGuardsLeft: number;
+  scapegoatsLeft: number;
   destroyed: boolean;
 }
 
-type ValueLookup = (boxes: number, debuffState: DebuffState, focusLeft: number, furyLeft: number) => number;
+type ValueLookup = (
+  boxes: number,
+  debuffState: DebuffState,
+  focusLeft: number,
+  furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number
+) => number;
 
 /** Like `ValueLookup`, but aware of every FIXED-rule/optimal-choice resource dimension that lives
  *  ABOVE `bestAction`'s own level (`attackChainValue`/`buildShotsValue`/the forward-pass
@@ -546,6 +571,8 @@ type ExtendedValueLookup = (
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number,
   pmMask: number,
   kotdOffLeft: number,
   kotdDefLeft: number
@@ -601,10 +628,12 @@ function healBranches(
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number,
   healing: HealingRules
 ): ResourceBranch[] {
   if (!healing.hasRapidHealing || rawDamageDealt <= 0 || debuffState.grievouslyWounded) {
-    return [{ probability: 1, boxes, debuffState, focusLeft, furyLeft, destroyed: false }];
+    return [{ probability: 1, boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, destroyed: false }];
   }
   return [1, 2, 3].map((healAmount) => ({
     probability: 1 / 3,
@@ -612,6 +641,8 @@ function healBranches(
     debuffState,
     focusLeft,
     furyLeft,
+    shieldGuardsLeft,
+    scapegoatsLeft,
     destroyed: false,
   }));
 }
@@ -628,12 +659,14 @@ function damageBranches(
   debuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number,
   tough: ToughRules,
   healing: HealingRules
 ): ResourceBranch[] {
   const lethal = damageDealt >= boxes;
   if (!lethal) {
-    return healBranches(boxes - damageDealt, rawDamageDealt, debuffState, focusLeft, furyLeft, healing);
+    return healBranches(boxes - damageDealt, rawDamageDealt, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, healing);
   }
   // Once Dispel has fired, a spell-granted Tough/Tough Steady is gone - fall back to whichever
   // half of the pair matches the target's current (innate-only, once dispelled) toughness.
@@ -645,23 +678,24 @@ function damageBranches(
   const toughApplies =
     !debuffState.grievouslyWounded && (hasToughSteady || (hasTough && !isKnockedDownOrStationary(debuffState)));
   if (!toughApplies) {
-    return [{ probability: 1, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true }];
+    return [{ probability: 1, boxes: 0, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, destroyed: true }];
   }
   // Tough simplification (see attack-model.ts): survives on 1 box and Knocked Down.
   const survivedState = debuffState.knockedDown ? debuffState : { ...debuffState, knockedDown: true };
-  const survivedBranches = healBranches(1, rawDamageDealt, survivedState, focusLeft, furyLeft, healing).map((b) => ({
+  const survivedBranches = healBranches(1, rawDamageDealt, survivedState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, healing).map((b) => ({
     ...b,
     probability: b.probability * (1 - tough.failChance),
   }));
   return [
     ...survivedBranches,
-    { probability: tough.failChance, boxes: 0, debuffState, focusLeft, furyLeft, destroyed: true },
+    { probability: tough.failChance, boxes: 0, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, destroyed: true },
   ];
 }
 
 function branchesValue(branches: ResourceBranch[], valueAt: ValueLookup): number {
   return branches.reduce(
-    (acc, b) => acc + b.probability * (b.destroyed ? 0 : valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft)),
+    (acc, b) =>
+      acc + b.probability * (b.destroyed ? 0 : valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft, b.shieldGuardsLeft, b.scapegoatsLeft)),
     0
   );
 }
@@ -686,7 +720,7 @@ function outcomeScore(branches: ResourceBranch[], valueAt: ValueLookup): [number
   let expectedBoxes = 0;
   for (const b of branches) {
     if (b.destroyed) continue;
-    survivalValue += b.probability * valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft);
+    survivalValue += b.probability * valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft, b.shieldGuardsLeft, b.scapegoatsLeft);
     survivalProbability += b.probability;
     expectedBoxes += b.probability * b.boxes;
   }
@@ -705,37 +739,56 @@ function isBetterScore(a: [number, number, number], b: [number, number, number])
 }
 
 /**
- * The target spends at most one resource point on this hit - none, a focus
- * point, or a fury point - whichever scores best (see `outcomeScore`).
- * `valueAt` (built by backward induction over the whole sequence) is what
- * lets this look ahead instead of just reacting to the current hit: e.g.
- * mitigating a big-but-survivable hit can be worth it purely to preserve
- * boxes against what's still coming.
+ * The target spends at most one resource on this hit - none, a focus point, a fury point, or (for
+ * an eligible attack type) a Shield Guard/Scapegoat - whichever scores best (see `outcomeScore`).
+ * `valueAt` (built by backward induction over the whole sequence) is what lets this look ahead
+ * instead of just reacting to the current hit: e.g. mitigating a big-but-survivable hit can be
+ * worth it purely to preserve boxes against what's still coming.
+ *
+ * A Shield Guard/Scapegoat block is a TRUE block, not mitigation like Focus/Fury: it uses
+ * `oldDebuffState` (the state as it was BEFORE this hit's `statEffects` applied, reverting any
+ * Knockdown/Ice Cage/etc. the hit would have inflicted) and calls `damageBranches` with both
+ * `damageDealt`/`rawDamageDealt` at 0, so `healBranches`'s existing "no raw damage, no Rapid
+ * Healing" gate applies automatically - no separate helper needed.
+ *
+ * Scored against a SEPARATE `blockValueAt` (rather than `valueAt`) because a block must also
+ * suppress Critical Shred continuation, unlike every other candidate here - see
+ * `resolveOneOutcome`'s doc comment for why two different lookups are needed and how the caller
+ * knows which one applies to the branches this returns.
  */
 function bestAction(
   boxes: number,
   damageDealt: number,
-  debuffState: DebuffState,
+  oldDebuffState: DebuffState,
+  newDebuffState: DebuffState,
   focusLeft: number,
   furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number,
+  canBlockWithShieldGuard: boolean,
+  canBlockWithScapegoat: boolean,
   tough: ToughRules,
   healing: HealingRules,
-  valueAt: ValueLookup
-): ResourceBranch[] {
+  valueAt: ValueLookup,
+  blockValueAt: ValueLookup
+): { branches: ResourceBranch[]; valueAt: ValueLookup } {
   // `damageDealt` here is always the RAW damage (before this hit's own Focus/Fury choice, if any)
   // - it's passed through unchanged as `rawDamageDealt` to every candidate below, regardless of
   // how much of it that candidate's own mitigation actually blocks - see `damageBranches`.
-  let bestBranches = damageBranches(boxes, damageDealt, damageDealt, debuffState, focusLeft, furyLeft, tough, healing);
+  let bestBranches = damageBranches(boxes, damageDealt, damageDealt, newDebuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, tough, healing);
   let bestScore = outcomeScore(bestBranches, valueAt);
+  let bestValueAt = valueAt;
 
   if (focusLeft > 0) {
     const branches = damageBranches(
       boxes,
       Math.max(0, damageDealt - FOCUS_DAMAGE_REDUCTION),
       damageDealt,
-      debuffState,
+      newDebuffState,
       focusLeft - 1,
       furyLeft,
+      shieldGuardsLeft,
+      scapegoatsLeft,
       tough,
       healing
     );
@@ -747,43 +800,83 @@ function bestAction(
   }
 
   if (furyLeft > 0) {
-    const branches = damageBranches(boxes, 0, damageDealt, debuffState, focusLeft, furyLeft - 1, tough, healing);
+    const branches = damageBranches(boxes, 0, damageDealt, newDebuffState, focusLeft, furyLeft - 1, shieldGuardsLeft, scapegoatsLeft, tough, healing);
     const score = outcomeScore(branches, valueAt);
     if (isBetterScore(score, bestScore)) {
       bestBranches = branches;
+      bestScore = score;
     }
   }
 
-  return bestBranches;
+  if (canBlockWithShieldGuard && shieldGuardsLeft > 0) {
+    const branches = damageBranches(boxes, 0, 0, oldDebuffState, focusLeft, furyLeft, shieldGuardsLeft - 1, scapegoatsLeft, tough, healing);
+    const score = outcomeScore(branches, blockValueAt);
+    if (isBetterScore(score, bestScore)) {
+      bestBranches = branches;
+      bestScore = score;
+      bestValueAt = blockValueAt;
+    }
+  }
+
+  if (canBlockWithScapegoat && scapegoatsLeft > 0) {
+    const branches = damageBranches(boxes, 0, 0, oldDebuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft - 1, tough, healing);
+    const score = outcomeScore(branches, blockValueAt);
+    if (isBetterScore(score, bestScore)) {
+      bestBranches = branches;
+      bestValueAt = blockValueAt;
+    }
+  }
+
+  return { branches: bestBranches, valueAt: bestValueAt };
 }
 
 // --- Per-(boxes, focus, fury) value table, one per reachable debuff state -------------------
 
-/** [boxes][focusLeft][furyLeft] -> probability of surviving everything this table represents. */
-type ValueTable = number[][][];
+/** [boxes][focusLeft][furyLeft][shieldGuardsLeft][scapegoatsLeft] -> probability of surviving
+ *  everything this table represents. Shield Guards/Scapegoats are dense array axes here (like
+ *  Focus/Fury), not folded into `tableKey` like Puppet Master/Knowledge of the Damned - see the
+ *  module doc comment's Shield Guards/Scapegoats section for why. */
+type ValueTable = number[][][][][];
 
 function buildValueTable(
   initialBoxes: number,
   maxFocus: number,
   maxFury: number,
-  fill: (boxes: number, focusLeft: number, furyLeft: number) => number
+  maxShieldGuards: number,
+  maxScapegoats: number,
+  fill: (boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number) => number
 ): ValueTable {
   const table: ValueTable = [];
   for (let boxes = 0; boxes <= initialBoxes; boxes++) {
-    const row: number[][] = [];
+    const focusRow: number[][][][] = [];
     for (let focus = 0; focus <= maxFocus; focus++) {
-      row[focus] = [];
+      const furyRow: number[][][] = [];
       for (let fury = 0; fury <= maxFury; fury++) {
-        row[focus][fury] = fill(boxes, focus, fury);
+        const shieldGuardRow: number[][] = [];
+        for (let shieldGuards = 0; shieldGuards <= maxShieldGuards; shieldGuards++) {
+          shieldGuardRow[shieldGuards] = [];
+          for (let scapegoats = 0; scapegoats <= maxScapegoats; scapegoats++) {
+            shieldGuardRow[shieldGuards][scapegoats] = fill(boxes, focus, fury, shieldGuards, scapegoats);
+          }
+        }
+        furyRow[fury] = shieldGuardRow;
       }
+      focusRow[focus] = furyRow;
     }
-    table[boxes] = row;
+    table[boxes] = focusRow;
   }
   return table;
 }
 
-function readValueTable(table: ValueTable, boxes: number, focusLeft: number, furyLeft: number): number {
-  return table[boxes][focusLeft][furyLeft];
+function readValueTable(
+  table: ValueTable,
+  boxes: number,
+  focusLeft: number,
+  furyLeft: number,
+  shieldGuardsLeft: number,
+  scapegoatsLeft: number
+): number {
+  return table[boxes][focusLeft][furyLeft][shieldGuardsLeft][scapegoatsLeft];
 }
 
 /** `onProgress`, if given, is called once per attack in the forward simulation with `(k + 1) / n`
@@ -815,6 +908,25 @@ export function computeSequenceOdds(
   if (maxKotdOff > MAX_RESOURCE_POINTS || maxKotdDef > MAX_RESOURCE_POINTS) {
     throw new Error(`Knowledge of the Damned charges=${maxKotdOff}/${maxKotdDef} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
   }
+  const maxShieldGuards = Math.floor(target.shieldGuards ?? 0);
+  const maxScapegoats = Math.floor(target.scapegoats ?? 0);
+  if (maxShieldGuards < 0 || maxScapegoats < 0) {
+    throw new Error('shieldGuards and scapegoats must not be negative');
+  }
+  if (maxShieldGuards > MAX_RESOURCE_POINTS) {
+    throw new Error(`shieldGuards=${maxShieldGuards} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
+  }
+  if (maxScapegoats > MAX_SCAPEGOATS) {
+    throw new Error(`scapegoats=${maxScapegoats} is unrealistically large (cap: ${MAX_SCAPEGOATS})`);
+  }
+  // `ValueTable` grows these two as DENSE array axes (like focus/fury), not folded into `tableKey`
+  // like Puppet Master/Knowledge of the Damned (see the module doc comment's Shield Guards/
+  // Scapegoats section) - so unlike those Map-folded dimensions, this multiplies the size of every
+  // table actually built, by up to (maxShieldGuards+1)*(maxScapegoats+1), on top of the existing
+  // (maxFocus+1)*(maxFury+1) factor already there. There's no laziness benefit inside a dense
+  // array the way `getValueTableAt` gives Puppet Master/Knowledge of the Damned - this is a
+  // different kind of cost, not a restatement of that one. At realistic UI ranges (boxes <= 99)
+  // this stays bounded and acceptable.
   const toughRules: ToughRules = {
     hasTough: !!target.tough,
     hasToughSteady: !!target.toughSteady,
@@ -1271,19 +1383,35 @@ export function computeSequenceOdds(
     debuffState: DebuffState;
     focusLeft: number;
     furyLeft: number;
+    shieldGuardsLeft: number;
+    scapegoatsLeft: number;
     pmMask: number;
     kotdOffLeft: number;
     kotdDefLeft: number;
   }
   const fwdKey = (s: FwdState) =>
-    `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.pmMask}|${s.kotdOffLeft}|${s.kotdDefLeft}`;
+    `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.shieldGuardsLeft}|${s.scapegoatsLeft}|${s.pmMask}|${s.kotdOffLeft}|${s.kotdDefLeft}`;
 
   /** Resolves one already-realized `AppliedOutcome` of attack `k` into its `ResourceBranch[]` (via
-   *  the existing `bestAction`/Focus-Fury choice, unaffected by anything above this level) plus the
-   *  `ValueLookup` continuation that produced them - shared by `attackChainValue`'s own outer
-   *  accumulation loop AND `profileScore` (Defensive Knowledge of the Damned's candidate scorer),
-   *  so Critical Shred's recursive continuation logic is never duplicated (the single biggest
-   *  correctness risk in this feature - see the module doc comment). */
+   *  `bestAction`'s Focus/Fury/Shield-Guard/Scapegoat choice, unaffected by anything above this
+   *  level) plus the `ValueLookup` continuation that actually produced them - shared by
+   *  `attackChainValue`'s own outer accumulation loop AND `profileScore` (Defensive Knowledge of
+   *  the Damned's candidate scorer), so Critical Shred's recursive continuation logic is never
+   *  duplicated (the single biggest correctness risk in this feature - see the module doc comment).
+   *
+   *  Passes TWO lookups into `bestAction`: `shredValueAt` (may recurse into another Critical Shred
+   *  instance on a crit) for the nothing/Focus/Fury candidates, and `outerFallback` (always "attack
+   *  k+1 onward", never re-enters Shred) for the Shield Guard/Scapegoat block candidates - a block
+   *  is a TRUE block of this hit's consequences, so even a blocked crit doesn't chain, though it
+   *  still counts toward Hit%/Crit% (those are tallied upstream from `outcome.isCrit`/`isHit`
+   *  directly, never touching this function - see the module doc comment). `bestAction` returns
+   *  whichever of the two lookups matches the candidate it actually picked, which this function
+   *  forwards as `continuationValueAt` - callers always score the returned branches with the
+   *  lookup that's consistent with how they were chosen. Also returns `continuesChain`, the SAME
+   *  fact expressed as a boolean (true only when the raw outcome would chain AND the winning
+   *  candidate wasn't a block) - `resolveAttackChainForward` needs this to physically route
+   *  probability mass, since it can't compare function references the way `continuationValueAt`
+   *  implicitly does. */
   function resolveOneOutcome(
     outcome: AppliedOutcome,
     k: number,
@@ -1292,6 +1420,8 @@ export function computeSequenceOdds(
     boxes: number,
     focusLeft: number,
     furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
     resultingMask: number,
     resultingOffKotdLeft: number,
     resultingDefKotdLeft: number,
@@ -1299,15 +1429,35 @@ export function computeSequenceOdds(
     depthRemaining: number,
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
-  ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup } {
+  ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean } {
     const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
-    const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
-    const continuationValueAt: ValueLookup = continuesChain
-      ? (b, d, f, fu) =>
-          attackChainValue(k, atk, d, b, f, fu, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow, depthRemaining - 1, outerValueAt, cache)
-      : (b, d, f, fu) => outerValueAt(b, d, f, fu, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft);
-    const branches = bestAction(boxes, outcome.damageDealt, newDebuffState, focusLeft, furyLeft, toughRules, healingRules, continuationValueAt);
-    return { branches, continuationValueAt };
+    const rawContinuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+
+    const outerFallback: ValueLookup = (b, d, f, fu, sg, sc) =>
+      outerValueAt(b, d, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft);
+
+    const shredValueAt: ValueLookup = rawContinuesChain
+      ? (b, d, f, fu, sg, sc) =>
+          attackChainValue(k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow, depthRemaining - 1, outerValueAt, cache)
+      : outerFallback;
+
+    const { branches, valueAt } = bestAction(
+      boxes,
+      outcome.damageDealt,
+      debuffState /* old */,
+      newDebuffState,
+      focusLeft,
+      furyLeft,
+      shieldGuardsLeft,
+      scapegoatsLeft,
+      atk.type === 'ranged',
+      atk.type === 'melee',
+      toughRules,
+      healingRules,
+      shredValueAt,
+      outerFallback
+    );
+    return { branches, continuationValueAt: valueAt, continuesChain: rawContinuesChain && valueAt !== outerFallback };
   }
 
   /** Aggregates `outcomeScore` (the SAME lexicographic survival-value/probability/expected-boxes
@@ -1323,6 +1473,8 @@ export function computeSequenceOdds(
     boxes: number,
     focusLeft: number,
     furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
     resultingMask: number,
     resultingOffKotdLeft: number,
     candidateDefKotdLeft: number,
@@ -1334,7 +1486,7 @@ export function computeSequenceOdds(
     let score: [number, number, number] = [0, 0, 0];
     for (const outcome of applyProfile(profile)) {
       const { branches, continuationValueAt } = resolveOneOutcome(
-        outcome, k, atk, debuffState, boxes, focusLeft, furyLeft,
+        outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
         resultingMask, resultingOffKotdLeft, candidateDefKotdLeft, shotsRemainingThisRow,
         depthRemaining, outerValueAt, cache
       );
@@ -1363,6 +1515,8 @@ export function computeSequenceOdds(
     boxes: number,
     focusLeft: number,
     furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
     resultingMask: number,
     resultingOffKotdLeft: number,
     shotsRemainingThisRow: number,
@@ -1373,7 +1527,7 @@ export function computeSequenceOdds(
     if (kotdDefLeft === 0) return { profile: inputProfile, resultingLeft: 0 };
 
     const scoreOf = (profile: AttackProfile, candidateLeft: number) =>
-      profileScore(profile, k, atk, debuffState, boxes, focusLeft, furyLeft, resultingMask, resultingOffKotdLeft, candidateLeft, shotsRemainingThisRow, depthRemaining, outerValueAt, cache);
+      profileScore(profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, shotsRemainingThisRow, depthRemaining, outerValueAt, cache);
 
     let best = { profile: inputProfile, resultingLeft: kotdDefLeft };
     let bestScore = scoreOf(inputProfile, kotdDefLeft);
@@ -1426,6 +1580,8 @@ export function computeSequenceOdds(
     boxes: number,
     focusLeft: number,
     furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
     pmMask: number,
     kotdOffLeft: number,
     kotdDefLeft: number,
@@ -1434,7 +1590,7 @@ export function computeSequenceOdds(
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
   ): number {
-    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}`;
+    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${shieldGuardsLeft}|${scapegoatsLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}`;
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
 
@@ -1446,12 +1602,12 @@ export function computeSequenceOdds(
       )) {
         const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
           k, atk, debuffState, kotdDefLeft, offProfile, trueOriginal,
-          boxes, focusLeft, furyLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
+          boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
           depthRemaining, outerValueAt, cache
         );
         for (const outcome of applyProfile(finalProfile)) {
           const { branches, continuationValueAt } = resolveOneOutcome(
-            outcome, k, atk, debuffState, boxes, focusLeft, furyLeft,
+            outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
             depthRemaining, outerValueAt, cache
           );
@@ -1492,6 +1648,8 @@ export function computeSequenceOdds(
     boxes: number,
     focusLeft: number,
     furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
     pmMask: number,
     kotdOffLeft: number,
     kotdDefLeft: number,
@@ -1504,7 +1662,7 @@ export function computeSequenceOdds(
     destroyed: { mass: number },
     trackHitCrit: boolean
   ): void {
-    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, pmMask, kotdOffLeft, kotdDefLeft };
+    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, pmMask, kotdOffLeft, kotdDefLeft };
     let current = new Map<string, { state: FwdState; probability: number }>([
       [fwdKey(initialState), { state: initialState, probability }],
     ]);
@@ -1530,7 +1688,8 @@ export function computeSequenceOdds(
           )) {
             const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
               k, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
-              state.boxes, state.focusLeft, state.furyLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
+              state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
+              resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
               depthRemaining, outerValueAt, shredCache
             );
             for (const outcome of applyProfile(finalProfile)) {
@@ -1542,9 +1701,9 @@ export function computeSequenceOdds(
               }
               stats.damageMass += p * outcome.damageDealt;
 
-              const continuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
-              const { branches } = resolveOneOutcome(
+              const { branches, continuesChain } = resolveOneOutcome(
                 outcome, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
+                state.shieldGuardsLeft, state.scapegoatsLeft,
                 resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
                 depthRemaining, outerValueAt, shredCache
               );
@@ -1558,6 +1717,7 @@ export function computeSequenceOdds(
                 }
                 const fwd: FwdState = {
                   boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft,
+                  shieldGuardsLeft: b.shieldGuardsLeft, scapegoatsLeft: b.scapegoatsLeft,
                   pmMask: resultingMask, kotdOffLeft: resultingOffKotdLeft, kotdDefLeft: resultingDefKotdLeft,
                 };
                 const key = fwdKey(fwd);
@@ -1600,7 +1760,18 @@ export function computeSequenceOdds(
     k: number,
     atk: SequencedAttack,
     getNextTable: (debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => ValueTable
-  ): (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number {
+  ): (
+    shotsRemaining: number,
+    debuffState: DebuffState,
+    boxes: number,
+    focusLeft: number,
+    furyLeft: number,
+    shieldGuardsLeft: number,
+    scapegoatsLeft: number,
+    pmMask: number,
+    kotdOffLeft: number,
+    kotdDefLeft: number
+  ) => number {
     const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
     const cachesByShotsRemaining: Map<string, number>[] = Array.from({ length: maxShots + 1 }, () => new Map());
 
@@ -1610,13 +1781,15 @@ export function computeSequenceOdds(
       boxes: number,
       focusLeft: number,
       furyLeft: number,
+      shieldGuardsLeft: number,
+      scapegoatsLeft: number,
       pmMask: number,
       kotdOffLeft: number,
       kotdDefLeft: number
     ): number {
       if (shotsRemaining === 0) {
         const table = getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft);
-        return readValueTable(table, boxes, focusLeft, furyLeft);
+        return readValueTable(table, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft);
       }
       return attackChainValue(
         k,
@@ -1625,12 +1798,14 @@ export function computeSequenceOdds(
         boxes,
         focusLeft,
         furyLeft,
+        shieldGuardsLeft,
+        scapegoatsLeft,
         pmMask,
         kotdOffLeft,
         kotdDefLeft,
         shotsRemaining - 1,
         MAX_SHRED_DEPTH,
-        (b, d, f, fu, m, o, dk) => shotsValue(shotsRemaining - 1, d, b, f, fu, m, o, dk),
+        (b, d, f, fu, sg, sc, m, o, dk) => shotsValue(shotsRemaining - 1, d, b, f, fu, sg, sc, m, o, dk),
         cachesByShotsRemaining[shotsRemaining]
       );
     }
@@ -1663,12 +1838,12 @@ export function computeSequenceOdds(
   // turn calls `getValueTableAt[k + 1]` at its own base case - so accessors must exist before a
   // LATER one's build step can call into them, even though no actual TABLE gets built until the
   // forward simulation below first asks for one.
-  const baseValueTable = buildValueTable(initialBoxes, maxFocus, maxFury, () => 1);
+  const baseValueTable = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, () => 1);
   const getValueTableAt: ((debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => ValueTable)[] = new Array(n + 1);
   getValueTableAt[n] = () => baseValueTable;
 
   // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
-  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number)[] =
+  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number)[] =
     new Array(n);
 
   for (let k = n - 1; k >= 0; k--) {
@@ -1682,8 +1857,8 @@ export function computeSequenceOdds(
       const key = tableKey(debuffState, mask, off, def);
       const cached = cache.get(key);
       if (cached) return cached;
-      const table = buildValueTable(initialBoxes, maxFocus, maxFury, (boxes, focus, fury) =>
-        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, mask, off, def), 0)
+      const table = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, (boxes, focus, fury, shieldGuards, scapegoats) =>
+        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, shieldGuards, scapegoats, mask, off, def), 0)
       );
       cache.set(key, table);
       return table;
@@ -1709,7 +1884,7 @@ export function computeSequenceOdds(
     k: number,
     atk: SequencedAttack,
     initialDist: Map<string, { state: FwdState; probability: number }>,
-    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number,
+    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number,
     stats: { hitMass: number; critMass: number; damageMass: number },
     next: Map<string, { state: FwdState; probability: number }>,
     destroyed: { mass: number }
@@ -1730,7 +1905,7 @@ export function computeSequenceOdds(
         const isLastShot = shotIndex === count;
         const shredCache = new Map<string, number>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
-        const valueAt: ExtendedValueLookup = (b, d, f, fu, m, o, dk) => shotsValue(shotsRemainingAfter, d, b, f, fu, m, o, dk);
+        const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk);
 
         for (const { state, probability } of current.values()) {
           resolveAttackChainForward(
@@ -1740,6 +1915,8 @@ export function computeSequenceOdds(
             state.boxes,
             state.focusLeft,
             state.furyLeft,
+            state.shieldGuardsLeft,
+            state.scapegoatsLeft,
             state.pmMask,
             state.kotdOffLeft,
             state.kotdDefLeft,
@@ -1767,6 +1944,8 @@ export function computeSequenceOdds(
     debuffState: initialDebuffs,
     focusLeft: maxFocus,
     furyLeft: maxFury,
+    shieldGuardsLeft: maxShieldGuards,
+    scapegoatsLeft: maxScapegoats,
     pmMask: 0,
     kotdOffLeft: maxKotdOff,
     kotdDefLeft: maxKotdDef,

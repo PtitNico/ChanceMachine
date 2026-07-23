@@ -1667,6 +1667,166 @@ describe('sequence engine - Knowledge of the Damned', () => {
   );
 });
 
+describe('sequence engine - Shield Guards and Scapegoats', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when both counters are 0/absent, even with Focus/Fury/a statEffect active (regression safety)', () => {
+    const attacks = [
+      attack({ id: '1', pow: 14 }),
+      attack({ id: '2', type: 'ranged', pow: 10, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
+    ];
+    const target = { def: 13, arm: 14, boxes: 10, focusPoints: 1, furyPoints: 1 };
+    const withZero = computeSequenceOdds(attacks, { ...target, shieldGuards: 0, scapegoats: 0 });
+    const withAbsent = computeSequenceOdds(attacks, target);
+    expect(withZero.finalDestroyChance).toBeCloseTo(withAbsent.finalDestroyChance, 9);
+  });
+
+  it('a Shield Guard can fully negate an otherwise-guaranteed-lethal RANGED hit', () => {
+    const lethalAttack = attack({ type: 'ranged', stat: 6, pow: 1, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1 };
+
+    const withoutBlock = computeSequenceOdds([lethalAttack], target);
+    expect(withoutBlock.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const withBlock = computeSequenceOdds([lethalAttack], { ...target, shieldGuards: 1 });
+    expect(withBlock.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
+  it('a Scapegoat can fully negate an otherwise-guaranteed-lethal MELEE hit', () => {
+    const lethalAttack = attack({ type: 'melee', stat: 6, pow: 1, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1 };
+
+    const withoutBlock = computeSequenceOdds([lethalAttack], target);
+    expect(withoutBlock.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const withBlock = computeSequenceOdds([lethalAttack], { ...target, scapegoats: 1 });
+    expect(withBlock.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
+  it('a Scapegoat does not block a ranged attack, a Shield Guard does not block a melee attack, and neither blocks arcane', () => {
+    const lethal = (type: 'melee' | 'ranged' | 'arcane') => attack({ type, stat: 6, pow: 1, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1 };
+
+    const rangedWithScapegoat = computeSequenceOdds([lethal('ranged')], { ...target, scapegoats: 1 });
+    expect(rangedWithScapegoat.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const meleeWithShieldGuard = computeSequenceOdds([lethal('melee')], { ...target, shieldGuards: 1 });
+    expect(meleeWithShieldGuard.finalDestroyChance).toBeCloseTo(1, 9);
+
+    const arcaneWithBoth = computeSequenceOdds([lethal('arcane')], { ...target, shieldGuards: 1, scapegoats: 1 });
+    expect(arcaneWithBoth.finalDestroyChance).toBeCloseTo(1, 9);
+  });
+
+  it('a block reverts BOTH the damage and any statEffect the hit would have inflicted', () => {
+    const singleDieMods = { discard: { lowest: 1 } };
+    const attack1 = attack({ id: '1', type: 'melee', forceAutoHit: true, pow: 1, statEffects: [{ type: 'knockdown', trigger: 'hit' }] });
+    const attack2 = attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods });
+
+    const withoutBlock = computeSequenceOdds([attack1, attack2], { def: 13, arm: 0, boxes: 1000 });
+    const withBlock = computeSequenceOdds([attack1, attack2], { def: 13, arm: 0, boxes: 1000, scapegoats: 1 });
+
+    // Damage: attack1 (auto-hit, damage 2d6+1) is fully negated when the block fires.
+    expect(withoutBlock.steps[0].expectedBoxesRemaining).toBeLessThan(1000);
+    expect(withBlock.steps[0].expectedBoxesRemaining).toBeCloseTo(1000, 9);
+    // Effect: without the block, Knockdown from attack1 carries over and auto-hits attack2 (an
+    // otherwise near-0-hit-chance single-die roll, same setup as the plain Knockdown test earlier
+    // in this file). With the block, the debuff never applied, so attack2's hit chance stays ~0.
+    expect(withoutBlock.steps[1].hitChance).toBeGreaterThan(0);
+    expect(withBlock.steps[1].hitChance).toBeCloseTo(0, 6);
+  });
+
+  it('a block never triggers Rapid Healing, unlike a Fury-negated hit (contrast with the Fury test above)', () => {
+    // Same shape/numbers as the "Rapid Healing still triggers on a Fury-negated hit" test, with
+    // Fury swapped for a Shield Guard (ranged, so the block is eligible) - boxes=30 sized so
+    // neither heal ever gets near the cap.
+    const target = { def: 13, arm: 0, boxes: 30, shieldGuards: 1, rapidHealing: true };
+    const attack1 = attack({ id: '1', type: 'ranged', forceAutoHit: true, pow: 10 }); // damage = 2d6+10 (12-22), never lethal (< 30)
+    const attack2 = attack({ id: '2', type: 'ranged', forceAutoHit: true, pow: 30 }); // damage = 2d6+30 (32-42), always lethal without the block
+    const withHealing = computeSequenceOdds([attack1, attack2], target);
+    const withoutHealing = computeSequenceOdds([attack1, attack2], { def: 13, arm: 0, boxes: 30, shieldGuards: 1 });
+    // The target is forced to spend its one Shield Guard on attack2 regardless of Rapid Healing
+    // (not blocking it means certain destruction) - so both runs make the same block choice.
+    // Rapid Healing still fires once, from attack1's own raw damage (always > 0) - E[d3]=2 - but
+    // NOT a second time from attack2, since a block is a TRUE miss for Rapid Healing purposes,
+    // unlike Fury (which would add another +2 here - see the Fury test above).
+    expect(withHealing.steps[1].expectedBoxesRemaining).toBeCloseTo(withoutHealing.steps[1].expectedBoxesRemaining + 2, 9);
+  });
+
+  it('spends at most one Shield Guard per attack: a single point cannot save the target twice', () => {
+    const makeLethalAttack = (id: string) => attack({ id, type: 'ranged', stat: 6, pow: 1, forceAutoHit: true });
+    const target = { def: 13, arm: 0, boxes: 1, shieldGuards: 1 };
+
+    const result = computeSequenceOdds([makeLethalAttack('1'), makeLethalAttack('2')], target);
+
+    expect(result.steps[0].destroyChanceAtThisStep).toBeCloseTo(0, 9); // saved by the block
+    expect(result.steps[1].destroyChanceAtThisStep).toBeCloseTo(1, 9); // no block left, guaranteed lethal
+    expect(result.finalDestroyChance).toBeCloseTo(1, 9);
+  });
+
+  it('Rate of Fire: a Shield Guard blocks exactly one shot, not the whole volley', () => {
+    // Every shot alone is lethal (1 box, forceAutoHit) - without any block, ANY fired shot count
+    // (d3 always fires >= 1) destroys the target, so finalDestroyChance is 1. With 1 Shield Guard,
+    // only the FIRST shot is saved: the target survives only in the count===1 branch (prob 1/3) -
+    // whenever count >= 2, the second (unblocked) shot is still lethal.
+    const rofAttack = attack({ id: '1', type: 'ranged', stat: 6, pow: 1, forceAutoHit: true, rof: 'd3' });
+    const target = { def: 13, arm: 0, boxes: 1, shieldGuards: 1 };
+    const result = computeSequenceOdds([rofAttack], target);
+    expect(result.finalDestroyChance).toBeCloseTo(2 / 3, 9);
+  });
+
+  it('more Shield Guards/Scapegoats never make the target worse off, and compose with Focus', () => {
+    const attacks = [
+      attack({ id: '1', type: 'ranged', pow: 14 }),
+      attack({ id: '2', type: 'melee', pow: 10, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
+      attack({ id: '3', type: 'ranged', pow: 16 }),
+    ];
+    const baseTarget = { def: 13, arm: 14, boxes: 10 };
+
+    const noResources = computeSequenceOdds(attacks, baseTarget);
+    const withShieldGuards = computeSequenceOdds(attacks, { ...baseTarget, shieldGuards: 2 });
+    const withScapegoats = computeSequenceOdds(attacks, { ...baseTarget, scapegoats: 1 });
+    const withBoth = computeSequenceOdds(attacks, { ...baseTarget, shieldGuards: 2, scapegoats: 1 });
+    const withFocusAndShieldGuards = computeSequenceOdds(attacks, { ...baseTarget, focusPoints: 2, shieldGuards: 2 });
+
+    expect(withShieldGuards.finalDestroyChance).toBeLessThanOrEqual(noResources.finalDestroyChance);
+    expect(withScapegoats.finalDestroyChance).toBeLessThanOrEqual(noResources.finalDestroyChance);
+    expect(withBoth.finalDestroyChance).toBeLessThanOrEqual(withShieldGuards.finalDestroyChance);
+    expect(withBoth.finalDestroyChance).toBeLessThanOrEqual(withScapegoats.finalDestroyChance);
+    expect(withFocusAndShieldGuards.finalDestroyChance).toBeLessThanOrEqual(withShieldGuards.finalDestroyChance);
+  });
+
+  it('rejects an unrealistically large Shield Guards/Scapegoats pool', () => {
+    const target = { def: 13, arm: 14, boxes: 10 };
+    expect(() => computeSequenceOdds([attack()], { ...target, shieldGuards: 11 })).toThrow();
+    expect(() => computeSequenceOdds([attack()], { ...target, scapegoats: 5 })).toThrow();
+  });
+
+  it('Critical Shred does not fire on a blocked crit, but the crit still counts toward Crit%', () => {
+    const target = { def: 2, arm: 0, boxes: 1000, shieldGuards: 1 };
+    const result = computeSequenceOdds([attack({ type: 'ranged', stat: 20, pow: 0, criticalShred: true })], target);
+    // Same hit/crit chance as the sibling Critical Shred baseline test - unaffected by the block.
+    expect(result.steps[0].hitChance).toBeCloseTo(35 / 36, 9);
+    expect(result.steps[0].critChance).toBeCloseTo(5 / 36, 9);
+    // With boxes=1000 (destruction never a factor), the target always spends its one Shield Guard
+    // on the FIRST opportunity (box-preservation tie-break, see the "spends at most one" test
+    // above), blocking this roll outright. A block never chains into Critical Shred, so average
+    // damage is exactly this single roll's own raw expected damage - matching the sibling
+    // "baseline without Critical Shred" test's 245/36 EXACTLY, not the geometric-series 245/31 a
+    // non-blocked crit-shredding attack produces (see the Critical Shred describe block above).
+    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 36, 9);
+  });
+});
+
 describe('sequence engine - onProgress', () => {
   const target = { def: 13, arm: 15, boxes: 5 };
 

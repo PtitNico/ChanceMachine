@@ -62,6 +62,36 @@
     </label>
   </div>
 
+  <h3 class="dialog__section-title">Shield Guard / Scapegoat</h3>
+  <div class="resource-row">
+    <label class="field">
+      <span class="field__label">Shield Guards</span>
+      <select
+        class="field__select field__select--narrow"
+        title="Shield Guards - blocks one ranged attack each"
+        [ngModel]="t.shieldGuards()"
+        (ngModelChange)="t.shieldGuards.set(toNumber($event))"
+      >
+        @for (v of shieldGuardOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+    <label class="field">
+      <span class="field__label">Scapegoats</span>
+      <select
+        class="field__select field__select--narrow"
+        title="Scapegoats - blocks one melee attack each"
+        [ngModel]="t.scapegoats()"
+        (ngModelChange)="t.scapegoats.set(toNumber($event))"
+      >
+        @for (v of scapegoatOptions; track v) {
+          <option [value]="v">{{ v }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
   <h3 class="dialog__section-title">Special rules</h3>
   <div class="toggle-group">
     <button
