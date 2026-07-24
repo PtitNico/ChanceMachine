@@ -49,36 +49,6 @@
   gap: 0.4rem;
 }
 
-.attacker-card__name {
-  display: inline-block;
-  flex: 0 0 auto;
-  min-width: 0;
-  font-family: 'Rajdhani', sans-serif;
-  font-weight: 700;
-  font-size: 0.9rem;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--brass-bright);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: text;
-  outline: none;
-  border-bottom: 1px dashed currentColor;
-}
-
-.attacker-card__name:focus-visible {
-  outline: 2px solid var(--brass-bright);
-  outline-offset: 1px;
-}
-
-/* contenteditable has no native `placeholder` - fake it with generated content shown only when
-   the span is empty (name unset, falls back to "Attacker N" by position). */
-.attacker-card__name:empty::before {
-  content: attr(data-placeholder);
-  color: inherit;
-}
-
 .attacker-card__attacks {
   display: flex;
   flex-direction: column;

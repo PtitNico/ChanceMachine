@@ -1,0 +1,48 @@
+:host {
+  display: contents;
+}
+
+.toggle-select {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* The real, fully functional control - hidden itself via `opacity: 0` alone (never `color`/
+   `background`: some browsers build the native popup's row colors straight from the select's own
+   computed `color`/`background-color` - this is exactly why the old styled-pill design leaked its
+   brass "active" color into the popup. Left unset, they stay at the UA default, so the popup
+   stays legible; `opacity` is purely a paint-time compositing effect and doesn't feed the popup),
+   stretched to exactly cover the visible pill label below so a click/tap anywhere on the pill
+   opens it. Its own <option> text is just the plain value, not "Label: N" - only the decorative
+   label below shows that. */
+.toggle-select__native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toggle-select__label {
+  pointer-events: none;
+}
+
+.toggle-select__native:hover + .toggle-select__label {
+  border-color: var(--brass);
+  color: var(--text);
+}
+
+.toggle-select__native:hover + .toggle-select__label.toggle-btn--active {
+  background: var(--brass-bright);
+  border-color: var(--brass-bright);
+}
+
+.toggle-select__native:focus-visible + .toggle-select__label {
+  outline: 2px solid var(--brass-bright);
+  outline-offset: 2px;
+}

@@ -1,95 +1,41 @@
 <app-dialog-shell #shell title="Target profile" [framed]="true">
   @let t = target();
   <h3 class="dialog__section-title">Resources</h3>
-  <div class="resource-row">
-    <div class="toggle-group">
-      <button
-        type="button"
-        class="toggle-btn"
-        [class.toggle-btn--active]="t.resourceKind() === 'focus'"
-        (click)="t.resourceKind.set('focus')"
-      >
-        Focus
-      </button>
-      <button
-        type="button"
-        class="toggle-btn"
-        [class.toggle-btn--active]="t.resourceKind() === 'fury'"
-        (click)="t.resourceKind.set('fury')"
-      >
-        Fury
-      </button>
-    </div>
-    <select
-      class="field__select field__select--narrow"
-      title="Points"
-      [ngModel]="t.resourcePoints()"
-      (ngModelChange)="t.resourcePoints.set(toNumber($event))"
-    >
-      @for (v of resourceOptions; track v) {
-        <option [value]="v">{{ v }}</option>
-      }
-    </select>
+  <div class="toggle-group">
+    <app-toggle-select label="Focus" [signal]="t.focusPoints" [options]="resourceOptions" (valueChange)="onFocusChange(t, $event)" />
+    <app-toggle-select label="Fury" [signal]="t.furyPoints" [options]="resourceOptions" (valueChange)="onFuryChange(t, $event)" />
   </div>
 
   <h3 class="dialog__section-title">Knowledge of the Damned</h3>
-  <div class="resource-row">
-    <label class="field">
-      <span class="field__label">Offensive</span>
-      <select
-        class="field__select field__select--narrow"
-        title="Offensive Knowledge of the Damned charges"
-        [ngModel]="t.offensiveKnowledgeOfTheDamned()"
-        (ngModelChange)="t.offensiveKnowledgeOfTheDamned.set(toNumber($event))"
-      >
-        @for (v of kotdOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-    <label class="field">
-      <span class="field__label">Defensive</span>
-      <select
-        class="field__select field__select--narrow"
-        title="Defensive Knowledge of the Damned charges"
-        [ngModel]="t.defensiveKnowledgeOfTheDamned()"
-        (ngModelChange)="t.defensiveKnowledgeOfTheDamned.set(toNumber($event))"
-      >
-        @for (v of kotdOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
+  <div class="toggle-group">
+    <app-toggle-select
+      label="Offensive"
+      [signal]="t.offensiveKnowledgeOfTheDamned"
+      [options]="kotdOptions"
+      title="Offensive Knowledge of the Damned charges"
+    />
+    <app-toggle-select
+      label="Defensive"
+      [signal]="t.defensiveKnowledgeOfTheDamned"
+      [options]="kotdOptions"
+      title="Defensive Knowledge of the Damned charges"
+    />
   </div>
 
   <h3 class="dialog__section-title">Shield Guard / Scapegoat</h3>
-  <div class="resource-row">
-    <label class="field">
-      <span class="field__label">Shield Guards</span>
-      <select
-        class="field__select field__select--narrow"
-        title="Shield Guards - blocks one ranged attack each"
-        [ngModel]="t.shieldGuards()"
-        (ngModelChange)="t.shieldGuards.set(toNumber($event))"
-      >
-        @for (v of shieldGuardOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
-    <label class="field">
-      <span class="field__label">Scapegoats</span>
-      <select
-        class="field__select field__select--narrow"
-        title="Scapegoats - blocks one melee attack each"
-        [ngModel]="t.scapegoats()"
-        (ngModelChange)="t.scapegoats.set(toNumber($event))"
-      >
-        @for (v of scapegoatOptions; track v) {
-          <option [value]="v">{{ v }}</option>
-        }
-      </select>
-    </label>
+  <div class="toggle-group">
+    <app-toggle-select
+      label="Shield Guards"
+      [signal]="t.shieldGuards"
+      [options]="shieldGuardOptions"
+      title="Shield Guards - blocks one ranged attack each"
+    />
+    <app-toggle-select
+      label="Scapegoats"
+      [signal]="t.scapegoats"
+      [options]="scapegoatOptions"
+      title="Scapegoats - blocks one melee attack each"
+    />
   </div>
 
   <h3 class="dialog__section-title">Special rules</h3>
@@ -110,9 +56,13 @@
     >
       Tough Steady
     </button>
-    <button type="button" class="toggle-btn" [class.toggle-btn--active]="t.shield()" (click)="t.shield.set(!t.shield())">
-      Shield
-    </button>
+    <app-toggle-select
+      label="Shield"
+      [signal]="t.shieldAmount"
+      [options]="shieldAmountOptions"
+      [formatValue]="formatArmBonus"
+      title="Shield - flat ARM bonus"
+    />
     <button
       type="button"
       class="toggle-btn"
@@ -138,41 +88,20 @@
       Rapid Healing
     </button>
   </div>
-  @if (t.shield()) {
-    <label class="field">
-      <span class="field__label">Shield amount</span>
-      <select
-        class="field__select field__select--narrow"
-        [ngModel]="t.shieldAmount()"
-        (ngModelChange)="t.shieldAmount.set(toNumber($event))"
-      >
-        @for (v of shieldAmountOptions; track v) {
-          <option [value]="v">+{{ v }}</option>
-        }
-      </select>
-    </label>
-  }
 
-  <h3 class="dialog__section-title">Spells</h3>
+  <h3 class="dialog__section-title">Custom effects</h3>
   @for (spell of t.spellBonuses(); track spell.id) {
     <div class="spell-row">
       <div class="spell-row__line">
-        <input
-          type="text"
-          class="spell-row__name"
-          placeholder="Spell name"
-          [ngModel]="spell.name()"
-          (ngModelChange)="spell.name.set($event)"
-        />
-        <select
-          class="field__select field__select--narrow"
-          title="Bonus type"
-          [ngModel]="spell.kind()"
-          (ngModelChange)="setSpellKind(spell, $event)"
+        <app-editable-name [nameSignal]="spell.name" placeholder="Name" ariaLabel="Effect name" />
+        <button
+          type="button"
+          class="icon-btn icon-btn--trash spell-row__remove"
+          (click)="removeSpellBonus(t, spell.id)"
+          aria-label="Remove spell bonus"
         >
-          <option value="stat">Stat</option>
-          <option value="rule">Rule</option>
-        </select>
+          <span class="material-symbols-outlined">delete</span>
+        </button>
       </div>
       <div class="spell-row__line">
         @if (spell.kind() === 'stat') {
@@ -195,6 +124,24 @@
             <option value="def">DEF</option>
             <option value="arm">ARM</option>
           </select>
+          <button
+            type="button"
+            class="toggle-btn toggle-btn--sm"
+            [class.toggle-btn--active]="spell.isSpell()"
+            title="Spell - ignored by an attack's Blessed effect"
+            (click)="spell.isSpell.set(!spell.isSpell())"
+          >
+            Spell
+          </button>
+          <button
+            type="button"
+            class="toggle-btn toggle-btn--sm"
+            [class.toggle-btn--active]="spell.dispellable()"
+            title="Dispellable - removed by an attack's Dispel effect"
+            (click)="spell.dispellable.set(!spell.dispellable())"
+          >
+            Dispellable
+          </button>
         } @else {
           <select
             class="field__select field__select--narrow"
@@ -207,27 +154,13 @@
             }
           </select>
         }
-        <label class="spell-row__dispellable" title="Dispellable - removable by an attack's Dispel effect">
-          <input
-            type="checkbox"
-            [ngModel]="spell.dispellable()"
-            (ngModelChange)="spell.dispellable.set($event)"
-            [disabled]="spell.kind() === 'rule'"
-          />
-          Up
-        </label>
-        <button
-          type="button"
-          class="icon-btn icon-btn--danger spell-row__remove"
-          (click)="removeSpellBonus(t, spell.id)"
-          aria-label="Remove spell bonus"
-        >
-          ✕
-        </button>
       </div>
     </div>
   }
-  <button type="button" class="add-spell-btn" (click)="addSpellBonus(t)">+ Add spell</button>
+  <div class="spell-add-buttons">
+    <button type="button" class="add-spell-btn" (click)="addDispellableEffect(t)">+ Add dispellable effect</button>
+    <button type="button" class="add-spell-btn" (click)="addStatSpell(t)">+ Add stat spell</button>
+  </div>
 
   <div dialogActions class="dialog__actions">
     <button type="button" class="dialog__reset-btn" (click)="resetProfile(t)">Reset</button>

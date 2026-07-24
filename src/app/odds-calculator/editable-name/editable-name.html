@@ -1,0 +1,10 @@
+<span
+  #nameSpan
+  class="editable-name"
+  contenteditable="true"
+  role="textbox"
+  [attr.aria-label]="ariaLabel()"
+  [attr.data-placeholder]="placeholder()"
+  (blur)="onBlur(nameSpan)"
+  (keydown.enter)="$event.preventDefault(); nameSpan.blur()"
+></span>

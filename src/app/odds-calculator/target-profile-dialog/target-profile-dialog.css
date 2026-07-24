@@ -1,24 +1,14 @@
-/* Resources: the Focus/Fury toggle and the shared points <select> sit on one line. */
-.resource-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-bottom: 0.9rem;
-}
-
-.resource-row .toggle-group {
-  margin-bottom: 0;
-}
-
 /* --- Repeatable "spell bonus" list: the generic escape hatch for spells not otherwise
    named (see target-panel.model.ts SpellBonusRow doc comment). --- */
 
-/* Two lines per spell (name+type, then the rest) rather than one: with up to 5 controls
-   (name, bonus type, 1-2 more selects, Dispellable, remove), a single nowrap line still
-   overflowed even the widest dialog. A border-top on every spell-row but the first (the
-   adjacent-sibling combinator naturally skips the first one) separates entries, mirroring
-   the border between attack rows. */
+/* Two lines per spell rather than one: a stat row's fields alone (amount, DEF/ARM, Spell,
+   Dispellable) are already 4 controls, and a single nowrap line still overflowed even the widest
+   dialog once the Spell/Dispellable toggles were added. The remove button lives on line 1, next
+   to the name - not with the fields on line 2 - the same "keep the remove control in the roomier
+   header, not crammed with secondary fields" placement `AttackerCard`/`AttackSubCard` already use,
+   so it stays reachable without needing to scroll line 2's own overflow on narrow screens. A
+   border-top on every spell-row but the first (the adjacent-sibling combinator naturally skips the
+   first one) separates entries, mirroring the border between attack rows. */
 .spell-row {
   display: flex;
   flex-direction: column;
@@ -44,51 +34,32 @@
   display: none; /* Chrome, Safari, modern Edge */
 }
 
-.spell-row__name {
-  flex: 1 1 auto;
-  min-width: 5rem;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  color: var(--text);
-  font-family: 'Inter', sans-serif;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.5rem;
-}
-
-.spell-row__name:focus-visible {
-  outline: 2px solid var(--brass-bright);
-  outline-offset: 2px;
-}
-
-.spell-row__dispellable {
-  display: flex;
-  align-items: center;
+/* Smaller variant of the shared `.toggle-btn` (dialog-sections.css) for the Spell/Dispellable
+   toggles on a stat row - a stat row's second line already has 2 selects and a remove button
+   sharing the space, so the full-size pill used everywhere else in this dialog is too wide here. */
+.toggle-btn--sm {
   flex-shrink: 0;
-  gap: 0.3rem;
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  white-space: nowrap;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.68rem;
 }
 
-.spell-row__dispellable input[type='checkbox'] {
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--brass);
-}
-
-.spell-row__dispellable input[type='checkbox']:disabled {
-  opacity: 0.6;
-}
-
-/* Pushed to the end of the second line, past the bonus/rule selects and the Dispellable checkbox. */
+/* Pushed to the end of the first line, past the name input. */
 .spell-row__remove {
   margin-left: auto;
+}
+
+.spell-add-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.spell-add-buttons .add-spell-btn {
+  margin-bottom: 0.5rem;
 }
 
 .add-spell-btn {
   width: 100%;
   padding: 0.5rem;
-  margin-bottom: 0.5rem;
   background: transparent;
   border: 1px dashed var(--brass);
   color: var(--brass-bright);

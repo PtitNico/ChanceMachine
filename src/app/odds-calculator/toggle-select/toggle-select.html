@@ -1,0 +1,16 @@
+<span class="toggle-select">
+  <select
+    class="toggle-select__native"
+    [attr.title]="title() || null"
+    [attr.aria-label]="label()"
+    [ngModel]="signal()()"
+    (ngModelChange)="onChange($event)"
+  >
+    @for (v of options(); track v) {
+      <option [value]="v">{{ formatValue()(v) }}</option>
+    }
+  </select>
+  <span class="toggle-btn toggle-select__label" [class.toggle-btn--active]="signal()() > 0" aria-hidden="true">
+    {{ signal()() > 0 ? label() + ': ' + formatValue()(signal()()) : label() }}
+  </span>
+</span>

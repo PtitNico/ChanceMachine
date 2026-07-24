@@ -19,11 +19,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-24',
+    items: [
+      'Reworked the target profile\'s Spells section into "Custom effects": "Add dispellable effect" grants Tough/Unyielding (always removable by Dispel), "Add stat spell" grants a flat DEF/ARM bonus with independent Spell/Dispellable toggles - a non-spell bonus (Spell off) is no longer ignored by Blessed.',
+      'Focus, Fury, Knowledge of the Damned, Shield Guards, Scapegoats, and Shield in the target profile are now single toggle buttons showing their value (e.g. "Shield Guards: 2") instead of a label plus dropdown. Focus and Fury stay mutually exclusive.',
+    ],
+  },
+  {
     date: '2026-07-23',
     items: [
-      "Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) grants a reroll pool shared across every attacker, spent the same way as Puppet Master; a Defensive counter (0-10) grants the target its own reroll pool, spent optimally against any attack or damage roll to lower the chance of destruction. Both stack with Puppet Master and a row's own Reroll toggle.",
-      'Added Shield Guards (0-10) and Scapegoats (0-4) to the target profile: each blocks one ranged (Shield Guard) or melee (Scapegoat) attack outright - damage and any effects - spent optimally like Focus/Fury.',
-      'Slow calculations (heavy resource counters, big sequences) now show a "Calculating..." indicator with a live progress estimate instead of leaving the page looking frozen.',
+      'Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) shares a reroll pool across every attacker; a Defensive counter (0-10) gives the target its own optimally-spent reroll pool. Both stack with Puppet Master and a row\'s Reroll toggle.',
+      'Added Shield Guards (0-10) and Scapegoats (0-4): each blocks one ranged or melee attack outright (damage and effects), spent optimally like Focus/Fury.',
+      'Slow calculations now show a "Calculating..." indicator with a live progress estimate instead of looking frozen.',
     ],
   },
   {

@@ -1,0 +1,35 @@
+:host {
+  display: contents;
+}
+
+/* One consistent "click to edit" look everywhere this is used (attacker name, custom effect
+   name) - bold, uppercase, brass, dashed underline, ellipsized rather than wrapping. */
+.editable-name {
+  display: inline-block;
+  flex: 0 0 auto;
+  min-width: 0;
+  cursor: text;
+  outline: none;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px dashed currentColor;
+}
+
+.editable-name:focus-visible {
+  outline: 2px solid var(--brass-bright);
+  outline-offset: 1px;
+}
+
+/* contenteditable has no native `placeholder` - fake it with generated content shown only when
+   the span is empty. */
+.editable-name:empty::before {
+  content: attr(data-placeholder);
+  color: inherit;
+}

@@ -33,6 +33,10 @@ import {
   effectiveCarapace,
   effectiveToughKind,
   effectiveUnyielding,
+  nonSpellArmBonus,
+  nonSpellArmBonusPostDispel,
+  nonSpellDefBonus,
+  nonSpellDefBonusPostDispel,
   resetTargetFully,
   shieldArmBonus,
   spellArmBonus,
@@ -119,12 +123,8 @@ export class OddsCalculator {
     toughSteady: effectiveToughKind(this.target) === 'toughSteady',
     toughPostDispel: this.target.toughKind() === 'tough',
     toughSteadyPostDispel: this.target.toughKind() === 'toughSteady',
-    focusPoints: OddsCalculator.clampResourcePoints(
-      this.target.resourceKind() === 'focus' ? this.target.resourcePoints() : 0
-    ),
-    furyPoints: OddsCalculator.clampResourcePoints(
-      this.target.resourceKind() === 'fury' ? this.target.resourcePoints() : 0
-    ),
+    focusPoints: OddsCalculator.clampResourcePoints(this.target.focusPoints()),
+    furyPoints: OddsCalculator.clampResourcePoints(this.target.furyPoints()),
     offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
     defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
     shieldGuards: OddsCalculator.clampResourcePoints(this.target.shieldGuards()),
@@ -134,6 +134,10 @@ export class OddsCalculator {
     spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),
     defBonus: spellDefBonus(this.target),
     defBonusPostDispel: spellDefBonusPostDispel(this.target),
+    nonSpellArmBonus: nonSpellArmBonus(this.target),
+    nonSpellArmBonusPostDispel: nonSpellArmBonusPostDispel(this.target),
+    nonSpellDefBonus: nonSpellDefBonus(this.target),
+    nonSpellDefBonusPostDispel: nonSpellDefBonusPostDispel(this.target),
     unyielding: effectiveUnyielding(this.target),
     unyieldingPostDispel: this.target.unyielding(),
     carapace: effectiveCarapace(this.target),

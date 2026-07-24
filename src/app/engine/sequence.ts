@@ -34,7 +34,9 @@
  * `profileFor` picks whichever half of the pair matches `debuffState.dispelled`.
  * Two more per-attack toggles narrow which of these a SPECIFIC attack sees at
  * all, regardless of Dispel: Blessed (`SequencedAttack.blessed`) ignores every
- * Stat-type spell bonus, and Chain Weapon (`SequencedAttack.chainWeapon`)
+ * Stat-type bonus flagged Spell - a non-spell Stat-type bonus (a feat, a
+ * non-spell aura, see `nonSpellArmBonus`/`nonSpellDefBonus`) is never
+ * Blessed-ignorable - and Chain Weapon (`SequencedAttack.chainWeapon`)
  * ignores Shield's ARM bonus - see `profileFor`.
  *
  * Rapid Healing (`SequenceTarget.rapidHealing`) adds a THIRD sub-problem on top of Focus/Fury and
@@ -284,7 +286,8 @@ export interface SequencedAttack {
   statEffects?: StatEffect[];
   /** Manual override: this attack automatically hits regardless of DEF (e.g. target is Stationary). */
   forceAutoHit?: boolean;
-  /** This attack ignores every Stat-type spell bonus (DEF and ARM alike) on the target. */
+  /** This attack ignores every Stat-type bonus flagged Spell (DEF and ARM alike) on the target -
+   *  a non-spell Stat-type bonus (a feat, a non-spell aura) is never Blessed-ignorable. */
   blessed?: boolean;
   /** This attack ignores the target's Shield ARM bonus specifically (nothing else). */
   chainWeapon?: boolean;
@@ -360,6 +363,17 @@ export interface SequenceTarget {
   defBonus?: number;
   /** Same, but counting only the spells that are NOT flagged Dispellable. */
   defBonusPostDispel?: number;
+  /** Flat ARM bonus from every currently-active Stat-type bonus that's NOT spell-flagged (a feat,
+   *  a non-spell aura) - the counterpart to `spellArmBonus` that Blessed never ignores (only
+   *  Dispel does, via this pre/post pair). Still folded into the same final `arm` Armor Piercing
+   *  halves against in `attack-model.ts`'s `resolveArm`, so it needs no AP-specific handling. */
+  nonSpellArmBonus?: number;
+  /** Same, but counting only the non-spell bonuses that are NOT flagged Dispellable. */
+  nonSpellArmBonusPostDispel?: number;
+  /** Flat DEF bonus counterpart to `nonSpellArmBonus`. */
+  nonSpellDefBonus?: number;
+  /** Same, but counting only the non-spell DEF bonuses that are NOT flagged Dispellable. */
+  nonSpellDefBonusPostDispel?: number;
   /** +2 ARM against melee attacks specifically (innate or spell-granted). */
   unyielding?: boolean;
   /** `unyielding` as it'd read post-Dispel - see `toughPostDispel`. */
@@ -950,6 +964,10 @@ export function computeSequenceOdds(
   const shieldArmBonus = target.shieldArmBonus ?? 0;
   const spellArmBonus = target.spellArmBonus ?? 0;
   const spellArmBonusPostDispel = target.spellArmBonusPostDispel ?? 0;
+  const nonSpellDefBonus = target.nonSpellDefBonus ?? 0;
+  const nonSpellDefBonusPostDispel = target.nonSpellDefBonusPostDispel ?? 0;
+  const nonSpellArmBonus = target.nonSpellArmBonus ?? 0;
+  const nonSpellArmBonusPostDispel = target.nonSpellArmBonusPostDispel ?? 0;
   const unyielding = !!target.unyielding;
   const unyieldingPostDispel = !!target.unyieldingPostDispel;
   const carapace = !!target.carapace;
@@ -1055,14 +1073,19 @@ export function computeSequenceOdds(
   function contextFor(atk: SequencedAttack, debuffState: DebuffState): { usesAutoHit: boolean; def: number; arm: number } {
     const immobilized = isKnockedDownOrStationary(debuffState);
     const usesAutoHit = !!atk.forceAutoHit || (atk.type === 'melee' && immobilized);
-    // Blessed drops every Stat-type spell bonus (DEF and ARM); Dispel drops just the ones flagged
-    // Dispellable. Both can apply at once (Blessed then just reads as 0 either way).
-    const activeSpellDef = atk.blessed ? 0 : debuffState.dispelled ? defBonusPostDispel : defBonus;
-    const activeSpellArm = atk.blessed ? 0 : debuffState.dispelled ? spellArmBonusPostDispel : spellArmBonus;
+    // Blessed drops only the SPELL-flagged Stat-type bonus (DEF and ARM); the non-spell counterpart
+    // (a feat, a non-spell aura) is never Blessed-ignorable. Dispel drops whichever half of each is
+    // currently flagged Dispellable, regardless of spell/non-spell. Both can apply at once.
+    const activeStatDefBonus =
+      (atk.blessed ? 0 : debuffState.dispelled ? defBonusPostDispel : defBonus) +
+      (debuffState.dispelled ? nonSpellDefBonusPostDispel : nonSpellDefBonus);
+    const activeStatArmBonus =
+      (atk.blessed ? 0 : debuffState.dispelled ? spellArmBonusPostDispel : spellArmBonus) +
+      (debuffState.dispelled ? nonSpellArmBonusPostDispel : nonSpellArmBonus);
     // Chain Weapon drops Shield's ARM bonus specifically, regardless of Dispel (a spell-granted
     // Shield isn't reachable from the current UI, so Dispel never needs to touch this component).
     const activeShieldArm = atk.chainWeapon ? 0 : shieldArmBonus;
-    const def = effectiveDef(baseDef, debuffState) + activeSpellDef;
+    const def = effectiveDef(baseDef, debuffState) + activeStatDefBonus;
     // Unyielding/Carapace only apply against their specific attack type, so - unlike Shield and
     // spell bonuses - they're resolved per attack here rather than folded into a flat bonus. Once
     // Dispel has fired, fall back to whichever half of each pair matches (see `SequenceTarget`).
@@ -1070,7 +1093,7 @@ export function computeSequenceOdds(
     const activeCarapace = debuffState.dispelled ? carapacePostDispel : carapace;
     const conditionalArmBonus =
       (activeUnyielding && atk.type === 'melee' ? 2 : 0) + (activeCarapace && atk.type === 'ranged' ? 4 : 0);
-    const arm = baseArm - debuffState.armPenalty + activeShieldArm + activeSpellArm + conditionalArmBonus;
+    const arm = baseArm - debuffState.armPenalty + activeShieldArm + activeStatArmBonus + conditionalArmBonus;
     return { usesAutoHit, def, arm };
   }
 

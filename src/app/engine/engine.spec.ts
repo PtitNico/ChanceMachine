@@ -965,6 +965,72 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     // never had the dispellable spell ARM bonus or Unyielding in the first place.
     expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
   });
+
+  it('nonSpellArmBonus/nonSpellDefBonus are flat, unconditional bonuses, like their spell counterparts', () => {
+    const armTarget = { def: 13, arm: 10, boxes: 1000, nonSpellArmBonus: 3 };
+    const armBase = { def: 13, arm: 10, boxes: 1000 };
+    const withArmBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], armTarget);
+    const withoutArmBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], armBase);
+    expect(withArmBonus.steps[0].averageDamage).toBeCloseTo(withoutArmBonus.steps[0].averageDamage - 3, 9);
+
+    const defTarget = { def: 10, arm: 0, boxes: 1000, nonSpellDefBonus: 2 };
+    const result = computeSequenceOdds([attack({ type: 'ranged', stat: 0 })], defTarget);
+    // Effective DEF = 10+2 = 12, RAT 0, needed sum = 12 -> P(2d6 = 12) = 1/36.
+    expect(result.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+  });
+
+  it('Blessed does NOT ignore nonSpellArmBonus/nonSpellDefBonus, unlike spellArmBonus/defBonus', () => {
+    const armTarget = { def: 10, arm: 10, boxes: 1000, spellArmBonus: 3, nonSpellArmBonus: 4, shieldArmBonus: 5 };
+    const blessedArm = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12, blessed: true })], armTarget);
+    const nonSpellAndShieldOnly = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, blessed: true })],
+      { def: 10, arm: 10, boxes: 1000, nonSpellArmBonus: 4, shieldArmBonus: 5 }
+    );
+    // Blessed drops the +3 spellArmBonus but keeps the +4 nonSpellArmBonus and Shield's +5 - matches
+    // a target that never had the spell ARM bonus at all.
+    expect(blessedArm.steps[0].averageDamage).toBeCloseTo(nonSpellAndShieldOnly.steps[0].averageDamage, 9);
+
+    const defTarget = { def: 10, arm: 0, boxes: 1000, defBonus: 2, nonSpellDefBonus: 2 };
+    const blessedDef = computeSequenceOdds([attack({ type: 'ranged', stat: 0, blessed: true })], defTarget);
+    // Blessed drops the +2 defBonus, leaving only nonSpellDefBonus's +2: effective DEF = 10+2 = 12,
+    // needed sum = 12 -> 1/36 (same fraction as the plain defBonus test above).
+    expect(blessedDef.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+  });
+
+  it('Armor Piercing applies nonSpellArmBonus too, on top of the halved base', () => {
+    const target = { def: 13, arm: 16, boxes: 1000, nonSpellArmBonus: 4, unyielding: true };
+    const result = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, effects: { armorPiercing: 'hit' } })],
+      target
+    );
+    // Effective ARM (no Armor Piercing) would be 16 + 4 (nonSpellArmBonus) + 2 (Unyielding, melee) = 22.
+    // Armor Piercing halves only the printed base: ceil(16/2)=8, then adds back the +6 of
+    // buffs still in play (22-16) = 14. averageDamage = E[2d6] + 12 - 14 = 7 - 2 = 5.
+    expect(result.steps[0].averageDamage).toBeCloseTo(5, 9);
+  });
+
+  it('Dispel removes nonSpellArmBonus/nonSpellDefBonus via their own *PostDispel pair, exactly like spellArmBonus/defBonus', () => {
+    const attack1 = attack({ forceAutoHit: true, pow: 0, statEffects: [{ type: 'dispel', trigger: 'hit' }] });
+    const attack2 = attack({ forceAutoHit: true, pow: 12 });
+    const target = {
+      def: 10,
+      arm: 10,
+      boxes: 1000,
+      nonSpellArmBonus: 3,
+      nonSpellArmBonusPostDispel: 0,
+      nonSpellDefBonus: 2,
+      nonSpellDefBonusPostDispel: 0,
+      shieldArmBonus: 5, // innate - Dispel never touches shieldArmBonus (see SequenceTarget doc)
+    };
+    const result = computeSequenceOdds([attack1, attack2], target);
+    const withoutDispellables = computeSequenceOdds(
+      [attack1, attack({ forceAutoHit: true, pow: 12 })],
+      { def: 10, arm: 10, boxes: 1000, shieldArmBonus: 5 }
+    );
+    // Attack 2 sees only Shield's ARM bonus once Dispel has fired before it - matches a target that
+    // never had the dispellable non-spell ARM/DEF bonuses in the first place.
+    expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
+  });
 });
 
 describe('sequence engine - Rapid Healing and Grievous Wounds', () => {

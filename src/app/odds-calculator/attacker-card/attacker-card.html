@@ -5,16 +5,11 @@
     </span>
 
     <div class="attacker-card__name-row">
-      <span
-        #nameSpan
-        class="attacker-card__name"
-        contenteditable="true"
-        role="textbox"
-        aria-label="Attacker name"
-        [attr.data-placeholder]="'Attacker ' + (index() + 1)"
-        (blur)="onNameBlur(nameSpan)"
-        (keydown.enter)="$event.preventDefault(); nameSpan.blur()"
-      ></span>
+      <app-editable-name
+        [nameSignal]="attacker().name"
+        [placeholder]="'Attacker ' + (index() + 1)"
+        ariaLabel="Attacker name"
+      />
     </div>
 
     @if (presentTypes().has('melee')) {

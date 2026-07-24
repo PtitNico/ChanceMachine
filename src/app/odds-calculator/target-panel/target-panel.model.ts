@@ -7,7 +7,7 @@ export const DEF_OPTIONS: (number | 'KD')[] = ['KD', ...range(5, 25)];
 export const ARM_OPTIONS = range(1, 35);
 export const BOXES_OPTIONS = range(1, 99);
 export const RESOURCE_OPTIONS = range(0, 15); // Focus/Fury point count
-export const SHIELD_AMOUNT_OPTIONS = range(1, 10);
+export const SHIELD_AMOUNT_OPTIONS = range(0, 10);
 export const SPELL_BONUS_OPTIONS = range(0, 10); // 0 = "not granting this stat"
 export const KOTD_OPTIONS = range(0, 10); // Knowledge of the Damned charge count (offensive/defensive)
 export const SHIELD_GUARD_OPTIONS = range(0, 10);
@@ -17,10 +17,6 @@ export const SCAPEGOAT_OPTIONS = range(0, 4); // capped lower than every other r
  *  is strictly "Tough, but not negated by Knocked Down/Stationary" (see sequence.ts), so having
  *  both active at once would never make sense. */
 export type ToughKind = 'off' | 'tough' | 'toughSteady';
-
-/** A model only ever has Focus (warcaster) or Fury (warlock), never both - one shared point
- *  count with a toggle for which resource it represents, rather than two independent fields. */
-export type ResourceKind = 'focus' | 'fury';
 
 /** The special rules a spell can grant. Resolved by the engine exactly like the same rule
  *  toggled directly in "Special rules" (see `effectiveToughKind`/`effectiveUnyielding`/etc. below) -
@@ -46,34 +42,60 @@ export type SpellBonusKind = 'stat' | 'rule';
 export type SpellStatType = 'def' | 'arm';
 
 /**
- * One user-defined "spell bonus" row - the generic escape hatch for the countless spells that
- * grant a DEF/ARM bonus or a special rule, which this app deliberately doesn't try to enumerate
- * by name (see docs). `name` is free text purely for the player's own reference. A row is either
- * a flat stat bonus (`kind: 'stat'`, one of `statType`/`statAmount`) or a granted rule (`kind:
- * 'rule'`, `ruleKind`) - never both at once, since a single spell in the game grants one or the
- * other, not a mix. `dispellable` tags the entry as removable by an attack's Dispel effect (see
- * `sequence.ts`'s `*PostDispel` fields) - once an attack's Dispel fires, every entry still flagged
- * `dispellable` stops contributing for the rest of the sequence. A `'rule'` row is always
- * dispellable (enforced by `TargetProfileDialog.setSpellKind`): a permanent, non-dispellable
- * rule should just be toggled directly in "Special rules" instead of modeled as a spell.
+ * One user-defined "custom effect" row - the generic escape hatch for the countless spells (and
+ * feats/non-spell auras) that grant a DEF/ARM bonus or a special rule, which this app deliberately
+ * doesn't try to enumerate by name (see docs). `name` is free text purely for the player's own
+ * reference. A row is either a flat stat bonus (`kind: 'stat'`, one of `statType`/`statAmount`) or
+ * a granted rule (`kind: 'rule'`, `ruleKind`) - never both at once, fixed at creation time by which
+ * of `createStatSpellRow`/`createDispellableEffectRow` built it (there's no UI path to switch a
+ * row's kind afterward). `dispellable` tags the entry as removable by an attack's Dispel effect
+ * (see `sequence.ts`'s `*PostDispel` fields) - once an attack's Dispel fires, every entry still
+ * flagged `dispellable` stops contributing for the rest of the sequence. A `'rule'` row is always
+ * dispellable by construction (`createDispellableEffectRow` always sets it, with no checkbox to
+ * change it): a permanent, non-dispellable rule should just be toggled directly in "Special rules"
+ * instead of modeled here.
  */
 export interface SpellBonusRow {
   readonly id: string;
   readonly name: WritableSignal<string>;
   readonly kind: WritableSignal<SpellBonusKind>;
-  readonly statType: WritableSignal<SpellStatType>;
-  readonly statAmount: WritableSignal<number>;
-  readonly ruleKind: WritableSignal<SpellRuleKind>;
+  readonly statType: WritableSignal<SpellStatType>; // read only when kind === 'stat'
+  readonly statAmount: WritableSignal<number>; // read only when kind === 'stat'
+  /** Read only when kind === 'stat'. True = a genuine spell effect (an attack's Blessed ignores
+   *  it); false = a non-spell source (a feat, a non-spell aura) Blessed never ignores - see
+   *  `sequence.ts`'s `nonSpellArmBonus`/`nonSpellDefBonus`. Irrelevant for kind === 'rule' (a
+   *  granted rule is never Blessed-ignorable regardless of source). */
+  readonly isSpell: WritableSignal<boolean>;
+  readonly ruleKind: WritableSignal<SpellRuleKind>; // read only when kind === 'rule'
   readonly dispellable: WritableSignal<boolean>;
 }
 
-export function createSpellBonusRow(): SpellBonusRow {
+/** "+ Add stat spell": a flat DEF/ARM bonus. `isSpell`/`dispellable` both default true (the
+ *  common case - a spell-granted, dispellable bonus) - flip `isSpell` off for a non-spell source
+ *  Blessed doesn't ignore (a feat, a non-spell aura), flip `dispellable` off for a permanent one. */
+export function createStatSpellRow(): SpellBonusRow {
   return {
     id: `spell-${nextSpellBonusId++}`,
     name: signal(''),
     kind: signal<SpellBonusKind>('stat'),
     statType: signal<SpellStatType>('arm'),
     statAmount: signal(2),
+    isSpell: signal(true),
+    ruleKind: signal<SpellRuleKind>('unyielding'), // unused for a 'stat' row
+    dispellable: signal(true),
+  };
+}
+
+/** "+ Add dispellable effect": a granted rule (Tough/Unyielding), always dispellable by
+ *  construction - an upkeep spell effect, never Blessed-ignorable regardless of source. */
+export function createDispellableEffectRow(): SpellBonusRow {
+  return {
+    id: `spell-${nextSpellBonusId++}`,
+    name: signal(''),
+    kind: signal<SpellBonusKind>('rule'),
+    statType: signal<SpellStatType>('arm'), // unused for a 'rule' row
+    statAmount: signal(2), // unused for a 'rule' row
+    isSpell: signal(true), // unused for a 'rule' row
     ruleKind: signal<SpellRuleKind>('unyielding'),
     dispellable: signal(true),
   };
@@ -84,8 +106,11 @@ export interface TargetState {
   readonly def: WritableSignal<number | 'KD'>;
   readonly arm: WritableSignal<number>;
   readonly boxes: WritableSignal<number>;
-  readonly resourceKind: WritableSignal<ResourceKind>;
-  readonly resourcePoints: WritableSignal<number>;
+  /** A model only ever has Focus (warcaster) or Fury (warlock), never both - two independent
+   *  fields, but `TargetProfileDialog`'s `onFocusChange`/`onFuryChange` keep them mutually
+   *  exclusive (setting one above 0 zeroes the other). */
+  readonly focusPoints: WritableSignal<number>;
+  readonly furyPoints: WritableSignal<number>;
   /** Offensive Knowledge of the Damned: a 0-10 pool of forced rerolls shared across EVERY attacker,
    *  spent via the same kind of fixed, no-lookahead rule Puppet Master uses - see
    *  `sequence.ts`'s `resolveKotdOffSplit`. */
@@ -101,7 +126,7 @@ export interface TargetState {
    *  `SCAPEGOAT_OPTIONS`. */
   readonly scapegoats: WritableSignal<number>;
   readonly toughKind: WritableSignal<ToughKind>; // always succeeds on 5+ (no configurable threshold)
-  readonly shield: WritableSignal<boolean>;
+  /** Flat ARM bonus from Shield, 0-10 (0 = off) - see `shieldArmBonus`. */
   readonly shieldAmount: WritableSignal<number>;
   readonly unyielding: WritableSignal<boolean>;
   readonly carapace: WritableSignal<boolean>;
@@ -122,15 +147,14 @@ export function createTargetState(): TargetState {
     def: signal<number | 'KD'>(DEFAULT_DEF),
     arm: signal(DEFAULT_ARM),
     boxes: signal(DEFAULT_BOXES),
-    resourceKind: signal<ResourceKind>('focus'),
-    resourcePoints: signal(0),
+    focusPoints: signal(0),
+    furyPoints: signal(0),
     offensiveKnowledgeOfTheDamned: signal(0),
     defensiveKnowledgeOfTheDamned: signal(0),
     shieldGuards: signal(0),
     scapegoats: signal(0),
     toughKind: signal<ToughKind>('off'),
-    shield: signal(false),
-    shieldAmount: signal(2),
+    shieldAmount: signal(0),
     unyielding: signal(false),
     carapace: signal(false),
     rapidHealing: signal(false),
@@ -139,14 +163,14 @@ export function createTargetState(): TargetState {
 }
 
 export function resetTargetProfile(target: TargetState): void {
-  target.resourceKind.set('focus');
-  target.resourcePoints.set(0);
+  target.focusPoints.set(0);
+  target.furyPoints.set(0);
   target.offensiveKnowledgeOfTheDamned.set(0);
   target.defensiveKnowledgeOfTheDamned.set(0);
   target.shieldGuards.set(0);
   target.scapegoats.set(0);
   target.toughKind.set('off');
-  target.shield.set(false);
+  target.shieldAmount.set(0);
   target.unyielding.set(false);
   target.carapace.set(false);
   target.rapidHealing.set(false);
@@ -196,37 +220,60 @@ export function effectiveToughKind(target: TargetState): ToughKind {
  *  Kept apart from `spellArmBonus` so Chain Weapon can ignore just this component (see
  *  `sequence.ts`'s `SequenceTarget.shieldArmBonus`). Unaffected by Dispel for the same reason. */
 export function shieldArmBonus(target: TargetState): number {
-  return target.shield() ? target.shieldAmount() : 0;
+  return target.shieldAmount();
 }
 
-function statSpells(target: TargetState, statType: SpellStatType, dispellableOnly: boolean) {
+function statSpells(target: TargetState, statType: SpellStatType, isSpell: boolean, dispellableOnly: boolean) {
   return target
     .spellBonuses()
-    .filter((s) => s.kind() === 'stat' && s.statType() === statType && (!dispellableOnly || !s.dispellable()));
+    .filter(
+      (s) =>
+        s.kind() === 'stat' && s.statType() === statType && s.isSpell() === isSpell && (!dispellableOnly || !s.dispellable())
+    );
 }
 
 function sumStatAmount(spells: SpellBonusRow[]): number {
   return spells.reduce((sum, s) => sum + s.statAmount(), 0);
 }
 
-/** Flat ARM bonus from every currently-active Stat-type spell (Dispellable or not). Kept apart
- *  from `shieldArmBonus` so Blessed can ignore just this component. */
+/** Flat ARM bonus from every currently-active Stat-type bonus flagged Spell (Dispellable or not).
+ *  Kept apart from `shieldArmBonus` so Blessed can ignore just this component. */
 export function spellArmBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', false));
+  return sumStatAmount(statSpells(target, 'arm', true, false));
 }
 
 /** Same, but counting only the spells NOT flagged Dispellable - what's left of `spellArmBonus`
  *  once some attack's Dispel effect has fired against this target. */
 export function spellArmBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', true));
+  return sumStatAmount(statSpells(target, 'arm', true, true));
 }
 
 export function spellDefBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', false));
+  return sumStatAmount(statSpells(target, 'def', true, false));
 }
 
 export function spellDefBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', true));
+  return sumStatAmount(statSpells(target, 'def', true, true));
+}
+
+/** Flat ARM bonus from every currently-active Stat-type bonus flagged non-spell (a feat, a
+ *  non-spell aura). Unlike `spellArmBonus`, an attack's Blessed never ignores this - see
+ *  `sequence.ts`'s `nonSpellArmBonus`. */
+export function nonSpellArmBonus(target: TargetState): number {
+  return sumStatAmount(statSpells(target, 'arm', false, false));
+}
+
+/** Same, but counting only the non-spell bonuses NOT flagged Dispellable. */
+export function nonSpellArmBonusPostDispel(target: TargetState): number {
+  return sumStatAmount(statSpells(target, 'arm', false, true));
+}
+
+export function nonSpellDefBonus(target: TargetState): number {
+  return sumStatAmount(statSpells(target, 'def', false, false));
+}
+
+export function nonSpellDefBonusPostDispel(target: TargetState): number {
+  return sumStatAmount(statSpells(target, 'def', false, true));
 }
 
 export interface TargetSummaryTag {
@@ -245,11 +292,10 @@ export interface TargetSummaryTag {
 /** Short summary tags for every active target capability, shown under the DEF/ARM/Boxes row. */
 export function targetSummary(target: TargetState): TargetSummaryTag[] {
   const tags: TargetSummaryTag[] = [];
-  if (target.resourcePoints() > 0) {
-    tags.push({
-      key: 'resource',
-      label: `${target.resourceKind() === 'focus' ? 'Focus' : 'Fury'} ${target.resourcePoints()}`,
-    });
+  if (target.focusPoints() > 0) {
+    tags.push({ key: 'resource', label: `Focus ${target.focusPoints()}` });
+  } else if (target.furyPoints() > 0) {
+    tags.push({ key: 'resource', label: `Fury ${target.furyPoints()}` });
   }
   if (target.offensiveKnowledgeOfTheDamned() > 0) {
     tags.push({ key: 'kotdOff', label: `Knowledge of the Damned (Off) ${target.offensiveKnowledgeOfTheDamned()}` });
@@ -261,7 +307,7 @@ export function targetSummary(target: TargetState): TargetSummaryTag[] {
   if (target.scapegoats() > 0) tags.push({ key: 'scapegoats', label: `Scapegoats ${target.scapegoats()}` });
   if (target.toughKind() === 'tough') tags.push({ key: 'tough', label: 'Tough' });
   if (target.toughKind() === 'toughSteady') tags.push({ key: 'tough', label: 'Tough Steady' });
-  if (target.shield()) tags.push({ key: 'shield', label: `Shield +${target.shieldAmount()} ARM` });
+  if (target.shieldAmount() > 0) tags.push({ key: 'shield', label: `Shield +${target.shieldAmount()} ARM` });
   if (target.unyielding()) tags.push({ key: 'unyielding', label: 'Unyielding' });
   if (target.carapace()) tags.push({ key: 'carapace', label: 'Carapace' });
   if (target.rapidHealing()) tags.push({ key: 'rapidHealing', label: 'Rapid Healing' });

@@ -9,23 +9,24 @@ import {
   SPELL_BONUS_OPTIONS,
   SPELL_RULE_LABELS,
   SPELL_RULE_OPTIONS,
-  SpellBonusKind,
-  SpellBonusRow,
   TargetState,
   ToughKind,
-  createSpellBonusRow,
+  createDispellableEffectRow,
+  createStatSpellRow,
   resetTargetProfile,
 } from '../target-panel/target-panel.model';
 import { DialogShell } from '../dialog-shell/dialog-shell';
+import { EditableName } from '../editable-name/editable-name';
 import { toNumber } from '../select.util';
+import { ToggleSelect } from '../toggle-select/toggle-select';
 
 @Component({
   selector: 'app-target-profile-dialog',
   standalone: true,
-  imports: [FormsModule, DialogShell],
+  imports: [FormsModule, DialogShell, EditableName, ToggleSelect],
   templateUrl: './target-profile-dialog.html',
   // Shared partials first, this component's own file last - see target-panel.ts for why.
-  styleUrls: ['../shared/dialog-sections.css', './target-profile-dialog.css'],
+  styleUrls: ['../shared/icon-btn.css', '../shared/dialog-sections.css', './target-profile-dialog.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TargetProfileDialog {
@@ -40,6 +41,9 @@ export class TargetProfileDialog {
   protected readonly spellRuleOptions = SPELL_RULE_OPTIONS;
   protected readonly spellRuleLabels = SPELL_RULE_LABELS;
   protected readonly toNumber = toNumber;
+  /** Shield's `ToggleSelect` formats its ARM bonus as "+N" rather than the plain "N" every other
+   *  counter here uses. */
+  protected readonly formatArmBonus = (v: number) => `+${v}`;
 
   @ViewChild('shell') private shell?: DialogShell;
 
@@ -51,24 +55,28 @@ export class TargetProfileDialog {
     resetTargetProfile(target);
   }
 
+  /** A model only ever has Focus or Fury, never both - picking a nonzero value on one clears
+   *  the other, enforced here rather than inside `ToggleSelect` (which stays domain-agnostic). */
+  protected onFocusChange(target: TargetState, value: number): void {
+    if (value > 0) target.furyPoints.set(0);
+  }
+
+  protected onFuryChange(target: TargetState, value: number): void {
+    if (value > 0) target.focusPoints.set(0);
+  }
+
   /** Toggling the already-active kind turns Toughness off; toggling the other one switches to it - mirrors
    *  `ToggleButton`'s own `toggle()`, since Tough/Tough Steady are just as mutually exclusive. */
   protected toggleToughKind(target: TargetState, kind: ToughKind): void {
     target.toughKind.set(target.toughKind() === kind ? 'off' : kind);
   }
 
-  protected addSpellBonus(target: TargetState): void {
-    target.spellBonuses.update((list) => [...list, createSpellBonusRow()]);
+  protected addStatSpell(target: TargetState): void {
+    target.spellBonuses.update((list) => [...list, createStatSpellRow()]);
   }
 
-  /** A 'rule' spell is always dispellable - a permanent, non-dispellable rule belongs directly
-   *  in "Special rules" instead (see `SpellBonusRow` doc comment), so switching to 'rule' forces
-   *  it and the template disables the checkbox to keep that invariant visible. */
-  protected setSpellKind(spell: SpellBonusRow, kind: SpellBonusKind): void {
-    spell.kind.set(kind);
-    if (kind === 'rule') {
-      spell.dispellable.set(true);
-    }
+  protected addDispellableEffect(target: TargetState): void {
+    target.spellBonuses.update((list) => [...list, createDispellableEffectRow()]);
   }
 
   protected removeSpellBonus(target: TargetState, id: string): void {
