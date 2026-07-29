@@ -26,6 +26,15 @@
       @for (effect of effectsFor(row, hitCritPairKeys); track effect.key) {
         <app-toggle-button [effect]="effect" activeValue="hit" />
       }
+      <app-toggle-select
+        label="-X ARM"
+        [signal]="row.armPenaltyHitAmount"
+        [options]="armPenaltyOptions"
+        [formatValue]="formatPenalty"
+        [formatActive]="formatPenaltyActive"
+        (valueChange)="onArmPenaltyHitChange(row, $event)"
+        title="ARM penalty on a hit"
+      />
     </div>
 
     <h3 class="dialog__section-title">Critical</h3>
@@ -36,23 +45,16 @@
       @for (effect of effectsFor(row, critOnlySimpleKeys); track effect.key) {
         <app-toggle-button [effect]="effect" />
       }
+      <app-toggle-select
+        label="-X ARM"
+        [signal]="row.armPenaltyCritAmount"
+        [options]="armPenaltyOptions"
+        [formatValue]="formatPenalty"
+        [formatActive]="formatPenaltyActive"
+        (valueChange)="onArmPenaltyCritChange(row, $event)"
+        title="ARM penalty on a critical hit"
+      />
     </div>
-
-    @let armPenalty = armPenaltyEffect(row);
-    @if (armPenalty.trigger() !== 'off') {
-      <label class="field">
-        <span class="field__label">-X ARM amount</span>
-        <select
-          class="field__select field__select--narrow"
-          [ngModel]="armPenalty.amount()"
-          (ngModelChange)="armPenalty.amount.set(toNumber($event))"
-        >
-          @for (v of armPenaltyOptions; track v) {
-            <option [value]="v">-{{ v }}</option>
-          }
-        </select>
-      </label>
-    }
   }
 
   <!-- A separate @if, rather than one more root node inside the block above: Angular can't route

@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, ViewChild, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import {
   ARM_PENALTY_OPTIONS,
   ATTACK_EFFECT_KEYS,
@@ -8,13 +7,12 @@ import {
   DAMAGE_EFFECT_KEYS,
   GENERAL_EFFECT_KEYS,
   HIT_CRIT_PAIR_KEYS,
-  TriggerEffectRow,
   effectsFor,
   resetEffects,
 } from '../attack-row.model';
 import { DialogShell } from '../dialog-shell/dialog-shell';
-import { toNumber } from '../select.util';
 import { ToggleButton } from '../toggle-button/toggle-button';
+import { ToggleSelect } from '../toggle-select/toggle-select';
 
 /**
  * Effects editor for a single attack - Type/ROF/Dice/POW/Dice are edited directly on the
@@ -25,7 +23,7 @@ import { ToggleButton } from '../toggle-button/toggle-button';
 @Component({
   selector: 'app-attack-edit-dialog',
   standalone: true,
-  imports: [FormsModule, ToggleButton, DialogShell],
+  imports: [ToggleButton, ToggleSelect, DialogShell],
   templateUrl: './attack-edit-dialog.html',
   styleUrls: ['../shared/dialog-sections.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,7 +42,13 @@ export class AttackEditDialog {
   protected readonly critOnlySimpleKeys = CRIT_ONLY_SIMPLE_KEYS;
   protected readonly effectsFor = effectsFor;
 
-  protected readonly toNumber = toNumber;
+  /** The `-X ARM` `ToggleSelect`s show "-2 ARM" (value first, ignoring the pill's own off-state
+   *  label) once active - `formatPenalty` supplies the "-N" half, `formatPenaltyActive` the
+   *  value-first "N ARM" wording (the off-state label "-X ARM" isn't a real noun like "Shield" or
+   *  "DEF", so it's dropped once a concrete value is picked, unlike every other `ToggleSelect`'s
+   *  `formatActive`). */
+  protected readonly formatPenalty = (v: number) => `-${v}`;
+  protected readonly formatPenaltyActive = (_label: string, v: string) => `${v} ARM`;
 
   open(row: AttackRow): void {
     this.row.set(row);
@@ -55,8 +59,13 @@ export class AttackEditDialog {
     resetEffects(row);
   }
 
-  /** 'armPenalty' is always present in `triggerEffects` (fixed key set), so this is never undefined. */
-  protected armPenaltyEffect(row: AttackRow): TriggerEffectRow {
-    return row.triggerEffects.find((e) => e.key === 'armPenalty')!;
+  /** A single "-X ARM" instance triggers on a hit or a crit, never both - picking a nonzero value
+   *  on one clears the other, same pattern as `TargetProfileDialog`'s `onFocusChange`/`onFuryChange`. */
+  protected onArmPenaltyHitChange(row: AttackRow, value: number): void {
+    if (value > 0) row.armPenaltyCritAmount.set(0);
+  }
+
+  protected onArmPenaltyCritChange(row: AttackRow, value: number): void {
+    if (value > 0) row.armPenaltyHitAmount.set(0);
   }
 }

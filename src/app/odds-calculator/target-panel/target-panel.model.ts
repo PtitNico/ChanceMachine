@@ -1,14 +1,12 @@
 import { WritableSignal, signal } from '@angular/core';
 import { range } from '../range.util';
 
-let nextSpellBonusId = 0;
-
 export const DEF_OPTIONS: (number | 'KD')[] = ['KD', ...range(5, 25)];
 export const ARM_OPTIONS = range(1, 35);
 export const BOXES_OPTIONS = range(1, 99);
 export const RESOURCE_OPTIONS = range(0, 15); // Focus/Fury point count
-export const SHIELD_AMOUNT_OPTIONS = range(0, 10);
-export const SPELL_BONUS_OPTIONS = range(0, 10); // 0 = "not granting this stat"
+export const SHIELD_AMOUNT_OPTIONS = range(0, 4);
+export const SPELL_BONUS_OPTIONS = range(0, 6); // 0 = "not granting this stat"
 export const KOTD_OPTIONS = range(0, 10); // Knowledge of the Damned charge count (offensive/defensive)
 export const SHIELD_GUARD_OPTIONS = range(0, 10);
 export const SCAPEGOAT_OPTIONS = range(0, 4); // capped lower than every other resource here - see sequence.ts's MAX_SCAPEGOATS
@@ -17,89 +15,6 @@ export const SCAPEGOAT_OPTIONS = range(0, 4); // capped lower than every other r
  *  is strictly "Tough, but not negated by Knocked Down/Stationary" (see sequence.ts), so having
  *  both active at once would never make sense. */
 export type ToughKind = 'off' | 'tough' | 'toughSteady';
-
-/** The special rules a spell can grant. Resolved by the engine exactly like the same rule
- *  toggled directly in "Special rules" (see `effectiveToughKind`/`effectiveUnyielding`/etc. below) -
- *  the type stays the full set of five so those helpers don't need a separate "spell-only" union,
- *  even though `SPELL_RULE_OPTIONS` (what the Rule <select> actually offers) is deliberately
- *  narrower - see its own comment. */
-export type SpellRuleKind = 'tough' | 'toughSteady' | 'shield' | 'unyielding' | 'carapace';
-
-/** Only Tough and Unyielding are common enough as spell-granted rules to offer here - Tough
- *  Steady, Shield, and Carapace are almost always innate model rules in practice, not
- *  spell-granted, so they're deliberately left off this list to keep the dropdown short. */
-export const SPELL_RULE_OPTIONS: SpellRuleKind[] = ['tough', 'unyielding'];
-
-export const SPELL_RULE_LABELS: Record<SpellRuleKind, string> = {
-  tough: 'Tough',
-  toughSteady: 'Tough Steady',
-  shield: 'Shield',
-  unyielding: 'Unyielding',
-  carapace: 'Carapace',
-};
-
-export type SpellBonusKind = 'stat' | 'rule';
-export type SpellStatType = 'def' | 'arm';
-
-/**
- * One user-defined "custom effect" row - the generic escape hatch for the countless spells (and
- * feats/non-spell auras) that grant a DEF/ARM bonus or a special rule, which this app deliberately
- * doesn't try to enumerate by name (see docs). `name` is free text purely for the player's own
- * reference. A row is either a flat stat bonus (`kind: 'stat'`, one of `statType`/`statAmount`) or
- * a granted rule (`kind: 'rule'`, `ruleKind`) - never both at once, fixed at creation time by which
- * of `createStatSpellRow`/`createDispellableEffectRow` built it (there's no UI path to switch a
- * row's kind afterward). `dispellable` tags the entry as removable by an attack's Dispel effect
- * (see `sequence.ts`'s `*PostDispel` fields) - once an attack's Dispel fires, every entry still
- * flagged `dispellable` stops contributing for the rest of the sequence. A `'rule'` row is always
- * dispellable by construction (`createDispellableEffectRow` always sets it, with no checkbox to
- * change it): a permanent, non-dispellable rule should just be toggled directly in "Special rules"
- * instead of modeled here.
- */
-export interface SpellBonusRow {
-  readonly id: string;
-  readonly name: WritableSignal<string>;
-  readonly kind: WritableSignal<SpellBonusKind>;
-  readonly statType: WritableSignal<SpellStatType>; // read only when kind === 'stat'
-  readonly statAmount: WritableSignal<number>; // read only when kind === 'stat'
-  /** Read only when kind === 'stat'. True = a genuine spell effect (an attack's Blessed ignores
-   *  it); false = a non-spell source (a feat, a non-spell aura) Blessed never ignores - see
-   *  `sequence.ts`'s `nonSpellArmBonus`/`nonSpellDefBonus`. Irrelevant for kind === 'rule' (a
-   *  granted rule is never Blessed-ignorable regardless of source). */
-  readonly isSpell: WritableSignal<boolean>;
-  readonly ruleKind: WritableSignal<SpellRuleKind>; // read only when kind === 'rule'
-  readonly dispellable: WritableSignal<boolean>;
-}
-
-/** "+ Add stat spell": a flat DEF/ARM bonus. `isSpell`/`dispellable` both default true (the
- *  common case - a spell-granted, dispellable bonus) - flip `isSpell` off for a non-spell source
- *  Blessed doesn't ignore (a feat, a non-spell aura), flip `dispellable` off for a permanent one. */
-export function createStatSpellRow(): SpellBonusRow {
-  return {
-    id: `spell-${nextSpellBonusId++}`,
-    name: signal(''),
-    kind: signal<SpellBonusKind>('stat'),
-    statType: signal<SpellStatType>('arm'),
-    statAmount: signal(2),
-    isSpell: signal(true),
-    ruleKind: signal<SpellRuleKind>('unyielding'), // unused for a 'stat' row
-    dispellable: signal(true),
-  };
-}
-
-/** "+ Add dispellable effect": a granted rule (Tough/Unyielding), always dispellable by
- *  construction - an upkeep spell effect, never Blessed-ignorable regardless of source. */
-export function createDispellableEffectRow(): SpellBonusRow {
-  return {
-    id: `spell-${nextSpellBonusId++}`,
-    name: signal(''),
-    kind: signal<SpellBonusKind>('rule'),
-    statType: signal<SpellStatType>('arm'), // unused for a 'rule' row
-    statAmount: signal(2), // unused for a 'rule' row
-    isSpell: signal(true), // unused for a 'rule' row
-    ruleKind: signal<SpellRuleKind>('unyielding'),
-    dispellable: signal(true),
-  };
-}
 
 /** The shared target's fields, each its own signal - same "signal per field" rationale as `AttackRow`. */
 export interface TargetState {
@@ -130,12 +45,28 @@ export interface TargetState {
   readonly shieldAmount: WritableSignal<number>;
   readonly unyielding: WritableSignal<boolean>;
   readonly carapace: WritableSignal<boolean>;
+  /** "Dispellable special rules": the same Tough/Unyielding grants as the plain toggles above, but
+   *  removable by an attack's Dispel effect (an upkeep spell, unlike the permanent toggles) -
+   *  OR'd into `effectiveToughKind`/`effectiveUnyielding` below, read directly (ignored) once
+   *  Dispel fires, exactly like every other pre/post-Dispel pair on this interface. */
+  readonly dispellableTough: WritableSignal<boolean>;
+  readonly dispellableUnyielding: WritableSignal<boolean>;
   /** Heals d3 boxes after any hit that deals nonzero damage without destroying the target - see
    *  `sequence.ts`'s `healBranches`. Turned off for the rest of the sequence by an attack's
    *  Grievous Wounds effect, not by anything toggled here. */
   readonly rapidHealing: WritableSignal<boolean>;
-  /** Repeatable list of generic spell-granted stat bonuses/rules - see `SpellBonusRow`. */
-  readonly spellBonuses: WritableSignal<SpellBonusRow[]>;
+  /** Flat DEF/ARM bonuses from spells, 0-10 each (0 = off) - the generic escape hatch for the
+   *  countless spells this app deliberately doesn't try to enumerate by name (see docs). Two
+   *  categories, each its own pair of fields rather than a repeatable named list (an earlier
+   *  version had one - see `spellArmBonus`'s doc comment for why that was dropped): a "Spell" bonus
+   *  is permanent for the sequence (Dispel can't remove it - a one-shot effect already resolved),
+   *  an "Upkeep spell / Animus" bonus is removable by an attack's Dispel effect (see
+   *  `spellArmBonusPostDispel` below) - both are always Blessed-ignorable, since both are
+   *  genuinely spell-sourced by construction (there's no non-spell/feat bonus modeled anymore). */
+  readonly spellDefAmount: WritableSignal<number>;
+  readonly spellArmAmount: WritableSignal<number>;
+  readonly upkeepSpellDefAmount: WritableSignal<number>;
+  readonly upkeepSpellArmAmount: WritableSignal<number>;
 }
 
 const DEFAULT_DEF = 15;
@@ -157,8 +88,13 @@ export function createTargetState(): TargetState {
     shieldAmount: signal(0),
     unyielding: signal(false),
     carapace: signal(false),
+    dispellableTough: signal(false),
+    dispellableUnyielding: signal(false),
     rapidHealing: signal(false),
-    spellBonuses: signal<SpellBonusRow[]>([]),
+    spellDefAmount: signal(0),
+    spellArmAmount: signal(0),
+    upkeepSpellDefAmount: signal(0),
+    upkeepSpellArmAmount: signal(0),
   };
 }
 
@@ -173,8 +109,13 @@ export function resetTargetProfile(target: TargetState): void {
   target.shieldAmount.set(0);
   target.unyielding.set(false);
   target.carapace.set(false);
+  target.dispellableTough.set(false);
+  target.dispellableUnyielding.set(false);
   target.rapidHealing.set(false);
-  target.spellBonuses.set([]);
+  target.spellDefAmount.set(0);
+  target.spellArmAmount.set(0);
+  target.upkeepSpellDefAmount.set(0);
+  target.upkeepSpellArmAmount.set(0);
 }
 
 /** Full reset used by the hamburger menu's app-wide Reset action - unlike `resetTargetProfile`
@@ -188,92 +129,55 @@ export function resetTargetFully(target: TargetState): void {
   resetTargetProfile(target);
 }
 
-function grantsRule(target: TargetState, rule: SpellRuleKind): boolean {
-  return target.spellBonuses().some((s) => s.kind() === 'rule' && s.ruleKind() === rule);
-}
-
-/** A capability is active either because it's toggled directly (an innate model rule) or because
- *  some spell in the list grants it - the two sources are simply OR'd together. Once some attack's
- *  Dispel effect fires, the engine falls back to the raw innate signal alone (`target.unyielding()`/
- *  `target.carapace()`/`target.toughKind()`) instead of these - see `sequence.ts`'s `*PostDispel`
- *  fields: every rule grant here is spell-sourced, and every spell 'rule' row is always Dispellable
- *  by construction (see `SpellBonusRow`), so nothing from `grantsRule` ever survives Dispel. */
+/** A capability is active either because it's toggled directly (permanent) or because
+ *  `dispellableUnyielding`/`dispellableTough` grants it (an upkeep spell) - the two sources are
+ *  simply OR'd together. Once some attack's Dispel effect fires, the engine falls back to the raw
+ *  permanent signal alone (`target.unyielding()`/`target.toughKind()`) instead of these - see
+ *  `sequence.ts`'s `*PostDispel` fields: `dispellableUnyielding`/`dispellableTough` are, by
+ *  definition, always what Dispel removes, so nothing from them ever survives Dispel. */
 export function effectiveUnyielding(target: TargetState): boolean {
-  return target.unyielding() || grantsRule(target, 'unyielding');
+  return target.unyielding() || target.dispellableUnyielding();
 }
 
 export function effectiveCarapace(target: TargetState): boolean {
-  return target.carapace() || grantsRule(target, 'carapace');
+  return target.carapace();
 }
 
-/** Tough/Tough Steady stay mutually exclusive even once spell-granted rules are folded in: an
- *  innate toggle always wins, and a spell-granted Tough Steady wins over a spell-granted Tough. */
+/** Tough/Tough Steady stay mutually exclusive even once `dispellableTough` is folded in: an innate
+ *  toggle always wins (Tough Steady included - there's no dispellable Tough Steady, see
+ *  `TargetState.dispellableTough`'s doc comment). */
 export function effectiveToughKind(target: TargetState): ToughKind {
   if (target.toughKind() !== 'off') return target.toughKind();
-  if (grantsRule(target, 'toughSteady')) return 'toughSteady';
-  if (grantsRule(target, 'tough')) return 'tough';
-  return 'off';
+  return target.dispellableTough() ? 'tough' : 'off';
 }
 
-/** Flat ARM bonus from Shield specifically - always the innate capability's bonus, since a
- *  spell-granted Shield isn't reachable from the current Rule dropdown (see `SPELL_RULE_OPTIONS`).
- *  Kept apart from `spellArmBonus` so Chain Weapon can ignore just this component (see
- *  `sequence.ts`'s `SequenceTarget.shieldArmBonus`). Unaffected by Dispel for the same reason. */
+/** Flat ARM bonus from Shield specifically - always the innate capability's bonus (there's no
+ *  dispellable Shield). Kept apart from `spellArmBonus` so Chain Weapon can ignore just this
+ *  component (see `sequence.ts`'s `SequenceTarget.shieldArmBonus`). Unaffected by Dispel for the
+ *  same reason. */
 export function shieldArmBonus(target: TargetState): number {
   return target.shieldAmount();
 }
 
-function statSpells(target: TargetState, statType: SpellStatType, isSpell: boolean, dispellableOnly: boolean) {
-  return target
-    .spellBonuses()
-    .filter(
-      (s) =>
-        s.kind() === 'stat' && s.statType() === statType && s.isSpell() === isSpell && (!dispellableOnly || !s.dispellable())
-    );
-}
-
-function sumStatAmount(spells: SpellBonusRow[]): number {
-  return spells.reduce((sum, s) => sum + s.statAmount(), 0);
-}
-
-/** Flat ARM bonus from every currently-active Stat-type bonus flagged Spell (Dispellable or not).
- *  Kept apart from `shieldArmBonus` so Blessed can ignore just this component. */
+/** Flat ARM bonus from both spell categories (Dispellable or not). Kept apart from `shieldArmBonus`
+ *  so Blessed can ignore just this component. */
 export function spellArmBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', true, false));
+  return target.spellArmAmount() + target.upkeepSpellArmAmount();
 }
 
-/** Same, but counting only the spells NOT flagged Dispellable - what's left of `spellArmBonus`
- *  once some attack's Dispel effect has fired against this target. */
+/** Same, but counting only the permanent "Spell" bonus - what's left of `spellArmBonus` once some
+ *  attack's Dispel effect has fired (the "Upkeep spell / Animus" bonus is always dispellable by
+ *  definition, so it never survives). */
 export function spellArmBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', true, true));
+  return target.spellArmAmount();
 }
 
 export function spellDefBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', true, false));
+  return target.spellDefAmount() + target.upkeepSpellDefAmount();
 }
 
 export function spellDefBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', true, true));
-}
-
-/** Flat ARM bonus from every currently-active Stat-type bonus flagged non-spell (a feat, a
- *  non-spell aura). Unlike `spellArmBonus`, an attack's Blessed never ignores this - see
- *  `sequence.ts`'s `nonSpellArmBonus`. */
-export function nonSpellArmBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', false, false));
-}
-
-/** Same, but counting only the non-spell bonuses NOT flagged Dispellable. */
-export function nonSpellArmBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'arm', false, true));
-}
-
-export function nonSpellDefBonus(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', false, false));
-}
-
-export function nonSpellDefBonusPostDispel(target: TargetState): number {
-  return sumStatAmount(statSpells(target, 'def', false, true));
+  return target.spellDefAmount();
 }
 
 export interface TargetSummaryTag {
@@ -282,9 +186,8 @@ export interface TargetSummaryTag {
    *  that one tag) - see `target-panel.html`'s `@for` tracking this instead of the label string
    *  itself, to avoid NG0956: tracking by the text would make Angular treat such a change as
    *  removing one tag and adding an unrelated one (destroying and recreating its DOM node)
-   *  instead of just updating the existing node's text. A spell bonus tag uses the spell's own
-   *  `id` (already stable, already used to `@for`-track the Spells list itself); every other tag
-   *  is a fixed, known-in-advance capability, keyed by name. */
+   *  instead of just updating the existing node's text. Every tag here is a fixed, known-in-advance
+   *  capability, keyed by name. */
   readonly key: string;
   readonly label: string;
 }
@@ -307,19 +210,19 @@ export function targetSummary(target: TargetState): TargetSummaryTag[] {
   if (target.scapegoats() > 0) tags.push({ key: 'scapegoats', label: `Scapegoats ${target.scapegoats()}` });
   if (target.toughKind() === 'tough') tags.push({ key: 'tough', label: 'Tough' });
   if (target.toughKind() === 'toughSteady') tags.push({ key: 'tough', label: 'Tough Steady' });
+  if (target.dispellableTough()) tags.push({ key: 'dispellableTough', label: 'Tough [Up]' });
   if (target.shieldAmount() > 0) tags.push({ key: 'shield', label: `Shield +${target.shieldAmount()} ARM` });
   if (target.unyielding()) tags.push({ key: 'unyielding', label: 'Unyielding' });
+  if (target.dispellableUnyielding()) tags.push({ key: 'dispellableUnyielding', label: 'Unyielding [Up]' });
   if (target.carapace()) tags.push({ key: 'carapace', label: 'Carapace' });
   if (target.rapidHealing()) tags.push({ key: 'rapidHealing', label: 'Rapid Healing' });
-  for (const spell of target.spellBonuses()) {
-    const bonus =
-      spell.kind() === 'stat'
-        ? spell.statAmount() > 0
-          ? `+${spell.statAmount()} ${spell.statType().toUpperCase()}`
-          : ''
-        : SPELL_RULE_LABELS[spell.ruleKind()];
-    const name = spell.name().trim() || 'Spell';
-    tags.push({ key: spell.id, label: `${name}${bonus ? ` (${bonus})` : ''}${spell.dispellable() ? ' [Up]' : ''}` });
+  if (target.spellDefAmount() > 0) tags.push({ key: 'spellDef', label: `Spell +${target.spellDefAmount()} DEF` });
+  if (target.spellArmAmount() > 0) tags.push({ key: 'spellArm', label: `Spell +${target.spellArmAmount()} ARM` });
+  if (target.upkeepSpellDefAmount() > 0) {
+    tags.push({ key: 'upkeepSpellDef', label: `Upkeep +${target.upkeepSpellDefAmount()} DEF` });
+  }
+  if (target.upkeepSpellArmAmount() > 0) {
+    tags.push({ key: 'upkeepSpellArm', label: `Upkeep +${target.upkeepSpellArmAmount()} ARM` });
   }
   return tags;
 }

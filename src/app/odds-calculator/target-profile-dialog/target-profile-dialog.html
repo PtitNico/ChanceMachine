@@ -60,15 +60,10 @@
       label="Shield"
       [signal]="t.shieldAmount"
       [options]="shieldAmountOptions"
-      [formatValue]="formatArmBonus"
+      [formatValue]="formatBonus"
       title="Shield - flat ARM bonus"
     />
-    <button
-      type="button"
-      class="toggle-btn"
-      [class.toggle-btn--active]="t.unyielding()"
-      (click)="t.unyielding.set(!t.unyielding())"
-    >
+    <button type="button" class="toggle-btn" [class.toggle-btn--active]="t.unyielding()" (click)="toggleUnyielding(t)">
       Unyielding
     </button>
     <button
@@ -89,77 +84,59 @@
     </button>
   </div>
 
-  <h3 class="dialog__section-title">Custom effects</h3>
-  @for (spell of t.spellBonuses(); track spell.id) {
-    <div class="spell-row">
-      <div class="spell-row__line">
-        <app-editable-name [nameSignal]="spell.name" placeholder="Name" ariaLabel="Effect name" />
-        <button
-          type="button"
-          class="icon-btn icon-btn--trash spell-row__remove"
-          (click)="removeSpellBonus(t, spell.id)"
-          aria-label="Remove spell bonus"
-        >
-          <span class="material-symbols-outlined">delete</span>
-        </button>
-      </div>
-      <div class="spell-row__line">
-        @if (spell.kind() === 'stat') {
-          <select
-            class="field__select field__select--narrow"
-            title="Bonus amount"
-            [ngModel]="spell.statAmount()"
-            (ngModelChange)="spell.statAmount.set(toNumber($event))"
-          >
-            @for (v of spellBonusOptions; track v) {
-              <option [value]="v">+{{ v }}</option>
-            }
-          </select>
-          <select
-            class="field__select field__select--narrow"
-            title="Bonus stat"
-            [ngModel]="spell.statType()"
-            (ngModelChange)="spell.statType.set($event)"
-          >
-            <option value="def">DEF</option>
-            <option value="arm">ARM</option>
-          </select>
-          <button
-            type="button"
-            class="toggle-btn toggle-btn--sm"
-            [class.toggle-btn--active]="spell.isSpell()"
-            title="Spell - ignored by an attack's Blessed effect"
-            (click)="spell.isSpell.set(!spell.isSpell())"
-          >
-            Spell
-          </button>
-          <button
-            type="button"
-            class="toggle-btn toggle-btn--sm"
-            [class.toggle-btn--active]="spell.dispellable()"
-            title="Dispellable - removed by an attack's Dispel effect"
-            (click)="spell.dispellable.set(!spell.dispellable())"
-          >
-            Dispellable
-          </button>
-        } @else {
-          <select
-            class="field__select field__select--narrow"
-            title="Granted rule"
-            [ngModel]="spell.ruleKind()"
-            (ngModelChange)="spell.ruleKind.set($event)"
-          >
-            @for (r of spellRuleOptions; track r) {
-              <option [value]="r">{{ spellRuleLabels[r] }}</option>
-            }
-          </select>
-        }
-      </div>
-    </div>
-  }
-  <div class="spell-add-buttons">
-    <button type="button" class="add-spell-btn" (click)="addDispellableEffect(t)">+ Add dispellable effect</button>
-    <button type="button" class="add-spell-btn" (click)="addStatSpell(t)">+ Add stat spell</button>
+  <h3 class="dialog__section-title">Dispellable special rules</h3>
+  <div class="toggle-group">
+    <button
+      type="button"
+      class="toggle-btn"
+      [class.toggle-btn--active]="t.dispellableUnyielding()"
+      (click)="toggleDispellableUnyielding(t)"
+    >
+      Unyielding
+    </button>
+    <button type="button" class="toggle-btn" [class.toggle-btn--active]="t.dispellableTough()" (click)="toggleDispellableTough(t)">
+      Tough
+    </button>
+  </div>
+
+  <h3 class="dialog__section-title">Upkeep spells / Animi</h3>
+  <div class="toggle-group">
+    <app-toggle-select
+      label="DEF"
+      [signal]="t.upkeepSpellDefAmount"
+      [options]="spellBonusOptions"
+      [formatValue]="formatBonus"
+      [formatActive]="formatStatActive"
+      title="Upkeep spell / Animus DEF bonus"
+    />
+    <app-toggle-select
+      label="ARM"
+      [signal]="t.upkeepSpellArmAmount"
+      [options]="spellBonusOptions"
+      [formatValue]="formatBonus"
+      [formatActive]="formatStatActive"
+      title="Upkeep spell / Animus ARM bonus"
+    />
+  </div>
+
+  <h3 class="dialog__section-title">Spells</h3>
+  <div class="toggle-group">
+    <app-toggle-select
+      label="DEF"
+      [signal]="t.spellDefAmount"
+      [options]="spellBonusOptions"
+      [formatValue]="formatBonus"
+      [formatActive]="formatStatActive"
+      title="Spell DEF bonus"
+    />
+    <app-toggle-select
+      label="ARM"
+      [signal]="t.spellArmAmount"
+      [options]="spellBonusOptions"
+      [formatValue]="formatBonus"
+      [formatActive]="formatStatActive"
+      title="Spell ARM bonus"
+    />
   </div>
 
   <div dialogActions class="dialog__actions">

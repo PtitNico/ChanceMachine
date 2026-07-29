@@ -13,8 +13,11 @@ import { toNumber } from '../select.util';
  * Follows `MiniFieldSelect`'s "bind directly to the `WritableSignal`" convention. `valueChange` is
  * optional - only Focus/Fury's own mutual-exclusivity handling needs it (see
  * `TargetProfileDialog`); every other use just binds `[signal]`/`[options]` and nothing else.
- * `formatValue` controls how a value renders in both the native `<option>` list and the "Label: N"
- * active pill - defaults to the plain number, overridden by Shield to show "+N" (a flat ARM bonus).
+ * `formatValue` controls how a value renders in both the native `<option>` list and the active
+ * pill - defaults to the plain number, overridden by Shield/Custom effects to show "+N". `formatActive`
+ * controls how the active pill combines the label with that formatted value - defaults to
+ * "Label: N" (Shield's "Shield: +N"), overridden by Custom effects' DEF/ARM controls to "+N Label"
+ * ("+2 ARM") instead.
  */
 @Component({
   selector: 'app-toggle-select',
@@ -30,6 +33,7 @@ export class ToggleSelect {
   readonly options = input.required<readonly number[]>();
   readonly title = input('');
   readonly formatValue = input<(v: number) => string>((v) => `${v}`);
+  readonly formatActive = input<(label: string, formattedValue: string) => string>((label, v) => `${label}: ${v}`);
   readonly valueChange = output<number>();
 
   protected onChange(raw: string): void {

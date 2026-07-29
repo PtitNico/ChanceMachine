@@ -21,7 +21,7 @@ export function parsePow(raw: string): number | '-' {
 export const STAT_OPTIONS = range(0, 20); // MAT / RAT / AAT
 export const POW_OPTIONS: (number | '-')[] = ['-', ...range(0, 30)];
 export const DICE_OPTIONS = range(1, 6);
-export const ARM_PENALTY_OPTIONS = range(1, 10);
+export const ARM_PENALTY_OPTIONS = range(0, 10); // 0 = off - see AttackRow's armPenaltyHitAmount/armPenaltyCritAmount
 /** Ranged-only "shots per attack" field - see `SequencedAttack.rof`'s doc comment. */
 export const ROF_OPTIONS: RofValue[] = ['1', 'd3', '2d3'];
 
@@ -30,6 +30,10 @@ export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: '
  *  attack-edit pop-up's Type select options alike. */
 export const TYPE_EMOJI: Record<AttackType, string> = { melee: '🗡️', ranged: '🏹', arcane: '🪄' };
 
+/** 'armPenalty' is deliberately excluded here - unlike every other entry, it has a genuinely
+ *  user-editable amount, so it's modeled as its own pair of fields on `AttackRow`
+ *  (`armPenaltyHitAmount`/`armPenaltyCritAmount`) rather than through the generic
+ *  `TriggerEffectRow` system this array drives - see `AttackRow`'s doc comment. */
 const STAT_EFFECT_TYPES: StatEffectType[] = [
   'knockdown',
   'stationary',
@@ -39,7 +43,6 @@ const STAT_EFFECT_TYPES: StatEffectType[] = [
   'paralysis',
   'flare',
   'weaken',
-  'armPenalty',
   'dispel',
   'grievousWounds',
 ];
@@ -167,16 +170,14 @@ function isStatEffectKey(key: TriggerEffectKey): key is StatEffectType {
 export interface TriggerEffectRow {
   readonly key: TriggerEffectKey;
   readonly trigger: WritableSignal<EffectTrigger | 'off'>;
-  /** Only meaningful for 'armPenalty'. */
-  readonly amount: WritableSignal<number>;
 }
 
 function createTriggerEffects(): TriggerEffectRow[] {
-  return TRIGGER_EFFECT_KEYS.map((key) => ({ key, trigger: signal<EffectTrigger | 'off'>('off'), amount: signal(2) }));
+  return TRIGGER_EFFECT_KEYS.map((key) => ({ key, trigger: signal<EffectTrigger | 'off'>('off') }));
 }
 
 function cloneTriggerEffects(source: TriggerEffectRow[]): TriggerEffectRow[] {
-  return source.map((e) => ({ key: e.key, trigger: signal(e.trigger()), amount: signal(e.amount()) }));
+  return source.map((e) => ({ key: e.key, trigger: signal(e.trigger()) }));
 }
 
 /** Every `TriggerEffectRow` from `row.triggerEffects` matching `keys`, in `keys`' own order - the
@@ -208,6 +209,17 @@ export interface AttackRow {
    *  this value, so switching Type away from Ranged and back doesn't need to reset it. */
   readonly rof: WritableSignal<RofValue>;
 
+  /** "-X ARM" (generic persistent ARM debuff): two independent 0-10 counters (0 = off), one per
+   *  trigger timing, each its own `<app-toggle-select>` in the Effects pop-up's "On hit"/"Critical"
+   *  section - mutually exclusive by convention (`AttackEditDialog`'s `onArmPenaltyHitChange`/
+   *  `onArmPenaltyCritChange`), the same "two fields kept exclusive at the call site" shape
+   *  `TargetState.focusPoints`/`furyPoints` uses. Kept OUT of the generic `triggerEffects`/
+   *  `TriggerEffectRow` system (unlike every other hit/crit-pair effect above) because it's the
+   *  one effect here with a genuinely user-editable amount, which `TriggerEffectRow` has no field
+   *  for. */
+  readonly armPenaltyHitAmount: WritableSignal<number>;
+  readonly armPenaltyCritAmount: WritableSignal<number>;
+
   /** Every toggleable effect on this attack - always one entry per `TRIGGER_EFFECT_KEYS` (a fixed
    *  set) - see `TriggerEffectRow`'s doc comment above. */
   readonly triggerEffects: TriggerEffectRow[];
@@ -221,6 +233,8 @@ export function createAttackRow(): AttackRow {
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
     rof: signal<RofValue>('1'),
+    armPenaltyHitAmount: signal(0),
+    armPenaltyCritAmount: signal(0),
     triggerEffects: createTriggerEffects(),
   };
 }
@@ -234,6 +248,8 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
     rof: signal(source.rof()),
+    armPenaltyHitAmount: signal(source.armPenaltyHitAmount()),
+    armPenaltyCritAmount: signal(source.armPenaltyCritAmount()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
   };
 }
@@ -241,8 +257,9 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
 export function resetEffects(row: AttackRow): void {
   for (const effect of row.triggerEffects) {
     effect.trigger.set('off');
-    effect.amount.set(2);
   }
+  row.armPenaltyHitAmount.set(0);
+  row.armPenaltyCritAmount.set(0);
 }
 
 /** Short "label (trigger)" summary strings for every active effect on a row, shown under the attack row. */
@@ -258,10 +275,15 @@ export interface EffectSummaryTag {
 
 export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
   const tags: EffectSummaryTag[] = [];
+  if (row.armPenaltyHitAmount() > 0) {
+    tags.push({ key: 'armPenalty', label: `-${row.armPenaltyHitAmount()} ARM` });
+  } else if (row.armPenaltyCritAmount() > 0) {
+    tags.push({ key: 'armPenalty', label: `Crit -${row.armPenaltyCritAmount()} ARM` });
+  }
   for (const effect of row.triggerEffects) {
     const trigger = effect.trigger();
     if (trigger === 'off') continue;
-    let label = effect.key === 'armPenalty' ? `-${effect.amount()} ARM` : (SUMMARY_LABEL_OVERRIDES[effect.key] ?? TRIGGER_EFFECT_LABELS[effect.key]);
+    let label = SUMMARY_LABEL_OVERRIDES[effect.key] ?? TRIGGER_EFFECT_LABELS[effect.key];
     if (trigger === 'crit') {
       label = `Crit ${label}`;
     }
@@ -306,13 +328,12 @@ export function toSequencedAttack(
 ): SequencedAttack {
   const statEffects: StatEffect[] = row.triggerEffects
     .filter((e) => isStatEffectKey(e.key) && e.trigger() !== 'off')
-    .map(
-      (e): StatEffect => ({
-        type: e.key as StatEffectType,
-        trigger: e.trigger() as EffectTrigger,
-        amount: e.key === 'armPenalty' ? e.amount() : undefined,
-      })
-    );
+    .map((e): StatEffect => ({ type: e.key as StatEffectType, trigger: e.trigger() as EffectTrigger }));
+  if (row.armPenaltyHitAmount() > 0) {
+    statEffects.push({ type: 'armPenalty', trigger: 'hit', amount: row.armPenaltyHitAmount() });
+  } else if (row.armPenaltyCritAmount() > 0) {
+    statEffects.push({ type: 'armPenalty', trigger: 'crit', amount: row.armPenaltyCritAmount() });
+  }
 
   return {
     id: row.id,

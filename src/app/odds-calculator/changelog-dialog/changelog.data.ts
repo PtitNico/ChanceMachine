@@ -19,6 +19,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-07-29',
+    items: [
+      'The "-X ARM" attack effect is now one toggle button (e.g. "-6 ARM") - click it to pick the amount directly, instead of a separate toggle plus dropdown.',
+      'Added a "Dispellable special rules" section to the target profile (Unyielding/Tough) - the same grants as "Special rules", but removable by an attack\'s Dispel.',
+      'Simplified the target profile\'s spell DEF/ARM bonuses into two sections, "Spells" and "Upkeep spells / Animi" - track the total bonus per category instead of naming each spell individually.',
+    ],
+  },
+  {
     date: '2026-07-24',
     items: [
       'Reworked the target profile\'s Spells section into "Custom effects": "Add dispellable effect" grants Tough/Unyielding (always removable by Dispel), "Add stat spell" grants a flat DEF/ARM bonus with independent Spell/Dispellable toggles - a non-spell bonus (Spell off) is no longer ignored by Blessed.',

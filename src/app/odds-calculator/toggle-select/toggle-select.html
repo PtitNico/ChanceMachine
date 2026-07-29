@@ -11,6 +11,6 @@
     }
   </select>
   <span class="toggle-btn toggle-select__label" [class.toggle-btn--active]="signal()() > 0" aria-hidden="true">
-    {{ signal()() > 0 ? label() + ': ' + formatValue()(signal()()) : label() }}
+    {{ signal()() > 0 ? formatActive()(label(), formatValue()(signal()())) : label() }}
   </span>
 </span>
