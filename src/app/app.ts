@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { trackPwaInstall } from './analytics';
 import { OddsCalculator } from './odds-calculator/odds-calculator';
 import { PwaInstall } from './pwa-install';
+import { PwaUpdate } from './pwa-update';
 
 @Component({
   selector: 'app-root',
@@ -17,6 +18,9 @@ export class App {
     // see PwaInstall's own doc comment. Never read directly here; PwaInstallBanner injects the
     // same instance.
     inject(PwaInstall);
+    // Same reasoning: eagerly constructs the singleton so it starts checking for a new deployed
+    // version immediately, rather than waiting for something else to inject it later.
+    inject(PwaUpdate);
 
     updateAppHeight();
     const viewport = window.visualViewport;
