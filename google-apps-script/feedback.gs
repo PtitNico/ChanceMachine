@@ -28,7 +28,7 @@
  */
 
 const SHEET_NAME = 'Feedback';
-const HEADERS = ['Timestamp', 'Type', 'Message', 'Email', 'Page', 'User agent'];
+const HEADERS = ['Timestamp', 'Type', 'Message', 'Email', 'Page', 'User agent', 'Status'];
 
 /** Run this once by hand after pasting the script - see the setup steps above. */
 function setup() {
@@ -40,7 +40,7 @@ function setup() {
 function doPost(e) {
   const sheet = getSheet_();
   const p = (e && e.parameter) || {};
-  sheet.appendRow([new Date(), p.type || '', p.message || '', p.email || '', p.page || '', p.userAgent || '']);
+  sheet.appendRow([new Date(), p.type || '', p.message || '', p.email || '', p.page || '', p.userAgent || '', 'New']);
 
   MailApp.sendEmail({
     to: 'ptitnico.meyer@gmail.com',
