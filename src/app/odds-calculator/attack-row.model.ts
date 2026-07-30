@@ -83,6 +83,7 @@ export type TriggerEffectKey =
   | 'chainWeapon'
   | 'brutalDamage'
   | 'criticalShred'
+  | 'sustainedAttack'
   | 'armorPiercing'
   | 'decapitation'
   | StatEffectType;
@@ -109,8 +110,12 @@ export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
   'chainWeapon',
 ];
 
-/** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`. */
-export const HIT_CRIT_PAIR_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', ...STAT_EFFECT_TYPES];
+/** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`.
+ *  `sustainedAttack` triggering on a hit vs. specifically on a crit is a genuine hit/crit choice
+ *  (unlike Brutal Damage/Shred below, which have no "on hit" variant at all), so it's a pair key
+ *  like Armor Piercing/Decapitation rather than a `CRIT_ONLY_SIMPLE_KEYS` entry - the two buttons
+ *  share one `TriggerEffectRow`, so activating one is mutually exclusive with the other for free. */
+export const HIT_CRIT_PAIR_KEYS: TriggerEffectKey[] = ['armorPiercing', 'decapitation', 'sustainedAttack', ...STAT_EFFECT_TYPES];
 
 /** Rendered in the "Critical" section too, but (unlike `HIT_CRIT_PAIR_KEYS`) as a single simple
  *  toggle each - neither has an "on hit" variant at all. */
@@ -140,6 +145,7 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   chainWeapon: 'Chain Weapon',
   brutalDamage: 'Brutal Damage',
   criticalShred: 'Shred',
+  sustainedAttack: 'Sustained Attack',
   armorPiercing: 'Armor Piercing',
   decapitation: 'Decapitation',
   knockdown: 'Knockdown',
@@ -382,6 +388,7 @@ export function toSequencedAttack(
     blessed: isEffectOn(row, 'blessed') || undefined,
     chainWeapon: isEffectOn(row, 'chainWeapon') || undefined,
     criticalShred: isEffectOn(row, 'criticalShred') || undefined,
+    sustainedAttack: triggerOf(row, 'sustainedAttack'),
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
   };

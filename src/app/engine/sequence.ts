@@ -94,6 +94,27 @@
  * every possible K, since K is independent of any attack dice), while "Avg damage" sums every shot
  * actually fired, across every K, weighted by its own probability.
  *
+ * Sustained Attack (`SequencedAttack.sustainedAttack: 'hit' | 'crit'`, a hit/crit-pair effect like
+ * Armor Piercing/Decapitation - see `HIT_CRIT_PAIR_KEYS`) auto-hits every LATER shot in THIS SAME
+ * weapon's own volley once an earlier shot has hit (`'hit'`) or specifically crit (`'crit'`) -
+ * scoped to one row's own `attackCount`/`rof` shots only, never carrying into a different weapon
+ * row. This rides the exact same per-shot threading `pmMask`/`kotdOffLeft`/`kotdDefLeft` already
+ * use (a `sustained: boolean` appended to `ExtendedValueLookup`/`FwdState`), with one crucial
+ * difference: those three persist across the WHOLE sequence (folded into `tableKey`/
+ * `getValueTableAt`), while `sustained` must reset to `false` the instant a NEW row's shot loop
+ * begins - it's threaded through `attackChainValue`/`resolveAttackChainForward`/`buildShotsValue`'s
+ * `shotsValue`/`resolveRofAttackForward` (all already row-loop-scoped, exactly like
+ * `shotsRemainingThisRow`/`depthRemaining`), but deliberately never added to `ValueTable`/
+ * `tableKey` itself (which represents "attacks k+1 onward", i.e. a DIFFERENT row). `resolveOneOutcome`
+ * is where it's actually decided: `outcomeSustained = sustained || (atk.sustainedAttack === 'hit'
+ * && outcome.isHit) || (atk.sustainedAttack === 'crit' && outcome.isCrit)`, then threaded into both
+ * the Shred-continuation recursion (so a Shred-triggered follow-up attack sees a just-turned-on
+ * flag too) and whatever comes after this shot (the next shot in the volley, or the next row once
+ * shots run out).
+ * `contextFor` folds it into the SAME `usesAutoHit` boolean `forceAutoHit` already sets, so every
+ * existing "auto-hit never crits" / Puppet Master reroll / Knowledge of the Damned reserve-rule
+ * behavior applies to a sustained-forced hit for free, with no new branching anywhere else.
+ *
  * Puppet Master (`SequencedAttack.hasPuppetMaster`, one bit per distinct `attackerIndex` with it
  * active - see `pmMask` below) grants ONE ATTACKER a single shared reroll token, spendable once on
  * ANY of that attacker's own attack or damage rolls, across every attack it makes. Deliberately
@@ -302,6 +323,10 @@ export interface SequencedAttack {
    *  whatever state resulted from the crit - and that instance can itself crit and fire again,
    *  recursively (bounded by `MAX_SHRED_DEPTH`) - see the module doc comment. */
   criticalShred?: boolean;
+  /** Once a shot from THIS weapon's own volley (its `attackCount`/`rof` shots) has hit (`'hit'`) or
+   *  specifically crit (`'crit'`), every LATER shot of that same volley automatically hits - never
+   *  carries into a different weapon row. See the module doc comment's "Sustained Attack" section. */
+  sustainedAttack?: EffectTrigger;
   /** Stable per-computation key grouping every attack owned by the SAME attacker, for Puppet
    *  Master's shared reroll token (see `resolvePmSplit`) - deliberately NOT `attackerName`, which
    *  is a display string two different (both-unnamed) attackers can collide on. Every attack
@@ -588,7 +613,9 @@ type ValueLookup = (
  *  equivalents) - Puppet Master's `pmMask`, Offensive Knowledge of the Damned's `kotdOffLeft`, and
  *  Defensive Knowledge of the Damned's `kotdDefLeft`. All three only ever change once, atomically,
  *  before a roll's outcome is even enumerated - see the module doc comment's Knowledge of the
- *  Damned section. */
+ *  Damned section. `sustained` (Sustained Attack/Critical Sustained Attack - see the module doc
+ *  comment's own section) rides the same mechanism, but - unlike the other three - resets to
+ *  `false` at the start of every row's own shot loop rather than persisting sequence-wide. */
 type ExtendedValueLookup = (
   boxes: number,
   debuffState: DebuffState,
@@ -598,7 +625,8 @@ type ExtendedValueLookup = (
   scapegoatsLeft: number,
   pmMask: number,
   kotdOffLeft: number,
-  kotdDefLeft: number
+  kotdDefLeft: number,
+  sustained: boolean
 ) => number;
 
 /** One genuinely-occurring sub-population arising from Puppet Master's fixed rule at THIS roll -
@@ -1079,9 +1107,9 @@ export function computeSequenceOdds(
    *  sequence - shared by `profileFor` and `damageCheckPopulations` below (via `arm`), so Puppet
    *  Master's own damage-roll check resolves against the exact same target context `profileFor`
    *  already does. */
-  function contextFor(atk: SequencedAttack, debuffState: DebuffState): { usesAutoHit: boolean; def: number; arm: number } {
+  function contextFor(atk: SequencedAttack, debuffState: DebuffState, sustained: boolean): { usesAutoHit: boolean; def: number; arm: number } {
     const immobilized = isKnockedDownOrStationary(debuffState);
-    const usesAutoHit = !!atk.forceAutoHit || (atk.type === 'melee' && immobilized);
+    const usesAutoHit = !!atk.forceAutoHit || sustained || (atk.type === 'melee' && immobilized);
     // Blessed drops only the SPELL-flagged Stat-type bonus (DEF and ARM); the non-spell counterpart
     // (a feat, a non-spell aura) is never Blessed-ignorable. Dispel drops whichever half of each is
     // currently flagged Dispellable, regardless of spell/non-spell. Both can apply at once.
@@ -1106,8 +1134,8 @@ export function computeSequenceOdds(
     return { usesAutoHit, def, arm };
   }
 
-  function profileFor(k: number, atk: SequencedAttack, debuffState: DebuffState): AttackProfile {
-    const { usesAutoHit, def, arm } = contextFor(atk, debuffState);
+  function profileFor(k: number, atk: SequencedAttack, debuffState: DebuffState, sustained: boolean): AttackProfile {
+    const { usesAutoHit, def, arm } = contextFor(atk, debuffState, sustained);
     const cacheKey = `${k}|${usesAutoHit}|${def}|${arm}|${debuffState.knockedDown}|${isStationary(debuffState)}`;
     const cached = profileCache.get(cacheKey);
     if (cached) return cached;
@@ -1164,9 +1192,10 @@ export function computeSequenceOdds(
     atk: SequencedAttack,
     debuffState: DebuffState,
     hitMassToCheck: Pick<AttackProfile, 'hitNonCritChance' | 'hitCritChance'>,
-    trueOriginal: AttackProfile
+    trueOriginal: AttackProfile,
+    sustained: boolean
   ): AverageRerollPopulation[] {
-    const { arm } = contextFor(atk, debuffState);
+    const { arm } = contextFor(atk, debuffState, sustained);
     const target = { arm, baseArm, knockedDown: debuffState.knockedDown, stationary: isStationary(debuffState) };
     const damage = { pow: atk.pow, modifiers: atk.damageModifiers };
     const populations: AverageRerollPopulation[] = [];
@@ -1220,13 +1249,13 @@ export function computeSequenceOdds(
    * composition pipeline (see the module doc comment) and so is the only stage where "the mass in
    * front of me" and "what a reroll draws" ever coincide.
    */
-  function resolvePmSplit(k: number, atk: SequencedAttack, debuffState: DebuffState, pmMask: number, trueOriginal: AttackProfile): PmPopulation[] {
+  function resolvePmSplit(k: number, atk: SequencedAttack, debuffState: DebuffState, pmMask: number, trueOriginal: AttackProfile, sustained: boolean): PmPopulation[] {
     const pmBit = pmBitOf.get(atk.attackerIndex ?? -1);
     const pmAvailable = pmBit !== undefined && (pmMask & pmBit) === 0;
     if (!pmAvailable) return [{ profile: trueOriginal, resultingMask: pmMask }];
 
     const spentMask = pmMask | pmBit;
-    const { usesAutoHit } = contextFor(atk, debuffState);
+    const { usesAutoHit } = contextFor(atk, debuffState, sustained);
     const damageCheckEligible = isAutoHitGuaranteedForRest(k, atk, debuffState) || isLastAttackOfAttacker(k, atk);
     const populations: PmPopulation[] = [];
 
@@ -1250,7 +1279,7 @@ export function computeSequenceOdds(
       // (a second chance on a hit that turned out to be this attacker's last real opportunity) -
       // see the module doc comment's point 3.
       if (damageCheckEligible) {
-        for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal)) {
+        for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal, sustained)) {
           populations.push({ profile: p.profile, resultingMask: p.spent ? spentMask : pmMask });
         }
       } else if (trueOriginal.hitNonCritChance + trueOriginal.hitCritChance > 0) {
@@ -1262,7 +1291,7 @@ export function computeSequenceOdds(
     } else if (damageCheckEligible) {
       // Auto-hit: there's no attack roll to miss, so the only possible check is the damage roll
       // (always non-crit - an auto-hit attack can never crit, see attack-model.ts).
-      for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal)) {
+      for (const p of damageRerollPopulations(atk, debuffState, trueOriginal, trueOriginal, sustained)) {
         populations.push({ profile: p.profile, resultingMask: p.spent ? spentMask : pmMask });
       }
     } else {
@@ -1302,11 +1331,12 @@ export function computeSequenceOdds(
     kotdOffLeft: number,
     shotsRemainingThisRow: number,
     inputProfile: AttackProfile,
-    trueOriginal: AttackProfile
+    trueOriginal: AttackProfile,
+    sustained: boolean
   ): KotdPopulation[] {
     if (kotdOffLeft === 0) return [{ profile: inputProfile, resultingLeft: 0 }];
 
-    const { usesAutoHit } = contextFor(atk, debuffState);
+    const { usesAutoHit } = contextFor(atk, debuffState, sustained);
     const damageEligible = damageRerollEligibleForOffKotd(kotdOffLeft, k, debuffState, shotsRemainingThisRow);
     const populations: KotdPopulation[] = [];
 
@@ -1326,7 +1356,7 @@ export function computeSequenceOdds(
         });
       }
       if (damageEligible) {
-        for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal)) {
+        for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal, sustained)) {
           populations.push({ profile: p.profile, resultingLeft: p.spent ? kotdOffLeft - 1 : kotdOffLeft });
         }
       } else if (inputProfile.hitNonCritChance + inputProfile.hitCritChance > 0) {
@@ -1336,7 +1366,7 @@ export function computeSequenceOdds(
         });
       }
     } else if (damageEligible) {
-      for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal)) {
+      for (const p of damageRerollPopulations(atk, debuffState, inputProfile, trueOriginal, sustained)) {
         populations.push({ profile: p.profile, resultingLeft: p.spent ? kotdOffLeft - 1 : kotdOffLeft });
       }
     } else {
@@ -1389,9 +1419,10 @@ export function computeSequenceOdds(
     atk: SequencedAttack,
     debuffState: DebuffState,
     inputProfile: AttackProfile,
-    trueOriginal: AttackProfile
+    trueOriginal: AttackProfile,
+    sustained: boolean
   ): AttackProfile {
-    const { arm } = contextFor(atk, debuffState);
+    const { arm } = contextFor(atk, debuffState, sustained);
     const target = { arm, baseArm, knockedDown: debuffState.knockedDown, stationary: isStationary(debuffState) };
     const damage = { pow: atk.pow, modifiers: atk.damageModifiers };
 
@@ -1420,9 +1451,12 @@ export function computeSequenceOdds(
     pmMask: number;
     kotdOffLeft: number;
     kotdDefLeft: number;
+    /** Sustained Attack/Critical Sustained Attack state for THIS row's own volley - see the module
+     *  doc comment. Reset to `false` whenever a new row's shot loop begins (`resolveRofAttackForward`). */
+    sustained: boolean;
   }
   const fwdKey = (s: FwdState) =>
-    `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.shieldGuardsLeft}|${s.scapegoatsLeft}|${s.pmMask}|${s.kotdOffLeft}|${s.kotdDefLeft}`;
+    `${s.boxes}|${debuffKey(s.debuffState)}|${s.focusLeft}|${s.furyLeft}|${s.shieldGuardsLeft}|${s.scapegoatsLeft}|${s.pmMask}|${s.kotdOffLeft}|${s.kotdDefLeft}|${s.sustained}`;
 
   /** Resolves one already-realized `AppliedOutcome` of attack `k` into its `ResourceBranch[]` (via
    *  `bestAction`'s Focus/Fury/Shield-Guard/Scapegoat choice, unaffected by anything above this
@@ -1443,7 +1477,16 @@ export function computeSequenceOdds(
    *  fact expressed as a boolean (true only when the raw outcome would chain AND the winning
    *  candidate wasn't a block) - `resolveAttackChainForward` needs this to physically route
    *  probability mass, since it can't compare function references the way `continuationValueAt`
-   *  implicitly does. */
+   *  implicitly does.
+   *
+   *  Also where Sustained Attack actually gets decided: `outcomeSustained` turns on (and stays on)
+   *  once a shot in THIS row's volley hits (`atk.sustainedAttack === 'hit'`) or specifically crits
+   *  (`atk.sustainedAttack === 'crit'`) - passed to BOTH the Shred-continuation recursion (so a
+   *  Shred-triggered follow-up attack sees a just-turned-on flag too) and `outerValueAt` (so the
+   *  NEXT shot in the volley, or the next row once shots run out, does too - see the module doc
+   *  comment's "Sustained Attack" section). Returned so the forward pass, which builds explicit
+   *  `FwdState` objects instead of closures, can store it the same way it already stores
+   *  `resultingMask`/`resultingOffKotdLeft`/`resultingDefKotdLeft`. */
   function resolveOneOutcome(
     outcome: AppliedOutcome,
     k: number,
@@ -1458,19 +1501,22 @@ export function computeSequenceOdds(
     resultingOffKotdLeft: number,
     resultingDefKotdLeft: number,
     shotsRemainingThisRow: number,
+    sustained: boolean,
     depthRemaining: number,
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
-  ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean } {
+  ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean; outcomeSustained: boolean } {
     const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
     const rawContinuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
+    const outcomeSustained =
+      sustained || (atk.sustainedAttack === 'hit' && outcome.isHit) || (atk.sustainedAttack === 'crit' && outcome.isCrit);
 
     const outerFallback: ValueLookup = (b, d, f, fu, sg, sc) =>
-      outerValueAt(b, d, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft);
+      outerValueAt(b, d, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, outcomeSustained);
 
     const shredValueAt: ValueLookup = rawContinuesChain
       ? (b, d, f, fu, sg, sc) =>
-          attackChainValue(k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow, depthRemaining - 1, outerValueAt, cache)
+          attackChainValue(k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow, outcomeSustained, depthRemaining - 1, outerValueAt, cache)
       : outerFallback;
 
     const { branches, valueAt } = bestAction(
@@ -1489,7 +1535,7 @@ export function computeSequenceOdds(
       shredValueAt,
       outerFallback
     );
-    return { branches, continuationValueAt: valueAt, continuesChain: rawContinuesChain && valueAt !== outerFallback };
+    return { branches, continuationValueAt: valueAt, continuesChain: rawContinuesChain && valueAt !== outerFallback, outcomeSustained };
   }
 
   /** Aggregates `outcomeScore` (the SAME lexicographic survival-value/probability/expected-boxes
@@ -1511,6 +1557,7 @@ export function computeSequenceOdds(
     resultingOffKotdLeft: number,
     candidateDefKotdLeft: number,
     shotsRemainingThisRow: number,
+    sustained: boolean,
     depthRemaining: number,
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
@@ -1520,7 +1567,7 @@ export function computeSequenceOdds(
       const { branches, continuationValueAt } = resolveOneOutcome(
         outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
         resultingMask, resultingOffKotdLeft, candidateDefKotdLeft, shotsRemainingThisRow,
-        depthRemaining, outerValueAt, cache
+        sustained, depthRemaining, outerValueAt, cache
       );
       const s = outcomeScore(branches, continuationValueAt);
       score = [score[0] + outcome.probability * s[0], score[1] + outcome.probability * s[1], score[2] + outcome.probability * s[2]];
@@ -1552,6 +1599,7 @@ export function computeSequenceOdds(
     resultingMask: number,
     resultingOffKotdLeft: number,
     shotsRemainingThisRow: number,
+    sustained: boolean,
     depthRemaining: number,
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
@@ -1559,12 +1607,12 @@ export function computeSequenceOdds(
     if (kotdDefLeft === 0) return { profile: inputProfile, resultingLeft: 0 };
 
     const scoreOf = (profile: AttackProfile, candidateLeft: number) =>
-      profileScore(profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, shotsRemainingThisRow, depthRemaining, outerValueAt, cache);
+      profileScore(profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache);
 
     let best = { profile: inputProfile, resultingLeft: kotdDefLeft };
     let bestScore = scoreOf(inputProfile, kotdDefLeft);
 
-    const { usesAutoHit } = contextFor(atk, debuffState);
+    const { usesAutoHit } = contextFor(atk, debuffState, sustained);
     if (!usesAutoHit) {
       const candidate = rerollAttackRollIfHit(inputProfile, trueOriginal);
       const score = scoreOf(candidate, kotdDefLeft - 1);
@@ -1574,7 +1622,7 @@ export function computeSequenceOdds(
       }
     }
 
-    const dmgCandidate = rerollDamageIfAboveAverage(atk, debuffState, inputProfile, trueOriginal);
+    const dmgCandidate = rerollDamageIfAboveAverage(atk, debuffState, inputProfile, trueOriginal, sustained);
     const dmgScore = scoreOf(dmgCandidate, kotdDefLeft - 1);
     if (isBetterScore(dmgScore, bestScore)) {
       best = { profile: dmgCandidate, resultingLeft: kotdDefLeft - 1 };
@@ -1618,30 +1666,31 @@ export function computeSequenceOdds(
     kotdOffLeft: number,
     kotdDefLeft: number,
     shotsRemainingThisRow: number,
+    sustained: boolean,
     depthRemaining: number,
     outerValueAt: ExtendedValueLookup,
     cache: Map<string, number>
   ): number {
-    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${shieldGuardsLeft}|${scapegoatsLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}`;
+    const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${shieldGuardsLeft}|${scapegoatsLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}|${sustained}`;
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
 
-    const trueOriginal = profileFor(k, atk, debuffState);
+    const trueOriginal = profileFor(k, atk, debuffState, sustained);
     let total = 0;
-    for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, debuffState, pmMask, trueOriginal)) {
+    for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, debuffState, pmMask, trueOriginal, sustained)) {
       for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
-        k, atk, debuffState, kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal
+        k, atk, debuffState, kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal, sustained
       )) {
         const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
           k, atk, debuffState, kotdDefLeft, offProfile, trueOriginal,
           boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
-          depthRemaining, outerValueAt, cache
+          sustained, depthRemaining, outerValueAt, cache
         );
         for (const outcome of applyProfile(finalProfile)) {
           const { branches, continuationValueAt } = resolveOneOutcome(
             outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
-            depthRemaining, outerValueAt, cache
+            sustained, depthRemaining, outerValueAt, cache
           );
           total += outcome.probability * branchesValue(branches, continuationValueAt);
         }
@@ -1686,6 +1735,7 @@ export function computeSequenceOdds(
     kotdOffLeft: number,
     kotdDefLeft: number,
     shotsRemainingThisRow: number,
+    sustained: boolean,
     probability: number,
     outerValueAt: ExtendedValueLookup,
     shredCache: Map<string, number>,
@@ -1694,7 +1744,7 @@ export function computeSequenceOdds(
     destroyed: { mass: number },
     trackHitCrit: boolean
   ): void {
-    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, pmMask, kotdOffLeft, kotdDefLeft };
+    const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, pmMask, kotdOffLeft, kotdDefLeft, sustained };
     let current = new Map<string, { state: FwdState; probability: number }>([
       [fwdKey(initialState), { state: initialState, probability }],
     ]);
@@ -1713,16 +1763,16 @@ export function computeSequenceOdds(
         // of their populations; Defensive Knowledge of the Damned's choice is recomputed fresh
         // (pure function of reproducible inputs, exactly like `bestAction` already is in both
         // passes today).
-        const trueOriginal = profileFor(k, atk, state.debuffState);
-        for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, state.debuffState, state.pmMask, trueOriginal)) {
+        const trueOriginal = profileFor(k, atk, state.debuffState, state.sustained);
+        for (const { profile: pmProfile, resultingMask } of resolvePmSplit(k, atk, state.debuffState, state.pmMask, trueOriginal, state.sustained)) {
           for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
-            k, atk, state.debuffState, state.kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal
+            k, atk, state.debuffState, state.kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal, state.sustained
           )) {
             const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
               k, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
               state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
               resultingMask, resultingOffKotdLeft, shotsRemainingThisRow,
-              depthRemaining, outerValueAt, shredCache
+              state.sustained, depthRemaining, outerValueAt, shredCache
             );
             for (const outcome of applyProfile(finalProfile)) {
               const p = p0 * outcome.probability;
@@ -1733,11 +1783,11 @@ export function computeSequenceOdds(
               }
               stats.damageMass += p * outcome.damageDealt;
 
-              const { branches, continuesChain } = resolveOneOutcome(
+              const { branches, continuesChain, outcomeSustained } = resolveOneOutcome(
                 outcome, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
                 state.shieldGuardsLeft, state.scapegoatsLeft,
                 resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
-                depthRemaining, outerValueAt, shredCache
+                state.sustained, depthRemaining, outerValueAt, shredCache
               );
 
               for (const b of branches) {
@@ -1751,6 +1801,7 @@ export function computeSequenceOdds(
                   boxes: b.boxes, debuffState: b.debuffState, focusLeft: b.focusLeft, furyLeft: b.furyLeft,
                   shieldGuardsLeft: b.shieldGuardsLeft, scapegoatsLeft: b.scapegoatsLeft,
                   pmMask: resultingMask, kotdOffLeft: resultingOffKotdLeft, kotdDefLeft: resultingDefKotdLeft,
+                  sustained: outcomeSustained,
                 };
                 const key = fwdKey(fwd);
                 const target = continuesChain ? continuing : next;
@@ -1802,7 +1853,8 @@ export function computeSequenceOdds(
     scapegoatsLeft: number,
     pmMask: number,
     kotdOffLeft: number,
-    kotdDefLeft: number
+    kotdDefLeft: number,
+    sustained: boolean
   ) => number {
     const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
     const cachesByShotsRemaining: Map<string, number>[] = Array.from({ length: maxShots + 1 }, () => new Map());
@@ -1817,7 +1869,8 @@ export function computeSequenceOdds(
       scapegoatsLeft: number,
       pmMask: number,
       kotdOffLeft: number,
-      kotdDefLeft: number
+      kotdDefLeft: number,
+      sustained: boolean
     ): number {
       if (shotsRemaining === 0) {
         const table = getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft);
@@ -1836,8 +1889,9 @@ export function computeSequenceOdds(
         kotdOffLeft,
         kotdDefLeft,
         shotsRemaining - 1,
+        sustained,
         MAX_SHRED_DEPTH,
-        (b, d, f, fu, sg, sc, m, o, dk) => shotsValue(shotsRemaining - 1, d, b, f, fu, sg, sc, m, o, dk),
+        (b, d, f, fu, sg, sc, m, o, dk, sus) => shotsValue(shotsRemaining - 1, d, b, f, fu, sg, sc, m, o, dk, sus),
         cachesByShotsRemaining[shotsRemaining]
       );
     }
@@ -1875,7 +1929,7 @@ export function computeSequenceOdds(
   getValueTableAt[n] = () => baseValueTable;
 
   // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
-  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number)[] =
+  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, sustained: boolean) => number)[] =
     new Array(n);
 
   for (let k = n - 1; k >= 0; k--) {
@@ -1890,7 +1944,7 @@ export function computeSequenceOdds(
       const cached = cache.get(key);
       if (cached) return cached;
       const table = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, (boxes, focus, fury, shieldGuards, scapegoats) =>
-        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, shieldGuards, scapegoats, mask, off, def), 0)
+        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, shieldGuards, scapegoats, mask, off, def, false), 0)
       );
       cache.set(key, table);
       return table;
@@ -1916,20 +1970,24 @@ export function computeSequenceOdds(
     k: number,
     atk: SequencedAttack,
     initialDist: Map<string, { state: FwdState; probability: number }>,
-    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number) => number,
+    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, sustained: boolean) => number,
     stats: { hitMass: number; critMass: number; damageMass: number },
     next: Map<string, { state: FwdState; probability: number }>,
     destroyed: { mass: number }
   ): void {
     for (const { count, probability: rofP } of rofOutcomes(atk)) {
+      // `initialDist` is the PREVIOUS row's own ending distribution - `sustained` must never carry
+      // forward into a new row's volley, so every copied state is reset to `sustained: false` here,
+      // regardless of what it was (see the module doc comment's "Sustained Attack" section).
       let current = new Map<string, { state: FwdState; probability: number }>();
       for (const { state, probability } of initialDist.values()) {
         const p = probability * rofP;
         if (p <= 0) continue;
-        const key = fwdKey(state);
+        const freshState: FwdState = { ...state, sustained: false };
+        const key = fwdKey(freshState);
         const existing = current.get(key);
         if (existing) existing.probability += p;
-        else current.set(key, { state, probability: p });
+        else current.set(key, { state: freshState, probability: p });
       }
 
       for (let shotIndex = 1; shotIndex <= count; shotIndex++) {
@@ -1937,7 +1995,7 @@ export function computeSequenceOdds(
         const isLastShot = shotIndex === count;
         const shredCache = new Map<string, number>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
-        const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk);
+        const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk, sus) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk, sus);
 
         for (const { state, probability } of current.values()) {
           resolveAttackChainForward(
@@ -1953,6 +2011,7 @@ export function computeSequenceOdds(
             state.kotdOffLeft,
             state.kotdDefLeft,
             shotsRemainingAfter,
+            state.sustained,
             probability,
             valueAt,
             shredCache,
@@ -1981,6 +2040,7 @@ export function computeSequenceOdds(
     pmMask: 0,
     kotdOffLeft: maxKotdOff,
     kotdDefLeft: maxKotdDef,
+    sustained: false,
   };
   dist.set(fwdKey(initialState), { state: initialState, probability: 1 });
 

@@ -1373,6 +1373,69 @@ describe('sequence engine - Rate of Fire', () => {
   });
 });
 
+describe('sequence engine - Sustained Attack', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 6,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('raises average damage above the independent-shots baseline once shot 1 has hit', () => {
+    // Without Sustained Attack, expected hits over 2 independent shots = 2p. With it, shot 2's own
+    // hit chance becomes p + (1-p)*p (auto-hit if shot 1 already hit), so total expected hits =
+    // p + [p + (1-p)*p] = 3p - p^2 - both derived from a plain single-shot baseline, not hardcoded.
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const baseline = computeSequenceOdds([attack()], target);
+    const p = baseline.steps[0].hitChance;
+    const avgDamagePerHit = baseline.steps[0].averageDamage / p;
+    const withSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'hit' })], target);
+    expect(withSustained.steps[0].averageDamage).toBeCloseTo((3 * p - p * p) * avgDamagePerHit, 9);
+  });
+
+  it('Critical Sustained Attack only unlocks shot 2 on a CRIT, not just a hit', () => {
+    // Shot 2's own hit chance becomes pCrit*1 + (1-pCrit)*pHit (auto-hit only if shot 1 crit), so
+    // total expected hits = pHit + [pCrit + (1-pCrit)*pHit] = pHit*(2 - pCrit) + pCrit.
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const baseline = computeSequenceOdds([attack()], target);
+    const pHit = baseline.steps[0].hitChance;
+    const pCrit = baseline.steps[0].critChance;
+    const avgDamagePerHit = baseline.steps[0].averageDamage / pHit;
+    const withCriticalSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'crit' })], target);
+    expect(withCriticalSustained.steps[0].averageDamage).toBeCloseTo((pHit * (2 - pCrit) + pCrit) * avgDamagePerHit, 9);
+  });
+
+  it("has no effect on the first shot's own Hit/Crit chance", () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const baseline = computeSequenceOdds([attack()], target);
+    const withSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'hit' })], target);
+    expect(withSustained.steps[0].hitChance).toBeCloseTo(baseline.steps[0].hitChance, 9);
+    expect(withSustained.steps[0].critChance).toBeCloseTo(baseline.steps[0].critChance, 9);
+  });
+
+  it('composes with ROF: still raises damage when the extra shot comes from rof, not # Atks', () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const rofOnly = computeSequenceOdds([attack({ type: 'ranged', rof: 'd3' })], target);
+    const rofWithSustained = computeSequenceOdds([attack({ type: 'ranged', rof: 'd3', sustainedAttack: 'hit' })], target);
+    expect(rofWithSustained.steps[0].averageDamage).toBeGreaterThan(rofOnly.steps[0].averageDamage);
+  });
+
+  it("resets between rows - a later row's own hit chance is unaffected by an earlier row triggering sustained", () => {
+    const target = { def: 13, arm: 0, boxes: 1000 };
+    const row1 = attack({ id: '1', attackCount: 2, sustainedAttack: 'hit', forceAutoHit: true });
+    const row2 = attack({ id: '2' });
+    const combined = computeSequenceOdds([row1, row2], target);
+    const row2Baseline = computeSequenceOdds([attack()], target);
+    expect(combined.steps[1].hitChance).toBeCloseTo(row2Baseline.steps[0].hitChance, 9);
+    expect(combined.steps[1].averageDamage).toBeCloseTo(row2Baseline.steps[0].averageDamage, 9);
+  });
+});
+
 describe('sequence engine - Puppet Master', () => {
   const target = { def: 13, arm: 15, boxes: 5 };
 

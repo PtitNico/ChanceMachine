@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: 'Unreleased',
     items: [
       "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
+      "Added the (Critical) Sustained Attack weapon effect: once an attack from a weapon hits (or crits), the rest of that weapon's attacks auto-hit.",
     ],
   },
   {
