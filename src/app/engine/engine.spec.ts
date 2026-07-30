@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { probabilityAtLeast, probabilityOfDouble, rerollPoolOnceIfBelow, rollDicePool } from './dice-pool';
 import { computeAttackOdds } from './attack-model';
-import { computeSequenceOdds, SequencedAttack } from './sequence';
+import { computeSequenceOdds, SequencedAttack, SequenceStepResult } from './sequence';
+
+/** Reconstructs the old row-level UNCONDITIONAL total average damage (summed across every shot in
+ *  a weapon's own volley) from the new per-shot `shots[]` breakdown - each shot's own
+ *  `averageDamage` is conditional on that shot actually firing (see `SequenceShotResult`'s doc
+ *  comment), so weight by `occursChance` to get back an unconditional per-shot expectation before
+ *  summing. Used by tests that assert the row-wide total (e.g. "ROF d3 multiplies average damage
+ *  by..."), as opposed to tests using a single-shot row where `shots[0]` alone already IS the total. */
+function totalAverageDamage(step: SequenceStepResult): number {
+  return step.shots.reduce((sum, s) => sum + s.occursChance * s.averageDamage, 0);
+}
 
 describe('dice-pool', () => {
   it('2d6 distribution sums to 1 and matches the classic triangle', () => {
@@ -343,9 +353,9 @@ describe('sequence engine', () => {
     const seq = computeSequenceOdds([attack()], target);
 
     expect(seq.finalDestroyChance).toBeCloseTo(single.destroyChance, 9);
-    expect(seq.steps[0].hitChance).toBeCloseTo(single.hitChance, 9);
-    expect(seq.steps[0].critChance).toBeCloseTo(single.critOnHitChance, 9);
-    expect(seq.steps[0].averageDamage).toBeCloseTo(single.expectedDamage, 9);
+    expect(seq.steps[0].shots[0].hitChance).toBeCloseTo(single.hitChance, 9);
+    expect(seq.steps[0].shots[0].critChance).toBeCloseTo(single.critOnHitChance, 9);
+    expect(seq.steps[0].shots[0].averageDamage).toBeCloseTo(single.expectedDamage, 9);
   });
 
   it('critChance and averageDamage match a hand-computed case (MAT 6 vs DEF 13, POW 12 vs ARM 15)', () => {
@@ -356,8 +366,8 @@ describe('sequence engine', () => {
       [attack({ id: 'a', stat: 6, pow: 12 })],
       { def: 13, arm: 15, boxes: 1000 }
     );
-    expect(result.steps[0].hitChance).toBeCloseTo(21 / 36, 9);
-    expect(result.steps[0].critChance).toBeCloseTo(3 / 36, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(21 / 36, 9);
+    expect(result.steps[0].shots[0].critChance).toBeCloseTo(3 / 36, 9);
 
     // Expected raw damage = P(hit) * E[max(0, 2d6 + 12 - 15) | hit] - matches computeAttackOdds's expectedDamage.
     const viaSingleAttack = computeAttackOdds({
@@ -365,7 +375,7 @@ describe('sequence engine', () => {
       damage: { pow: 12 },
       target: { def: 13, arm: 15, boxesRemaining: 1000 },
     });
-    expect(result.steps[0].averageDamage).toBeCloseTo(viaSingleAttack.expectedDamage, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(viaSingleAttack.expectedDamage, 9);
   });
 
   it('cumulative destroy chance never decreases and is monotonic across steps', () => {
@@ -408,7 +418,7 @@ describe('sequence engine', () => {
       attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
-    expect(result.steps[1].hitChance).toBeGreaterThan(0);
+    expect(result.steps[1].shots[0].hitChance).toBeGreaterThan(0);
   });
 
   it('Knockdown does not grant a ranged attack an auto-hit against the same target', () => {
@@ -418,7 +428,7 @@ describe('sequence engine', () => {
       attack({ id: '2', type: 'ranged', stat: -50, modifiers: singleDieMods }),
     ];
     const result = computeSequenceOdds(attacks, target);
-    expect(result.steps[1].hitChance).toBeCloseTo(0, 6);
+    expect(result.steps[1].shots[0].hitChance).toBeCloseTo(0, 6);
   });
 
   it('attack order matters: a high-crit-chance Knockdown attack helps more when it goes first', () => {
@@ -558,7 +568,7 @@ describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
 
   it("DEF: 'KD' makes a melee attack auto-hit regardless of its stat", () => {
     const result = computeSequenceOdds([attack({ stat: -50 })], { def: 'KD', arm: 15, boxes: 5 });
-    expect(result.steps[0].hitChance).toBeCloseTo(1, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(1, 9);
   });
 
   it("DEF: 'KD' does NOT auto-hit ranged/arcane attacks - they still roll normally against DEF 5", () => {
@@ -571,9 +581,9 @@ describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
       target: { def: 5, arm: 15, boxesRemaining: 5 },
     });
 
-    expect(ranged.steps[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
-    expect(arcane.steps[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
-    expect(ranged.steps[0].hitChance).toBeLessThan(1); // not an auto-hit
+    expect(ranged.steps[0].shots[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
+    expect(arcane.steps[0].shots[0].hitChance).toBeCloseTo(viaExplicitDef5.hitChance, 9);
+    expect(ranged.steps[0].shots[0].hitChance).toBeLessThan(1); // not an auto-hit
   });
 
   it("a melee attack still auto-hits from DEF: 'KD' even after an earlier ranged attack in the same sequence", () => {
@@ -583,7 +593,7 @@ describe("sequence engine - target DEF: 'KD' (starts Knocked Down)", () => {
       [attack({ id: '1', type: 'ranged', stat: -50 }), attack({ id: '2', type: 'melee', stat: -50 })],
       { def: 'KD', arm: 15, boxes: 1000 }
     );
-    expect(result.steps[1].hitChance).toBeCloseTo(1, 9);
+    expect(result.steps[1].shots[0].hitChance).toBeCloseTo(1, 9);
   });
 
   it("an auto-hit from DEF: 'KD' cannot crit (no attack roll is made)", () => {
@@ -621,7 +631,7 @@ describe('sequence engine - persistent target debuffs', () => {
       ],
       target
     );
-    expect(melee.steps[1].hitChance).toBeCloseTo(1, 9);
+    expect(melee.steps[1].shots[0].hitChance).toBeCloseTo(1, 9);
 
     const ranged = computeSequenceOdds(
       [
@@ -631,7 +641,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // DEF floored to 5, RAT 0 -> needed sum 5 -> P(2d6 >= 5) = 30/36.
-    expect(ranged.steps[1].hitChance).toBeCloseTo(30 / 36, 9);
+    expect(ranged.steps[1].shots[0].hitChance).toBeCloseTo(30 / 36, 9);
   });
 
   it('Ice Cage stacks -2 DEF per application and makes the target Stationary at 2+ stacks', () => {
@@ -645,7 +655,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // DEF 13-2=11, RAT 6, needed=5 -> 30/36.
-    expect(oneStack.steps[1].hitChance).toBeCloseTo(30 / 36, 9);
+    expect(oneStack.steps[1].shots[0].hitChance).toBeCloseTo(30 / 36, 9);
 
     const twoStacks = computeSequenceOdds(
       [
@@ -662,7 +672,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // 2 stacks -> Stationary -> melee auto-hits regardless of stat.
-    expect(twoStacks.steps[1].hitChance).toBeCloseTo(1, 9);
+    expect(twoStacks.steps[1].shots[0].hitChance).toBeCloseTo(1, 9);
   });
 
   it('Blind applies its fixed -4 DEF exactly once, even if triggered twice (non-stacking)', () => {
@@ -676,7 +686,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // DEF 13-4=9 (Blind counted once), RAT 0, needed=9 -> P(2d6>=9) = 10/36.
-    expect(result.steps[2].hitChance).toBeCloseTo(10 / 36, 9);
+    expect(result.steps[2].shots[0].hitChance).toBeCloseTo(10 / 36, 9);
   });
 
   it('Paralysis sets a base DEF of 5, and other flat DEF debuffs still subtract further on top', () => {
@@ -696,7 +706,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // DEF = 5 (Paralysis base) - 4 (Blind) = 1, RAT 0, needed = 1 -> hits on any roll except all-1s (1/36).
-    expect(result.steps[1].hitChance).toBeCloseTo(35 / 36, 9);
+    expect(result.steps[1].shots[0].hitChance).toBeCloseTo(35 / 36, 9);
   });
 
   it('generic ARM penalty ("-X ARM") persists and stacks across triggers', () => {
@@ -710,7 +720,7 @@ describe('sequence engine - persistent target debuffs', () => {
       target
     );
     // Effective ARM for attack 3 = 20 - 5 - 3 = 12 = POW, so damage dealt = raw 2d6 sum every time.
-    expect(result.steps[2].averageDamage).toBeCloseTo(7, 9);
+    expect(result.steps[2].shots[0].averageDamage).toBeCloseTo(7, 9);
   });
 
   it('Armor Piercing halves only the printed BASE ARM; an existing ARM debuff still applies on top', () => {
@@ -724,7 +734,7 @@ describe('sequence engine - persistent target debuffs', () => {
     );
     // ceil(15/2)=8 (BASE ARM 15, halved) + (10-15)=-5 (the existing debuff, still applied) = 3.
     // averageDamage = E[2d6] + 12 - 3 = 7 + 9 = 16.
-    expect(result.steps[1].averageDamage).toBeCloseTo(16, 9);
+    expect(result.steps[1].shots[0].averageDamage).toBeCloseTo(16, 9);
   });
 
   it("Decapitation doubles this attack's damage", () => {
@@ -734,7 +744,7 @@ describe('sequence engine - persistent target debuffs', () => {
       [attack({ forceAutoHit: true, pow: 12, effects: { decapitation: 'hit' } })],
       target
     );
-    expect(withDecap.steps[0].averageDamage).toBeCloseTo(plain.steps[0].averageDamage * 2, 9);
+    expect(withDecap.steps[0].shots[0].averageDamage).toBeCloseTo(plain.steps[0].shots[0].averageDamage * 2, 9);
   });
 
   it('Trash adds an extra damage die only once the target is actually Knocked Down', () => {
@@ -744,7 +754,7 @@ describe('sequence engine - persistent target debuffs', () => {
       [attack({ forceAutoHit: true, pow: 12, effects: { trash: true } })],
       target
     );
-    expect(trashNotYetKD.steps[0].averageDamage).toBeCloseTo(plain.steps[0].averageDamage, 9);
+    expect(trashNotYetKD.steps[0].shots[0].averageDamage).toBeCloseTo(plain.steps[0].shots[0].averageDamage, 9);
 
     const withoutTrash = computeSequenceOdds(
       [
@@ -760,7 +770,7 @@ describe('sequence engine - persistent target debuffs', () => {
       ],
       target
     );
-    expect(withTrash.steps[1].averageDamage).toBeGreaterThan(withoutTrash.steps[1].averageDamage);
+    expect(withTrash.steps[1].shots[0].averageDamage).toBeGreaterThan(withoutTrash.steps[1].shots[0].averageDamage);
   });
 
   it('Shatter adds an extra damage die only once the target is actually Stationary', () => {
@@ -779,7 +789,7 @@ describe('sequence engine - persistent target debuffs', () => {
       ],
       target
     );
-    expect(withShatter.steps[1].averageDamage).toBeGreaterThan(withoutShatter.steps[1].averageDamage);
+    expect(withShatter.steps[1].shots[0].averageDamage).toBeGreaterThan(withoutShatter.steps[1].shots[0].averageDamage);
   });
 
   it('a "hit" trigger fires on any hit including non-crit, a "crit" trigger only fires on a crit', () => {
@@ -800,7 +810,7 @@ describe('sequence engine - persistent target debuffs', () => {
     );
     // 'hit' fires on strictly more outcomes (any hit) than 'crit' (crit only), so more expected ARM
     // reduction reaches attack 2 -> strictly higher average damage for the 'hit' variant.
-    expect(hitTrigger.steps[1].averageDamage).toBeGreaterThan(critTrigger.steps[1].averageDamage);
+    expect(hitTrigger.steps[1].shots[0].averageDamage).toBeGreaterThan(critTrigger.steps[1].shots[0].averageDamage);
   });
 });
 
@@ -859,11 +869,11 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
 
     const meleeWith = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], withUnyielding);
     const meleeWithout = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], plain);
-    expect(meleeWith.steps[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].averageDamage - 2, 9);
+    expect(meleeWith.steps[0].shots[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].shots[0].averageDamage - 2, 9);
 
     const rangedWith = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], withUnyielding);
     const rangedWithout = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], plain);
-    expect(rangedWith.steps[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].averageDamage, 9); // no bonus vs ranged
+    expect(rangedWith.steps[0].shots[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].shots[0].averageDamage, 9); // no bonus vs ranged
   });
 
   it('Carapace adds +4 ARM against ranged attacks only', () => {
@@ -872,11 +882,11 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
 
     const rangedWith = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], withCarapace);
     const rangedWithout = computeSequenceOdds([attack({ type: 'ranged', forceAutoHit: true, pow: 12 })], plain);
-    expect(rangedWith.steps[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].averageDamage - 4, 9);
+    expect(rangedWith.steps[0].shots[0].averageDamage).toBeCloseTo(rangedWithout.steps[0].shots[0].averageDamage - 4, 9);
 
     const meleeWith = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], withCarapace);
     const meleeWithout = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], plain);
-    expect(meleeWith.steps[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].averageDamage, 9); // no bonus vs melee
+    expect(meleeWith.steps[0].shots[0].averageDamage).toBeCloseTo(meleeWithout.steps[0].shots[0].averageDamage, 9); // no bonus vs melee
   });
 
   it('shieldArmBonus (Shield) is a flat, unconditional ARM bonus', () => {
@@ -884,7 +894,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     const base = { def: 13, arm: 10, boxes: 1000 };
     const withBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
     const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], base);
-    expect(withBonus.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage - 3, 9);
+    expect(withBonus.steps[0].shots[0].averageDamage).toBeCloseTo(without.steps[0].shots[0].averageDamage - 3, 9);
   });
 
   it('spellArmBonus (generic spell ARM bonus) is a flat, unconditional ARM bonus', () => {
@@ -892,14 +902,14 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     const base = { def: 13, arm: 10, boxes: 1000 };
     const withBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
     const without = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], base);
-    expect(withBonus.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage - 3, 9);
+    expect(withBonus.steps[0].shots[0].averageDamage).toBeCloseTo(without.steps[0].shots[0].averageDamage - 3, 9);
   });
 
   it('defBonus (generic spell DEF bonus) is a flat, unconditional DEF bonus', () => {
     const target = { def: 10, arm: 0, boxes: 1000, defBonus: 2 };
     const result = computeSequenceOdds([attack({ type: 'ranged', stat: 0 })], target);
     // Effective DEF = 10+2 = 12, RAT 0, needed sum = 12 -> P(2d6 = 12) = 1/36.
-    expect(result.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(1 / 36, 9);
   });
 
   it('Armor Piercing still applies ARM buffs too (Shield/spell/Unyielding/Carapace) on top of the halved base', () => {
@@ -911,7 +921,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     // Effective ARM (no Armor Piercing) would be 16 + 4 (Shield) + 2 (Unyielding, melee) = 22.
     // Armor Piercing halves only the printed base: ceil(16/2)=8, then adds back the +6 of
     // buffs still in play (22-16) = 14. averageDamage = E[2d6] + 12 - 14 = 7 - 2 = 5.
-    expect(result.steps[0].averageDamage).toBeCloseTo(5, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(5, 9);
   });
 
   it('Blessed ignores every Stat-type spell bonus (DEF and ARM), but not Shield', () => {
@@ -925,8 +935,8 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     // Blessed drops the +3 spellArmBonus (only Shield's +5 ARM remains), and DEF has no effect on
     // averageDamage with forceAutoHit - so a Blessed attack should match an attack against a target
     // with Shield alone.
-    expect(blessed.steps[0].averageDamage).toBeCloseTo(shieldOnly.steps[0].averageDamage, 9);
-    expect(blessed.steps[0].averageDamage).not.toBeCloseTo(notBlessed.steps[0].averageDamage, 9);
+    expect(blessed.steps[0].shots[0].averageDamage).toBeCloseTo(shieldOnly.steps[0].shots[0].averageDamage, 9);
+    expect(blessed.steps[0].shots[0].averageDamage).not.toBeCloseTo(notBlessed.steps[0].shots[0].averageDamage, 9);
   });
 
   it('Chain Weapon ignores Shield ARM bonus specifically, but not spell stat bonuses', () => {
@@ -936,7 +946,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
       [attack({ forceAutoHit: true, pow: 12 })],
       { def: 10, arm: 10, boxes: 1000, spellArmBonus: 3 }
     );
-    expect(chainWeapon.steps[0].averageDamage).toBeCloseTo(spellOnly.steps[0].averageDamage, 9);
+    expect(chainWeapon.steps[0].shots[0].averageDamage).toBeCloseTo(spellOnly.steps[0].shots[0].averageDamage, 9);
   });
 
   it('Dispel removes every currently-Dispellable spell bonus/rule for the rest of the sequence, but not innate ones', () => {
@@ -963,7 +973,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     );
     // Attack 2 sees only Shield's ARM bonus once Dispel has fired before it - matches a target that
     // never had the dispellable spell ARM bonus or Unyielding in the first place.
-    expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
+    expect(result.steps[1].shots[0].averageDamage).toBeCloseTo(withoutDispellables.steps[1].shots[0].averageDamage, 9);
   });
 
   it('nonSpellArmBonus/nonSpellDefBonus are flat, unconditional bonuses, like their spell counterparts', () => {
@@ -971,12 +981,12 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     const armBase = { def: 13, arm: 10, boxes: 1000 };
     const withArmBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], armTarget);
     const withoutArmBonus = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], armBase);
-    expect(withArmBonus.steps[0].averageDamage).toBeCloseTo(withoutArmBonus.steps[0].averageDamage - 3, 9);
+    expect(withArmBonus.steps[0].shots[0].averageDamage).toBeCloseTo(withoutArmBonus.steps[0].shots[0].averageDamage - 3, 9);
 
     const defTarget = { def: 10, arm: 0, boxes: 1000, nonSpellDefBonus: 2 };
     const result = computeSequenceOdds([attack({ type: 'ranged', stat: 0 })], defTarget);
     // Effective DEF = 10+2 = 12, RAT 0, needed sum = 12 -> P(2d6 = 12) = 1/36.
-    expect(result.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(1 / 36, 9);
   });
 
   it('Blessed does NOT ignore nonSpellArmBonus/nonSpellDefBonus, unlike spellArmBonus/defBonus', () => {
@@ -988,13 +998,13 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     );
     // Blessed drops the +3 spellArmBonus but keeps the +4 nonSpellArmBonus and Shield's +5 - matches
     // a target that never had the spell ARM bonus at all.
-    expect(blessedArm.steps[0].averageDamage).toBeCloseTo(nonSpellAndShieldOnly.steps[0].averageDamage, 9);
+    expect(blessedArm.steps[0].shots[0].averageDamage).toBeCloseTo(nonSpellAndShieldOnly.steps[0].shots[0].averageDamage, 9);
 
     const defTarget = { def: 10, arm: 0, boxes: 1000, defBonus: 2, nonSpellDefBonus: 2 };
     const blessedDef = computeSequenceOdds([attack({ type: 'ranged', stat: 0, blessed: true })], defTarget);
     // Blessed drops the +2 defBonus, leaving only nonSpellDefBonus's +2: effective DEF = 10+2 = 12,
     // needed sum = 12 -> 1/36 (same fraction as the plain defBonus test above).
-    expect(blessedDef.steps[0].hitChance).toBeCloseTo(1 / 36, 9);
+    expect(blessedDef.steps[0].shots[0].hitChance).toBeCloseTo(1 / 36, 9);
   });
 
   it('Armor Piercing applies nonSpellArmBonus too, on top of the halved base', () => {
@@ -1006,7 +1016,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     // Effective ARM (no Armor Piercing) would be 16 + 4 (nonSpellArmBonus) + 2 (Unyielding, melee) = 22.
     // Armor Piercing halves only the printed base: ceil(16/2)=8, then adds back the +6 of
     // buffs still in play (22-16) = 14. averageDamage = E[2d6] + 12 - 14 = 7 - 2 = 5.
-    expect(result.steps[0].averageDamage).toBeCloseTo(5, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(5, 9);
   });
 
   it('Dispel removes nonSpellArmBonus/nonSpellDefBonus via their own *PostDispel pair, exactly like spellArmBonus/defBonus', () => {
@@ -1029,7 +1039,7 @@ describe('sequence engine - target capabilities (Tough Steady, Unyielding, Carap
     );
     // Attack 2 sees only Shield's ARM bonus once Dispel has fired before it - matches a target that
     // never had the dispellable non-spell ARM/DEF bonuses in the first place.
-    expect(result.steps[1].averageDamage).toBeCloseTo(withoutDispellables.steps[1].averageDamage, 9);
+    expect(result.steps[1].shots[0].averageDamage).toBeCloseTo(withoutDispellables.steps[1].shots[0].averageDamage, 9);
   });
 });
 
@@ -1160,7 +1170,7 @@ describe('sequence engine - Critical Shred', () => {
     // affected by which specific to-hit combo landed the hit - averageDamage is simply
     // hitChance * E[2d6] = (35/36) * 7 = 245/36.
     const result = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
-    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 36, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(245 / 36, 9);
   });
 
   it('extends average damage into a geometric series over the crit chance', () => {
@@ -1175,14 +1185,14 @@ describe('sequence engine - Critical Shred', () => {
     // engine sums only 11 terms - the gap is (5/36)^11 worth of the tail, ~3e-9, well under
     // anything the UI could ever display, but just above a 9-decimal-place tolerance.
     const result = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
-    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 31, 8);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(245 / 31, 8);
   });
 
   it('Hit/Crit chance stay the ORIGINAL roll\'s own probability, not inflated by the chain', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const result = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
-    expect(result.steps[0].hitChance).toBeCloseTo(35 / 36, 9);
-    expect(result.steps[0].critChance).toBeCloseTo(5 / 36, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(35 / 36, 9);
+    expect(result.steps[0].shots[0].critChance).toBeCloseTo(5 / 36, 9);
   });
 
   it('resolves each chain instance against the UPDATED debuff state (a crit-triggered Knockdown auto-hits the next instance)', () => {
@@ -1207,7 +1217,7 @@ describe('sequence engine - Critical Shred', () => {
     // another 1/36 natural-12 roll instead of auto-hitting - a very different (much smaller)
     // number, so this genuinely distinguishes the two.
     // Total: P(6-6) * (E[2d6] + E[2d6]) = (1/36) * 14 = 14/36 = 7/18.
-    expect(result.steps[0].averageDamage).toBeCloseTo(7 / 18, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(7 / 18, 9);
   });
 
   it('a lethal hit within the chain can still destroy the target, ending the chain early', () => {
@@ -1239,33 +1249,33 @@ describe('sequence engine - Rate of Fire', () => {
     const target = { def: 13, arm: 15, boxes: 1000 };
     const withRofDash = computeSequenceOdds([attack({ stat: 6, pow: 12, rof: '-' })], target);
     const withoutRof = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
-    expect(withRofDash.steps[0].averageDamage).toBeCloseTo(withoutRof.steps[0].averageDamage, 9);
-    expect(withRofDash.steps[0].hitChance).toBeCloseTo(withoutRof.steps[0].hitChance, 9);
+    expect(withRofDash.steps[0].shots[0].averageDamage).toBeCloseTo(withoutRof.steps[0].shots[0].averageDamage, 9);
+    expect(withRofDash.steps[0].shots[0].hitChance).toBeCloseTo(withoutRof.steps[0].shots[0].hitChance, 9);
   });
 
   it('attackCount multiplies average damage by exactly N, for any attack type, with no rof', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withCount = computeSequenceOdds([attack({ stat: 20, pow: 0, attackCount: 3 })], target);
-    expect(withCount.steps[0].averageDamage).toBeCloseTo(3 * baseline.steps[0].averageDamage, 9);
+    expect(totalAverageDamage(withCount.steps[0])).toBeCloseTo(3 * baseline.steps[0].shots[0].averageDamage, 9);
 
     const meleeBaseline = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0 })], target);
     const meleeWithCount = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0, attackCount: 3 })], target);
-    expect(meleeWithCount.steps[0].averageDamage).toBeCloseTo(3 * meleeBaseline.steps[0].averageDamage, 9);
+    expect(totalAverageDamage(meleeWithCount.steps[0])).toBeCloseTo(3 * meleeBaseline.steps[0].shots[0].averageDamage, 9);
   });
 
   it('attackCount and rof are additive, not multiplicative: attackCount=2 + rof d3 fires (2 + E[d3]=2) = 4 shots on average', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const combined = computeSequenceOdds([attack({ stat: 20, pow: 0, attackCount: 2, rof: 'd3' })], target);
-    expect(combined.steps[0].averageDamage).toBeCloseTo(4 * baseline.steps[0].averageDamage, 9);
+    expect(totalAverageDamage(combined.steps[0])).toBeCloseTo(4 * baseline.steps[0].shots[0].averageDamage, 9);
   });
 
   it('ROF d3 multiplies average damage by E[shots]=1+2=3 (default attackCount=1 base, E[d3]=2 extra) when nothing else changes between shots', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withRof = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: 'd3' })], target);
-    expect(withRof.steps[0].averageDamage).toBeCloseTo(3 * baseline.steps[0].averageDamage, 9);
+    expect(totalAverageDamage(withRof.steps[0])).toBeCloseTo(3 * baseline.steps[0].shots[0].averageDamage, 9);
   });
 
   it('ROF 2d3 multiplies average damage by E[shots]=1+4=5 (default attackCount=1 base, E[2d3]=4 extra) when nothing else changes between shots', () => {
@@ -1273,22 +1283,22 @@ describe('sequence engine - Rate of Fire', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withRof = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: '2d3' })], target);
-    expect(withRof.steps[0].averageDamage).toBeCloseTo(5 * baseline.steps[0].averageDamage, 9);
+    expect(totalAverageDamage(withRof.steps[0])).toBeCloseTo(5 * baseline.steps[0].shots[0].averageDamage, 9);
   });
 
   it("hit/crit chance stay the FIRST shot's own probability, unaffected by ROF", () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withRof = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: '2d3' })], target);
-    expect(withRof.steps[0].hitChance).toBeCloseTo(baseline.steps[0].hitChance, 9);
-    expect(withRof.steps[0].critChance).toBeCloseTo(baseline.steps[0].critChance, 9);
+    expect(withRof.steps[0].shots[0].hitChance).toBeCloseTo(baseline.steps[0].shots[0].hitChance, 9);
+    expect(withRof.steps[0].shots[0].critChance).toBeCloseTo(baseline.steps[0].shots[0].critChance, 9);
   });
 
   it('ROF is ignored for non-ranged attacks', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const melee = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0, rof: '2d3' })], target);
     const meleeNoRof = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0 })], target);
-    expect(melee.steps[0].averageDamage).toBeCloseTo(meleeNoRof.steps[0].averageDamage, 9);
+    expect(melee.steps[0].shots[0].averageDamage).toBeCloseTo(meleeNoRof.steps[0].shots[0].averageDamage, 9);
   });
 
   it('a lethal hit ends the volley early - destroy chance matches "at least one hit among up to K shots"', () => {
@@ -1338,12 +1348,33 @@ describe('sequence engine - Rate of Fire', () => {
     // ARM than the first - average damage per shot therefore grows across a longer volley, so the
     // whole volley's total should exceed just E[shots] times a single UNPENALIZED shot's damage.
     const target = { def: 2, arm: 10, boxes: 1000 };
-    const singleShotBaseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target).steps[0].averageDamage;
+    const singleShotBaseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target).steps[0].shots[0].averageDamage;
     const withStack = computeSequenceOdds(
       [attack({ stat: 20, pow: 0, rof: '2d3', statEffects: [{ type: 'armPenalty', trigger: 'hit', amount: 5 }] })],
       target
     );
-    expect(withStack.steps[0].averageDamage).toBeGreaterThan(4 * singleShotBaseline);
+    expect(totalAverageDamage(withStack.steps[0])).toBeGreaterThan(4 * singleShotBaseline);
+  });
+
+  it('shots[].occursChance matches the ROF distribution directly: with attackCount=1 (default) + rof d3, shots 1-2 always occur (base >= 2 always), shot 3 occurs 2/3 of the time, shot 4 occurs 1/3', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: 'd3' })], target);
+    const shots = result.steps[0].shots;
+    expect(shots).toHaveLength(4);
+    expect(shots[0].occursChance).toBeCloseTo(1, 9);
+    expect(shots[1].occursChance).toBeCloseTo(1, 9);
+    expect(shots[2].occursChance).toBeCloseTo(2 / 3, 9);
+    expect(shots[3].occursChance).toBeCloseTo(1 / 3, 9);
+  });
+
+  it('shots[].occursChance also drops to 0 once an earlier shot in the SAME volley destroys the target', () => {
+    const target = { def: 2, arm: 0, boxes: 1 };
+    const result = computeSequenceOdds([attack({ stat: 20, pow: 20, attackCount: 3, forceAutoHit: true })], target);
+    const shots = result.steps[0].shots;
+    expect(shots).toHaveLength(3);
+    expect(shots[0].occursChance).toBeCloseTo(1, 9);
+    expect(shots[1].occursChance).toBeCloseTo(0, 9);
+    expect(shots[2].occursChance).toBeCloseTo(0, 9);
   });
 
   it("composes with Critical Shred: each ROF shot can independently trigger its own Shred chain", () => {
@@ -1356,8 +1387,8 @@ describe('sequence engine - Rate of Fire', () => {
     const target = { def: 2, arm: 0, boxes: 50 };
     const rofOnly = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: 'd3' })], target);
     const rofAndShred = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: 'd3', criticalShred: true })], target);
-    expect(rofAndShred.steps[0].averageDamage).toBeGreaterThan(rofOnly.steps[0].averageDamage);
-    expect(rofAndShred.steps[0].hitChance).toBeCloseTo(rofOnly.steps[0].hitChance, 9);
+    expect(rofAndShred.steps[0].shots[0].averageDamage).toBeGreaterThan(rofOnly.steps[0].shots[0].averageDamage);
+    expect(rofAndShred.steps[0].shots[0].hitChance).toBeCloseTo(rofOnly.steps[0].shots[0].hitChance, 9);
   });
 
   it('runs multiple chained ROF attacks quickly (bounded shot-count branching, no combinatorial blowup)', () => {
@@ -1392,10 +1423,10 @@ describe('sequence engine - Sustained Attack', () => {
     // p + [p + (1-p)*p] = 3p - p^2 - both derived from a plain single-shot baseline, not hardcoded.
     const target = { def: 13, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack()], target);
-    const p = baseline.steps[0].hitChance;
-    const avgDamagePerHit = baseline.steps[0].averageDamage / p;
+    const p = baseline.steps[0].shots[0].hitChance;
+    const avgDamagePerHit = baseline.steps[0].shots[0].averageDamage / p;
     const withSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'hit' })], target);
-    expect(withSustained.steps[0].averageDamage).toBeCloseTo((3 * p - p * p) * avgDamagePerHit, 9);
+    expect(totalAverageDamage(withSustained.steps[0])).toBeCloseTo((3 * p - p * p) * avgDamagePerHit, 9);
   });
 
   it('Critical Sustained Attack only unlocks shot 2 on a CRIT, not just a hit', () => {
@@ -1403,26 +1434,26 @@ describe('sequence engine - Sustained Attack', () => {
     // total expected hits = pHit + [pCrit + (1-pCrit)*pHit] = pHit*(2 - pCrit) + pCrit.
     const target = { def: 13, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack()], target);
-    const pHit = baseline.steps[0].hitChance;
-    const pCrit = baseline.steps[0].critChance;
-    const avgDamagePerHit = baseline.steps[0].averageDamage / pHit;
+    const pHit = baseline.steps[0].shots[0].hitChance;
+    const pCrit = baseline.steps[0].shots[0].critChance;
+    const avgDamagePerHit = baseline.steps[0].shots[0].averageDamage / pHit;
     const withCriticalSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'crit' })], target);
-    expect(withCriticalSustained.steps[0].averageDamage).toBeCloseTo((pHit * (2 - pCrit) + pCrit) * avgDamagePerHit, 9);
+    expect(totalAverageDamage(withCriticalSustained.steps[0])).toBeCloseTo((pHit * (2 - pCrit) + pCrit) * avgDamagePerHit, 9);
   });
 
   it("has no effect on the first shot's own Hit/Crit chance", () => {
     const target = { def: 13, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack()], target);
     const withSustained = computeSequenceOdds([attack({ attackCount: 2, sustainedAttack: 'hit' })], target);
-    expect(withSustained.steps[0].hitChance).toBeCloseTo(baseline.steps[0].hitChance, 9);
-    expect(withSustained.steps[0].critChance).toBeCloseTo(baseline.steps[0].critChance, 9);
+    expect(withSustained.steps[0].shots[0].hitChance).toBeCloseTo(baseline.steps[0].shots[0].hitChance, 9);
+    expect(withSustained.steps[0].shots[0].critChance).toBeCloseTo(baseline.steps[0].shots[0].critChance, 9);
   });
 
   it('composes with ROF: still raises damage when the extra shot comes from rof, not # Atks', () => {
     const target = { def: 13, arm: 0, boxes: 1000 };
     const rofOnly = computeSequenceOdds([attack({ type: 'ranged', rof: 'd3' })], target);
     const rofWithSustained = computeSequenceOdds([attack({ type: 'ranged', rof: 'd3', sustainedAttack: 'hit' })], target);
-    expect(rofWithSustained.steps[0].averageDamage).toBeGreaterThan(rofOnly.steps[0].averageDamage);
+    expect(totalAverageDamage(rofWithSustained.steps[0])).toBeGreaterThan(totalAverageDamage(rofOnly.steps[0]));
   });
 
   it("resets between rows - a later row's own hit chance is unaffected by an earlier row triggering sustained", () => {
@@ -1431,8 +1462,8 @@ describe('sequence engine - Sustained Attack', () => {
     const row2 = attack({ id: '2' });
     const combined = computeSequenceOdds([row1, row2], target);
     const row2Baseline = computeSequenceOdds([attack()], target);
-    expect(combined.steps[1].hitChance).toBeCloseTo(row2Baseline.steps[0].hitChance, 9);
-    expect(combined.steps[1].averageDamage).toBeCloseTo(row2Baseline.steps[0].averageDamage, 9);
+    expect(combined.steps[1].shots[0].hitChance).toBeCloseTo(row2Baseline.steps[0].shots[0].hitChance, 9);
+    expect(combined.steps[1].shots[0].averageDamage).toBeCloseTo(row2Baseline.steps[0].shots[0].averageDamage, 9);
   });
 });
 
@@ -1522,7 +1553,7 @@ describe('sequence engine - Puppet Master', () => {
     // damage check - a fact known before any dice are rolled (see the module doc comment), so this
     // is unaffected by anything attack 2 does and should be an EXACT match, not just "close":
     // if attack 1 were (wrongly) treated as eligible, its own average damage would rise.
-    expect(withPM.steps[0].averageDamage).toBeCloseTo(withoutPM.steps[0].averageDamage, 9);
+    expect(withPM.steps[0].shots[0].averageDamage).toBeCloseTo(withoutPM.steps[0].shots[0].averageDamage, 9);
   });
 
   it("an auto-hit attack DOES get a damage-roll check once it's the attacker's last attack", () => {
@@ -1539,7 +1570,7 @@ describe('sequence engine - Puppet Master', () => {
     );
     // The improvement shows up specifically on attack 2's OWN average damage - proof the check
     // reached the last (auto-hit) attack, not just a non-auto-hit roll somewhere in the sequence.
-    expect(withPM.steps[1].averageDamage).toBeGreaterThan(withoutPM.steps[1].averageDamage);
+    expect(withPM.steps[1].shots[0].averageDamage).toBeGreaterThan(withoutPM.steps[1].shots[0].averageDamage);
   });
 
   it('degenerates to a no-op on an auto-hit attack whose damage roll can never matter either', () => {
@@ -1586,7 +1617,7 @@ describe('sequence engine - Puppet Master', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const withoutPM = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], target);
     const withPM = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true, hasPuppetMaster: true, attackerIndex: 0 })], target);
-    expect(withPM.steps[0].averageDamage).toBeGreaterThan(withoutPM.steps[0].averageDamage);
+    expect(withPM.steps[0].shots[0].averageDamage).toBeGreaterThan(withoutPM.steps[0].shots[0].averageDamage);
   });
 
   it('composes correctly with the target\'s own Focus spending (nested two-sided optimization)', () => {
@@ -1675,10 +1706,10 @@ describe('sequence engine - Knowledge of the Damned', () => {
 
     // 1 charge - 1 spent here = 0 remaining, less than the 1 remaining missable roll at position 2:
     // NOT eligible, position 1 stays exactly as bad as the no-KotD baseline.
-    expect(with1Charge.steps[0].averageDamage).toBeCloseTo(without.steps[0].averageDamage, 9);
+    expect(with1Charge.steps[0].shots[0].averageDamage).toBeCloseTo(without.steps[0].shots[0].averageDamage, 9);
     // 2 charges - 1 spent here = 1 remaining, exactly covers position 2: a safe surplus, so
     // position 1's damage roll DOES get checked.
-    expect(with2Charges.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
+    expect(with2Charges.steps[0].shots[0].averageDamage).toBeGreaterThan(without.steps[0].shots[0].averageDamage);
   });
 
   it('is a GLOBAL pool shared across every attacker, unlike Puppet Master\'s per-attacker token', () => {
@@ -1714,8 +1745,8 @@ describe('sequence engine - Knowledge of the Damned', () => {
     // With 1 charge, only the LAST shot of whichever K a branch drew is ever eligible (0 remaining
     // shots after it) - some improvement, but strictly less than with 3 charges (enough to cover
     // even the FIRST shot of a full 3-shot volley), which lets every shot in every branch qualify.
-    expect(with1Charge.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
-    expect(with3Charges.steps[0].averageDamage).toBeGreaterThan(with1Charge.steps[0].averageDamage);
+    expect(with1Charge.steps[0].shots[0].averageDamage).toBeGreaterThan(without.steps[0].shots[0].averageDamage);
+    expect(with3Charges.steps[0].shots[0].averageDamage).toBeGreaterThan(with1Charge.steps[0].shots[0].averageDamage);
   });
 
   it('the reserve rule counts a Critical-Shred-active row as ONE roll opportunity, not expanded by chain depth', () => {
@@ -1729,7 +1760,7 @@ describe('sequence engine - Knowledge of the Damned', () => {
     // position 2, 2 charges wouldn't be nearly enough of a surplus to check position 1's damage
     // roll - the reserve rule would keep both charges in reserve instead. Treated correctly (one
     // opportunity per ROW, regardless of Shred), 2 charges IS enough.
-    expect(with2Charges.steps[0].averageDamage).toBeGreaterThan(without.steps[0].averageDamage);
+    expect(with2Charges.steps[0].shots[0].averageDamage).toBeGreaterThan(without.steps[0].shots[0].averageDamage);
   });
 
   it("still spends its own charge on a roll Puppet Master already rerolled (stacks, doesn't skip it, matching the cumulative spec)", () => {
@@ -1889,8 +1920,8 @@ describe('sequence engine - Shield Guards and Scapegoats', () => {
     // Effect: without the block, Knockdown from attack1 carries over and auto-hits attack2 (an
     // otherwise near-0-hit-chance single-die roll, same setup as the plain Knockdown test earlier
     // in this file). With the block, the debuff never applied, so attack2's hit chance stays ~0.
-    expect(withoutBlock.steps[1].hitChance).toBeGreaterThan(0);
-    expect(withBlock.steps[1].hitChance).toBeCloseTo(0, 6);
+    expect(withoutBlock.steps[1].shots[0].hitChance).toBeGreaterThan(0);
+    expect(withBlock.steps[1].shots[0].hitChance).toBeCloseTo(0, 6);
   });
 
   it('a block never triggers Rapid Healing, unlike a Fury-negated hit (contrast with the Fury test above)', () => {
@@ -1963,15 +1994,15 @@ describe('sequence engine - Shield Guards and Scapegoats', () => {
     const target = { def: 2, arm: 0, boxes: 1000, shieldGuards: 1 };
     const result = computeSequenceOdds([attack({ type: 'ranged', stat: 20, pow: 0, criticalShred: true })], target);
     // Same hit/crit chance as the sibling Critical Shred baseline test - unaffected by the block.
-    expect(result.steps[0].hitChance).toBeCloseTo(35 / 36, 9);
-    expect(result.steps[0].critChance).toBeCloseTo(5 / 36, 9);
+    expect(result.steps[0].shots[0].hitChance).toBeCloseTo(35 / 36, 9);
+    expect(result.steps[0].shots[0].critChance).toBeCloseTo(5 / 36, 9);
     // With boxes=1000 (destruction never a factor), the target always spends its one Shield Guard
     // on the FIRST opportunity (box-preservation tie-break, see the "spends at most one" test
     // above), blocking this roll outright. A block never chains into Critical Shred, so average
     // damage is exactly this single roll's own raw expected damage - matching the sibling
     // "baseline without Critical Shred" test's 245/36 EXACTLY, not the geometric-series 245/31 a
     // non-blocked crit-shredding attack produces (see the Critical Shred describe block above).
-    expect(result.steps[0].averageDamage).toBeCloseTo(245 / 36, 9);
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(245 / 36, 9);
   });
 });
 

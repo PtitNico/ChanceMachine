@@ -16,12 +16,12 @@ import { SequencedAttack, SequenceTarget } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
-import { toSequencedAttack } from './attack-row.model';
+import { TYPE_EMOJI, toSequencedAttack } from './attack-row.model';
 import { AttackerCard } from './attacker-card/attacker-card';
 import { AttackerRulesDialog } from './attacker-rules-dialog/attacker-rules-dialog';
 import { Attacker, addAttackTo, attackerDisplayName, createAttacker, removeAttackFrom, statFor } from './attacker.model';
 import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
-import { DamagePoint } from './details-dialog/details-dialog.model';
+import { DamagePoint, ShotRow } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
 import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
@@ -173,6 +173,41 @@ export class OddsCalculator {
   protected readonly maxDamageProbability = computed(() =>
     Math.max(...this.damageDistributionPoints().map((p) => p.probability), 0.0001)
   );
+
+  /** Flattens `sequence().steps[].shots[]` (one array per weapon, one entry per shot in that
+   *  weapon's own volley) into a single continuously-numbered list for the Details pop-up - a
+   *  weapon firing multiple times (via # Atks/ROF) no longer collapses into one combined row, and
+   *  numbering restarts nowhere, matching how it read before weapons could fire more than once.
+   *  `isNewWeapon` marks every weapon's own first shot (including row 1) so the template can render
+   *  a group header (attacker name + weapon type icon) right before it without breaking the
+   *  continuous count; `isNewAttacker` (a strict subset of `isNewWeapon`) additionally compares
+   *  `attackerIndex` (the stable per-attacker key - see `SequencedAttack`'s own doc comment for why
+   *  `attackerName` alone isn't safe to compare, two different unnamed attackers can share a display
+   *  name) against the PREVIOUS weapon's, so consecutive weapons owned by the SAME attacker share one
+   *  header line instead of repeating that attacker's name for each of its own weapons. */
+  protected readonly shotRows = computed<ShotRow[]>(() => {
+    const rows: ShotRow[] = [];
+    let previousAttackerIndex: number | undefined;
+    this.sequence().steps.forEach((step, stepIndex) => {
+      const isNewAttacker = stepIndex === 0 || step.attack.attackerIndex !== previousAttackerIndex;
+      step.shots.forEach((shot, shotIndex) => {
+        rows.push({
+          key: `${step.attack.id}-${shotIndex}`,
+          label: `${rows.length + 1}`,
+          isNewWeapon: shotIndex === 0,
+          isNewAttacker: shotIndex === 0 && isNewAttacker,
+          attackerName: step.attack.attackerName,
+          typeEmoji: TYPE_EMOJI[step.attack.type],
+          occursChance: shot.occursChance,
+          hitChance: shot.hitChance,
+          critChance: shot.critChance,
+          averageDamage: shot.averageDamage,
+        });
+      });
+      previousAttackerIndex = step.attack.attackerIndex;
+    });
+    return rows;
+  });
 
   /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part
    *  of the screen that scrolls (see odds-calculator.css), so a sequence with several attackers

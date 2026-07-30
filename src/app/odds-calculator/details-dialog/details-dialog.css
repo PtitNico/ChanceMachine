@@ -4,30 +4,56 @@
   margin-bottom: 1.5rem;
 }
 
-/* Each step always stays on a single line - if a narrow viewport can't fit the
-   label + all three metrics, the row scrolls horizontally instead of wrapping
-   onto a second line (same "one line, scroll if needed" pattern used by
-   .target-row/.attack-row), with the scrollbar hidden as elsewhere in this app. */
+/* A grid, not a flex row: label above value in each metric cell (see .steps__metric below) keeps
+   every column narrow enough that the whole row always fits the dialog's own width - no
+   horizontal scroll needed, unlike the plain "one line, scroll if needed" pattern used by
+   .target-row/.attack-row (those don't have four metrics to fit). Columns shrink together as the
+   viewport narrows instead of overflowing. */
 .steps__row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: baseline;
-  gap: 0.9rem;
+  display: grid;
+  grid-template-columns: auto repeat(4, 1fr);
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.55rem 0;
   border-bottom: 1px solid var(--line);
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.78rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
 
-.steps__row::-webkit-scrollbar {
-  display: none;
+/* One per weapon (see ShotRow.isNewWeapon) - groups that weapon's own shot rows under the owning
+   attacker's name (only repeated when the attacker itself changes - see ShotRow.isNewAttacker)
+   and its type icon, without breaking the shot list's own continuous numbering below. */
+.steps__group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0 0.2rem;
+}
+
+/* No divider above the very first group - the "Step by step" title above it already separates it
+   from the rest of the pop-up. Every later group gets a heavier top border than the plain per-row
+   bottom border below, reading as a break between weapons/attackers. */
+.steps__group-header:not(:first-child) {
+  margin-top: 0.3rem;
+  border-top: 2px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.steps__group-attacker {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.steps__group-weapon-icon {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .steps__label {
-  flex-shrink: 0;
   font-family: 'Inter', sans-serif;
   font-weight: 600;
   color: var(--text);
@@ -35,23 +61,25 @@
 }
 
 .steps__metric {
-  flex-shrink: 0;
   display: flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  white-space: nowrap;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
 }
 
 .steps__metric-label {
   font-family: 'Inter', sans-serif;
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--text-dim);
+  text-align: center;
 }
 
 .steps__metric-value {
   color: var(--text);
+  white-space: nowrap;
 }
 
 .distribution__empty {

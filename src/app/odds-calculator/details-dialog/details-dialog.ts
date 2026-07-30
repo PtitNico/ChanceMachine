@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, ViewChild, input } from '@angular/core';
-import { SequenceStepResult } from '../../engine/sequence';
 import { DialogShell } from '../dialog-shell/dialog-shell';
 import { pct } from '../format.util';
-import { DamagePoint } from './details-dialog.model';
+import { DamagePoint, ShotRow } from './details-dialog.model';
 
 @Component({
   selector: 'app-details-dialog',
@@ -13,7 +12,7 @@ import { DamagePoint } from './details-dialog.model';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DetailsDialog {
-  readonly steps = input.required<SequenceStepResult[]>();
+  readonly shotRows = input.required<ShotRow[]>();
   readonly damagePoints = input.required<DamagePoint[]>();
   readonly maxDamageProbability = input.required<number>();
 

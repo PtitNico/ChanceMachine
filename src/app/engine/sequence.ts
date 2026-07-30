@@ -89,10 +89,12 @@
  * forward simulation (`resolveRofAttackForward`) mirrors this exactly, per possible shot count K:
  * splits the incoming probability mass by `rofOutcomes`, then resolves K shots in sequence within
  * each K-branch, reusing the SAME `shotsValue` functions the backward pass built so the replayed
- * Focus/Fury policy matches what was actually optimized for. Like Shred, "Hit"/"Crit" chance in
- * the step-by-step breakdown stay the FIRST shot's own well-defined probability (identical across
- * every possible K, since K is independent of any attack dice), while "Avg damage" sums every shot
- * actually fired, across every K, weighted by its own probability.
+ * Focus/Fury policy matches what was actually optimized for. The step-by-step breakdown shows each
+ * shot's own Hit/Crit/Avg damage separately (`SequenceStepResult.shots`, one `SequenceShotResult`
+ * per possible shot index) rather than collapsing a whole volley into one row: `resolveRofAttackForward`
+ * accumulates a SEPARATE `ShotStats` object per shot index (shared across every K-branch that reaches
+ * that far), including `occursMass` - the probability mass that actually attempts that shot, letting
+ * `SequenceShotResult.occursChance` show a variable-count weapon's later shots as less than certain.
  *
  * Sustained Attack (`SequencedAttack.sustainedAttack: 'hit' | 'crit'`, a hit/crit-pair effect like
  * Armor Piercing/Decapitation - see `HIT_CRIT_PAIR_KEYS`) auto-hits every LATER shot in THIS SAME
@@ -421,14 +423,30 @@ export interface SequenceTarget {
   rapidHealing?: boolean;
 }
 
+/** One shot within a weapon's own volley (its `attackCount`/`rof` shots - see the module doc
+ *  comment's "Rate of Fire" section). `hitChance`/`critChance`/`averageDamage` are all conditional
+ *  on THIS SHOT actually firing (see `occursChance`) - "if this shot happens, here's what to
+ *  expect from it" - matching how `SequenceStepResult`'s own fields are conditional on the target
+ *  still being alive when the WEAPON's turn comes up. A Critical Shred chain triggered by this
+ *  shot's own crit is folded into `averageDamage` (every depth contributes), but never creates a
+ *  separate `SequenceShotResult` entry - it's additional depth within resolving this ONE shot, not
+ *  another shot. */
+export interface SequenceShotResult {
+  /** Chance this shot actually fires, conditional on the target still being alive when the
+   *  weapon's turn comes up - exactly 1 unless this shot is past the weapon's guaranteed `#
+   *  Atks` base (so it only fires if ROF's roll reaches this far), a `# Atks = 0` pure-ROF
+   *  weapon's very first shot, or an earlier shot in this SAME volley destroyed the target first. */
+  occursChance: number;
+  hitChance: number;
+  critChance: number;
+  averageDamage: number;
+}
+
 export interface SequenceStepResult {
   attack: SequencedAttack;
-  /** Chance to hit for this attack, conditional on the target still being alive when it's made. */
-  hitChance: number;
-  /** Chance of a critical hit (natural double) for this attack, conditional on the target still being alive when it's made. */
-  critChance: number;
-  /** Expected raw damage dealt by this attack's dice/POW/ARM (before any Focus/Fury mitigation), conditional on the target still being alive when it's made. */
-  averageDamage: number;
+  /** One entry per possible shot index in this weapon's own volley (1..the highest possible
+   *  `attackCount`/`rof` total) - see `SequenceShotResult`'s doc comment. */
+  shots: SequenceShotResult[];
   /** Chance the target is newly destroyed on exactly this attack (unconditional, out of the original 1.0). */
   destroyChanceAtThisStep: number;
   /** Chance the target has been destroyed by this attack or any earlier one. */
@@ -1701,6 +1719,18 @@ export function computeSequenceOdds(
     return total;
   }
 
+  /** Per-shot forward-pass accumulator (one instance per shot INDEX within a row's own volley, not
+   *  one per row) - `occursMass` is the probability mass that actually attempts this shot (see
+   *  `SequenceShotResult.occursChance`'s doc comment), summed by `resolveRofAttackForward` BEFORE
+   *  calling `resolveAttackChainForward`, which then adds `hitMass`/`critMass`/`damageMass` to the
+   *  SAME object. */
+  interface ShotStats {
+    hitMass: number;
+    critMass: number;
+    damageMass: number;
+    occursMass: number;
+  }
+
   /**
    * Forward-simulation counterpart of `attackChainValue`: resolves one instance of attack `k`
    * starting from `probability` of the sequence being in the given state, accumulating into
@@ -1714,13 +1744,12 @@ export function computeSequenceOdds(
    * number of DISTINCT states reached, exactly like `attackChainValue`'s cache does. A naive
    * per-branch recursion here would instead redo its ~11-way branch at every depth independently:
    * cheap for a couple of levels, but up to 11^`MAX_SHRED_DEPTH` in the worst case, which is why
-   * this isn't written that way. `stats.hitMass`/`critMass` only accumulate for the FIRST
-   * instance (depth === `MAX_SHRED_DEPTH`) AND only when `trackHitCrit` is true - "Hit"/"Crit"
-   * chance are the ORIGINAL roll's own (a single well-defined probability), unlike "Avg damage"
-   * which stays meaningful summed across however many instances actually fired (see the module
-   * doc comment). `trackHitCrit` lets `resolveRofAttackForward` (see the module doc comment's
-   * "Rate of Fire" section) call this once per shot in a volley while still only counting the
-   * volley's OWN first shot toward hitMass/critMass, not every shot in it.
+   * this isn't written that way. `stats.hitMass`/`critMass` only accumulate for the FIRST instance
+   * (depth === `MAX_SHRED_DEPTH`) - "Hit"/"Crit" chance are the ORIGINAL roll's own (a single
+   * well-defined probability), unlike "Avg damage" which stays meaningful summed across however
+   * many instances actually fired (see the module doc comment). `stats` is always THIS shot's own
+   * `ShotStats` accumulator (see `resolveRofAttackForward`) - every shot gets its own tracked
+   * hit/crit/damage, not just a row's first shot.
    */
   function resolveAttackChainForward(
     k: number,
@@ -1739,10 +1768,9 @@ export function computeSequenceOdds(
     probability: number,
     outerValueAt: ExtendedValueLookup,
     shredCache: Map<string, number>,
-    stats: { hitMass: number; critMass: number; damageMass: number },
+    stats: ShotStats,
     next: Map<string, { state: FwdState; probability: number }>,
-    destroyed: { mass: number },
-    trackHitCrit: boolean
+    destroyed: { mass: number }
   ): void {
     const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, pmMask, kotdOffLeft, kotdDefLeft, sustained };
     let current = new Map<string, { state: FwdState; probability: number }>([
@@ -1777,7 +1805,7 @@ export function computeSequenceOdds(
             for (const outcome of applyProfile(finalProfile)) {
               const p = p0 * outcome.probability;
               if (p <= 0) continue;
-              if (topLevel && trackHitCrit) {
+              if (topLevel) {
                 if (outcome.isHit) stats.hitMass += p;
                 if (outcome.isCrit) stats.critMass += p;
               }
@@ -1959,19 +1987,18 @@ export function computeSequenceOdds(
    * distribution WITHIN THAT SAME branch, exactly mirroring `shotsValue`'s own per-branch
    * recursion above (so `bestAction`'s Focus/Fury lookahead, called from inside
    * `resolveAttackChainForward`, sees the correct value for "however many shots THIS branch's own
-   * K actually leaves remaining", not a blended average). `stats.hitMass`/`critMass` only
-   * accumulate on each branch's own first shot (`trackHitCrit`) - since shot 1 always fires (every
-   * `rofDist` count is >= 1) and its outcome distribution is identical regardless of which K a
-   * given branch drew, summing it once per branch, weighted by that branch's own probability
-   * share, reconstructs the correct total automatically (the branch probabilities already sum
-   * back to the original incoming mass).
+   * K actually leaves remaining", not a blended average). `shotStats[shotIndex - 1]` is THAT shot
+   * index's own `ShotStats` accumulator (shared across every `count` branch that reaches this far -
+   * see `SequenceShotResult`'s doc comment) - before resolving a given shot index, the incoming
+   * `current` map's probability is summed into that shot's own `occursMass` (the mass that actually
+   * attempts it), then `resolveAttackChainForward` adds its `hitMass`/`critMass`/`damageMass` on top.
    */
   function resolveRofAttackForward(
     k: number,
     atk: SequencedAttack,
     initialDist: Map<string, { state: FwdState; probability: number }>,
     shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, sustained: boolean) => number,
-    stats: { hitMass: number; critMass: number; damageMass: number },
+    shotStats: ShotStats[],
     next: Map<string, { state: FwdState; probability: number }>,
     destroyed: { mass: number }
   ): void {
@@ -1991,6 +2018,9 @@ export function computeSequenceOdds(
       }
 
       for (let shotIndex = 1; shotIndex <= count; shotIndex++) {
+        const entry = shotStats[shotIndex - 1];
+        for (const { probability } of current.values()) entry.occursMass += probability;
+
         const shotsRemainingAfter = count - shotIndex;
         const isLastShot = shotIndex === count;
         const shredCache = new Map<string, number>();
@@ -2015,10 +2045,9 @@ export function computeSequenceOdds(
             probability,
             valueAt,
             shredCache,
-            stats,
+            entry,
             isLastShot ? next : survivors,
-            destroyed,
-            shotIndex === 1
+            destroyed
           );
         }
 
@@ -2050,14 +2079,15 @@ export function computeSequenceOdds(
   for (let k = 0; k < n; k++) {
     const atk = attacks[k];
     const shotsValue = shotsValueByAttack[k];
+    const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
 
     const next = new Map<string, { state: FwdState; probability: number }>();
-    const stats = { hitMass: 0, critMass: 0, damageMass: 0 };
+    const shotStats: ShotStats[] = Array.from({ length: maxShots }, () => ({ hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 }));
     const destroyed = { mass: 0 };
     let aliveMass = 0;
     for (const { probability } of dist.values()) aliveMass += probability;
 
-    resolveRofAttackForward(k, atk, dist, shotsValue, stats, next, destroyed);
+    resolveRofAttackForward(k, atk, dist, shotsValue, shotStats, next, destroyed);
 
     cumulativeDestroy += destroyed.mass;
     dist = next;
@@ -2067,11 +2097,16 @@ export function computeSequenceOdds(
       0
     );
 
+    const shots: SequenceShotResult[] = shotStats.map((s) => ({
+      occursChance: aliveMass > 0 ? s.occursMass / aliveMass : 0,
+      hitChance: s.occursMass > 0 ? s.hitMass / s.occursMass : 0,
+      critChance: s.occursMass > 0 ? s.critMass / s.occursMass : 0,
+      averageDamage: s.occursMass > 0 ? s.damageMass / s.occursMass : 0,
+    }));
+
     steps.push({
       attack: atk,
-      hitChance: aliveMass > 0 ? stats.hitMass / aliveMass : 0,
-      critChance: aliveMass > 0 ? stats.critMass / aliveMass : 0,
-      averageDamage: aliveMass > 0 ? stats.damageMass / aliveMass : 0,
+      shots,
       destroyChanceAtThisStep: destroyed.mass,
       cumulativeDestroyChance: cumulativeDestroy,
       expectedBoxesRemaining,

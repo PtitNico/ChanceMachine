@@ -1,20 +1,32 @@
 <app-dialog-shell #shell title="Details" [wide]="true">
   <div class="steps">
     <h3 class="distribution__title">Step by step</h3>
-    @for (step of steps(); track step.attack.id; let i = $index) {
+    @for (row of shotRows(); track row.key) {
+      @if (row.isNewWeapon) {
+        <div class="steps__group-header">
+          @if (row.isNewAttacker) {
+            <span class="steps__group-attacker">{{ row.attackerName }}</span>
+          }
+          <span class="steps__group-weapon-icon">{{ row.typeEmoji }}</span>
+        </div>
+      }
       <div class="steps__row">
-        <span class="steps__label">{{ i + 1 }}</span>
+        <span class="steps__label">{{ row.label }}</span>
+        <span class="steps__metric">
+          <span class="steps__metric-label">Chance</span>
+          <span class="steps__metric-value">{{ pct(row.occursChance) }}</span>
+        </span>
         <span class="steps__metric">
           <span class="steps__metric-label">Hit</span>
-          <span class="steps__metric-value">{{ pct(step.hitChance) }}</span>
+          <span class="steps__metric-value">{{ pct(row.hitChance) }}</span>
         </span>
         <span class="steps__metric">
           <span class="steps__metric-label">Crit</span>
-          <span class="steps__metric-value">{{ pct(step.critChance) }}</span>
+          <span class="steps__metric-value">{{ pct(row.critChance) }}</span>
         </span>
         <span class="steps__metric">
           <span class="steps__metric-label">Avg damage</span>
-          <span class="steps__metric-value">{{ step.averageDamage.toFixed(1) }}</span>
+          <span class="steps__metric-value">{{ row.averageDamage.toFixed(1) }}</span>
         </span>
       </div>
     }
