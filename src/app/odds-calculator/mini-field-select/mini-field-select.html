@@ -4,7 +4,7 @@
     class="mini-field__input mini-field__input--select"
     [class.mini-field__input--narrow]="narrow()"
     [ngModel]="signal()()"
-    (ngModelChange)="signal().set(parse()($event))"
+    (ngModelChange)="onChange($event)"
   >
     @for (v of options(); track v) {
       <option [value]="v">{{ optionLabel()(v) }}</option>

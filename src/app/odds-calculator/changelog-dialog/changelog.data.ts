@@ -19,6 +19,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
+    ],
+  },
+  {
     date: '2026-07-29',
     items: [
       'The "-X ARM" attack effect is now one toggle button (e.g. "-6 ARM") - click it to pick the amount directly, instead of a separate toggle plus dropdown.',
@@ -36,7 +42,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-07-23',
     items: [
-      'Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) shares a reroll pool across every attacker; a Defensive counter (0-10) gives the target its own optimally-spent reroll pool. Both stack with Puppet Master and a row\'s Reroll toggle.',
+      "Added Knowledge of the Damned to the target profile: an Offensive counter (0-10) shares a reroll pool across every attacker; a Defensive counter (0-10) gives the target its own optimally-spent reroll pool. Both stack with Puppet Master and a row's Reroll toggle.",
       'Added Shield Guards (0-10) and Scapegoats (0-4): each blocks one ranged or melee attack outright (damage and effects), spent optimally like Focus/Fury.',
       'Slow calculations now show a "Calculating..." indicator with a live progress estimate instead of looking frozen.',
     ],

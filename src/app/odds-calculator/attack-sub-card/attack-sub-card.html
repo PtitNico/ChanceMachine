@@ -1,14 +1,48 @@
 <div class="attack-sub-card">
   <div class="attack-sub-card__row">
-    <span class="drag-handle" cdkDragHandle aria-label="Drag to reorder attack">
+    <span class="drag-handle" cdkDragHandle aria-label="Drag to reorder weapon">
       <span class="material-symbols-outlined">drag_indicator</span>
     </span>
 
     <div class="attack-sub-card__fields">
-      <app-mini-field-select label="Type" [signal]="row().type" [options]="attackTypes" [optionLabel]="typeOptionLabel" [narrow]="true" />
+      <app-mini-field-select
+        label="Type"
+        [signal]="row().type"
+        [options]="attackTypes"
+        [optionLabel]="typeOptionLabel"
+        [narrow]="true"
+        (valueChange)="onTypeChange(row(), $event)"
+      />
+
       @if (row().type() === 'ranged') {
-        <app-mini-field-select label="ROF" [signal]="row().rof" [options]="rofOptions" [narrow]="true" />
+        <label class="mini-field">
+          <span class="mini-field__label"># Atks</span>
+          <div class="attack-sub-card__atks-group">
+            <select
+              class="mini-field__input mini-field__input--select mini-field__input--narrow"
+              [ngModel]="row().rof()"
+              (ngModelChange)="row().rof.set($event)"
+            >
+              @for (v of rofOptions; track v) {
+                <option [value]="v">{{ v }}</option>
+              }
+            </select>
+            <span class="attack-sub-card__atks-plus" aria-hidden="true">+</span>
+            <select
+              class="mini-field__input mini-field__input--select mini-field__input--narrow"
+              [ngModel]="row().attackCount()"
+              (ngModelChange)="row().attackCount.set(toNumber($event))"
+            >
+              @for (v of rangedAttackCountOptions; track v) {
+                <option [value]="v">{{ v }}</option>
+              }
+            </select>
+          </div>
+        </label>
+      } @else {
+        <app-mini-field-select label="# Atks" [signal]="row().attackCount" [options]="attackCountOptions" [parse]="toNumber" [narrow]="true" />
       }
+
       <app-mini-field-select label="POW" [signal]="row().pow" [options]="powOptions" [parse]="parsePow" [narrow]="true" />
       <app-mini-field-select label="Atk 🎲" [signal]="row().diceCount" [options]="diceOptions" [parse]="toNumber" [narrow]="true" />
       <app-mini-field-select label="Dmg 🎲" [signal]="row().damageDiceCount" [options]="diceOptions" [parse]="toNumber" [narrow]="true" />
@@ -23,7 +57,7 @@
         class="icon-btn icon-btn--trash"
         (click)="remove.emit()"
         [disabled]="!removable()"
-        aria-label="Remove attack"
+        aria-label="Remove weapon"
       >
         <span class="material-symbols-outlined">delete</span>
       </button>

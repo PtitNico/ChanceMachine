@@ -31,7 +31,7 @@ Results recompute **instantly** on every field change, with no "Calculate" butto
 
 The screen is split into three vertically stacked zones: **Target** at the top, **Attack sequence** in the middle, **Results** at the bottom. The title, Target, and Results are **fixed on screen** (Results stays pinned to the bottom); only the Attack sequence part scrolls vertically if the sequence has many attacks, without moving the rest of the screen.
 
-All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each attack row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
+All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each weapon row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
 
 **Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attacker cards — this matters most on short mobile screens. The Target section's title sits on the same line as its DEF/ARM/Boxes row rather than above it, and the standalone "Attack sequence"/"Results" section titles have been dropped entirely — the attacker cards and the two result gauges are self-explanatory enough on their own without them. Results' "Show details" pop-up (see below) opens from a small icon next to the Average damage gauge, rather than a full-width button, for the same reason.
 
@@ -42,7 +42,7 @@ A banner between the header and the Target section, with a bordered "Install app
 ### Menu
 
 A **☰ (hamburger)** icon button in the top-right corner of the header opens a small dropdown:
-- **Reset**: clears **everything** — the target's DEF/ARM/Boxes and its whole profile (Focus/Fury, Special rules, spell bonuses), plus the attack sequence, which collapses back down to a single default attack row. Unlike the Reset buttons inside the Effects/Target profile pop-ups (which only ever touch what's inside that specific pop-up), this is the one "start completely over" action in the app. It takes effect immediately, with no confirmation step.
+- **Reset**: clears **everything** — the target's DEF/ARM/Boxes and its whole profile (Focus/Fury, Special rules, spell bonuses), plus the attack sequence, which collapses back down to a single default weapon row. Unlike the Reset buttons inside the Effects/Target profile pop-ups (which only ever touch what's inside that specific pop-up), this is the one "start completely over" action in the app. It takes effect immediately, with no confirmation step.
 - **About**: a short pop-up explaining what the app does and how it computes its numbers. It also opens **automatically, once**, the very first time the app is loaded on a device/browser — a new visitor gets that explanation without having to find the menu first. It never opens itself again afterwards, whether or not that first pop-up was actually read (closing it instantly still counts as "seen"), and opening it manually from the menu doesn't affect this in either direction.
 - **Changelog**: a pop-up listing recent changes, grouped by date (newest first). It also opens **automatically**, once, whenever new entries have been added since the last time a visitor saw it — but never on that very first-ever visit, since About already covers "what is this app" there, and a full history of "what's new" would just be noise for someone who's never used any earlier version. A returning visitor who's genuinely missed something new sees exactly that, once, the next time they open the app.
 - **Feedback**: a pop-up with a small form (a Feedback/Bug report toggle, a message, and an optional email) to send feedback or report a bug directly from the app, without leaving it or knowing where to file an issue. Submissions go to a spreadsheet via a small Google Apps Script backend (see the technical documentation) — there's no visible confirmation that the *script* processed it successfully (only that the message was sent), a limitation of that kind of lightweight backend.
@@ -81,33 +81,39 @@ own ordered list of attacks:
   button opens the **Attacker's special rules** pop-up (currently just Puppet Master — see below);
   a red trash icon button removes the whole attacker (disabled while it's the only one — at least
   one attacker always remains).
-- One **attack sub-card** per attack this attacker makes, each with its own drag handle to reorder
-  attacks within that attacker (an attack can't be dragged into a different attacker), showing:
+- One **weapon sub-card** per weapon this attacker carries, each with its own drag handle to reorder
+  weapons within that attacker (a weapon can't be dragged into a different attacker), showing:
+  - **# Atks** — how many times this weapon fires, guaranteed. For melee/arcane weapons, a single
+    dropdown, 1 to 10 (default 1). For **ranged** weapons, two dropdowns share the "# Atks" label:
+    the guaranteed count (0 to 10, default 1 — 0 is only meaningful for ranged, letting a weapon
+    rely entirely on ROF for a purely random shot count) and **ROF** itself (`-`/`d3`/`2d3`, see
+    below) side by side — switching a weapon away from Ranged with the count at 0 bumps it back to
+    1, since 0 isn't a valid guaranteed count for melee/arcane.
   - The attack **type** as a dropdown of emoji — 🗡️ melee, 🏹 ranged, 🪄 arcane — which decides
-    whether this attack uses the attacker's MAT, RAT, or AAT, and whether a **Knockdown** triggered
+    whether this weapon uses the attacker's MAT, RAT, or AAT, and whether a **Knockdown** triggered
     earlier in the sequence benefits it (see below).
-  - **ROF** (ranged attacks only — `1`/`d3`/`2d3`, see below), **Dice** (to-hit dice, 1 to 6; 2 by
-    default — the player directly picks this number to represent a boost, rather than entering a
-    separate boost-dice count), **POW** (`-` for an attack that deals no damage at all, e.g. one
-    whose sole purpose is a critical effect like Knockdown — a critical hit is still possible since
-    the to-hit roll still happens — otherwise 0 to 30), and **Dice** again (damage dice, 1 to 6) —
-    all edited directly on the card, spaced evenly across the row.
+  - **Dice** (to-hit dice, 1 to 6; 2 by default — the player directly picks this number to represent
+    a boost, rather than entering a separate boost-dice count), **POW** (`-` for a weapon that deals
+    no damage at all, e.g. one whose sole purpose is a critical effect like Knockdown — a critical
+    hit is still possible since the to-hit roll still happens — otherwise 0 to 30), and **Dice**
+    again (damage dice, 1 to 6) — all edited directly on the card, spaced evenly across the row.
   - A **compact summary** of its active effects (e.g. `Discard highest (atk)`, `Trash`, `Ice Cage
     (crit)`) — so the whole sequence stays scannable without reopening anything.
   - A blue **⚙ (cog)** icon button that opens the **Effects** pop-up (the same toggle-button
-    breakdown described below) — Type/ROF/Dice/POW live on the card itself, not in this pop-up — and
-    a red trash icon button that removes just this attack (disabled while it's the only attack on
-    this attacker — remove the whole attacker instead).
-  - A **"+ Add attack"** button inside the card adds a new attack to *this* attacker, copying the
-    values of its own last attack (type, ROF, dice, POW, every effect — MAT/RAT/AAT don't need
-    copying, they already live on the attacker) — since chaining similar attacks is the most common
-    case, the player only needs to adjust the few fields that change.
+    breakdown described below) — # Atks/Type/ROF/Dice/POW live on the card itself, not in this
+    pop-up — and a red trash icon button that removes just this weapon (disabled while it's the
+    only weapon on this attacker — remove the whole attacker instead).
+  - A **"+ Add weapon"** button inside the card adds a new weapon to *this* attacker, copying the
+    values of its own last weapon (# Atks, type, ROF, dice, POW, every effect — MAT/RAT/AAT don't
+    need copying, they already live on the attacker) — since chaining similar weapons is the most
+    common case, the player only needs to adjust the few fields that change.
 
-**ROF** (Rate of Fire, ranged attacks only): `1` (default), `d3`, or `2d3` — how many independent
-shots this attack actually fires. The shot count is rolled once, before any of this attack's own
-dice, exactly like on the tabletop: with `d3` or `2d3`, this one attack fires that many separate
-to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier shots in the
-SAME volley already inflicted), rather than just one.
+**ROF** (Rate of Fire, ranged weapons only): `-` (default, no extra shots), `d3`, or `2d3` — how
+many EXTRA independent shots this weapon fires on top of its **# Atks** guaranteed base (total
+shots = # Atks + ROF's roll). The extra shot count is rolled once, before any of this weapon's own
+dice, exactly like on the tabletop: with `d3` or `2d3`, this one weapon fires that many extra
+separate to-hit/damage rolls in a row against the target (each seeing whatever debuffs earlier
+shots in the SAME volley already inflicted), on top of the guaranteed # Atks shots.
 
 **Puppet Master** (toggled in the attacker's special rules pop-up): grants that attacker a single
 reroll, shared across every roll it makes over the whole sequence — used on the **first attack roll
@@ -127,9 +133,9 @@ Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactiv
 - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
 - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
 - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
-- **Reset**: a button at the bottom of the pop-up that deactivates every effect on this attack at once (Auto-hit included), so the player can start over from a "clean" attack instead of unchecking effects one by one — Type/ROF/Dice/POW live on the card itself and aren't touched by this.
+- **Reset**: a button at the bottom of the pop-up that deactivates every effect on this weapon at once (Auto-hit included), so the player can start over from a "clean" weapon instead of unchecking effects one by one — # Atks/Type/ROF/Dice/POW live on the card itself and aren't touched by this.
 
-The **"+ Add attacker"** button below the list adds a new attacker with one default attack.
+The **"+ Add attacker"** button below the list adds a new attacker with one default weapon.
 
 **Card order is resolution order.** The app doesn't automatically search for the best possible order: attacks resolve top attacker to bottom, top attack to bottom within each attacker — this is a deliberate choice (see "Product choices" below) — it's up to the player to define the order they intend to play, just as they would at the table, using the drag handles to arrange attacker and attack cards accordingly.
 

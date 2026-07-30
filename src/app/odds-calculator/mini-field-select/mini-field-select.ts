@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, WritableSignal, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, WritableSignal, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 /**
@@ -9,7 +9,9 @@ import { FormsModule } from '@angular/forms';
  * unknown as T`), which is all `AttackType`'s own select needs - a `<select>` change event is
  * already the right string value, nothing to actually convert; every numeric field passes
  * `toNumber`, `parseDef`, or `parsePow` explicitly instead, exactly as it did when each of these
- * was hand-written inline.
+ * was hand-written inline. `valueChange` is optional, following `ToggleSelect`'s own convention -
+ * only Type's own select needs it (see `AttackSubCard.onTypeChange`); every other use just binds
+ * `[signal]`/`[options]` and nothing else.
  */
 @Component({
   selector: 'app-mini-field-select',
@@ -29,4 +31,11 @@ export class MiniFieldSelect<T> {
    *  every numeric/RofValue field). Type's own select overrides this to prefix the weapon-type
    *  emoji (🗡️/🏹/🪄). */
   readonly optionLabel = input<(v: T) => string>((v) => `${v}`);
+  readonly valueChange = output<T>();
+
+  protected onChange(raw: string): void {
+    const value = this.parse()(raw);
+    this.signal().set(value);
+    this.valueChange.emit(value);
+  }
 }

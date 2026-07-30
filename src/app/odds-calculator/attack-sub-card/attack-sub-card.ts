@@ -1,7 +1,18 @@
 import { CdkDragHandle } from '@angular/cdk/drag-drop';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { AttackType } from '../../engine/attack-model';
-import { AttackRow, DICE_OPTIONS, POW_OPTIONS, ROF_OPTIONS, TYPE_EMOJI, effectsSummary, parsePow } from '../attack-row.model';
+import {
+  ATTACK_COUNT_OPTIONS,
+  AttackRow,
+  DICE_OPTIONS,
+  POW_OPTIONS,
+  RANGED_ATTACK_COUNT_OPTIONS,
+  ROF_OPTIONS,
+  TYPE_EMOJI,
+  effectsSummary,
+  parsePow,
+} from '../attack-row.model';
 import { EffectTags } from '../effect-tags/effect-tags';
 import { MiniFieldSelect } from '../mini-field-select/mini-field-select';
 import { toNumber } from '../select.util';
@@ -13,9 +24,9 @@ import { toNumber } from '../select.util';
 @Component({
   selector: 'app-attack-sub-card',
   standalone: true,
-  imports: [CdkDragHandle, EffectTags, MiniFieldSelect],
+  imports: [CdkDragHandle, EffectTags, FormsModule, MiniFieldSelect],
   templateUrl: './attack-sub-card.html',
-  styleUrls: ['../shared/icon-btn.css', './attack-sub-card.css'],
+  styleUrls: ['../shared/mini-field.css', '../shared/icon-btn.css', './attack-sub-card.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AttackSubCard {
@@ -26,6 +37,8 @@ export class AttackSubCard {
   readonly remove = output<void>();
 
   protected readonly attackTypes: AttackType[] = ['melee', 'ranged', 'arcane'];
+  protected readonly attackCountOptions = ATTACK_COUNT_OPTIONS;
+  protected readonly rangedAttackCountOptions = RANGED_ATTACK_COUNT_OPTIONS;
   protected readonly diceOptions = DICE_OPTIONS;
   protected readonly powOptions = POW_OPTIONS;
   protected readonly rofOptions = ROF_OPTIONS;
@@ -37,4 +50,12 @@ export class AttackSubCard {
   protected readonly typeOptionLabel = (type: AttackType): string => TYPE_EMOJI[type];
 
   protected readonly effectsSummary = effectsSummary;
+
+  /** Only `attackCount` can end up out of range on a Type change: `RANGED_ATTACK_COUNT_OPTIONS`
+   *  allows 0 (a pure-ROF weapon), but melee/arcane's own `ATTACK_COUNT_OPTIONS` starts at 1 - so
+   *  switching away from Ranged with 0 selected needs bumping back to a valid value. `rof` itself
+   *  never needs this: every `RofValue` is valid regardless of type (see its own doc comment). */
+  protected onTypeChange(row: AttackRow, type: AttackType): void {
+    if (type !== 'ranged' && row.attackCount() === 0) row.attackCount.set(1);
+  }
 }

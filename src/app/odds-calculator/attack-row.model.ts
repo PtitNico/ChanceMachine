@@ -22,8 +22,15 @@ export const STAT_OPTIONS = range(0, 20); // MAT / RAT / AAT
 export const POW_OPTIONS: (number | '-')[] = ['-', ...range(0, 30)];
 export const DICE_OPTIONS = range(1, 6);
 export const ARM_PENALTY_OPTIONS = range(0, 10); // 0 = off - see AttackRow's armPenaltyHitAmount/armPenaltyCritAmount
-/** Ranged-only "shots per attack" field - see `SequencedAttack.rof`'s doc comment. */
-export const ROF_OPTIONS: RofValue[] = ['1', 'd3', '2d3'];
+/** How many times a weapon fires, guaranteed - see `SequencedAttack.attackCount`'s doc comment. */
+export const ATTACK_COUNT_OPTIONS = range(1, 10);
+/** Same field, but for a RANGED weapon specifically: 0 is allowed here (unlike melee/arcane's
+ *  `ATTACK_COUNT_OPTIONS`), since a ranged weapon can rely entirely on `rof`'s random extra shots
+ *  with no guaranteed base of its own (e.g. a pure ROF sprayer). Shown merged with `ROF_OPTIONS`
+ *  under one "# Atks" label - see `AttackSubCard`. */
+export const RANGED_ATTACK_COUNT_OPTIONS = range(0, 10);
+/** Ranged-only "extra shots on top of # Atks" field - see `SequencedAttack.rof`'s doc comment. */
+export const ROF_OPTIONS: RofValue[] = ['-', 'd3', '2d3'];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 /** Shown next to Type everywhere it appears - the attack sub-card's own type indicator and the
@@ -205,8 +212,12 @@ export interface AttackRow {
   readonly diceCount: WritableSignal<number>;
   readonly pow: WritableSignal<number | '-'>;
   readonly damageDiceCount: WritableSignal<number>;
-  /** Ranged-only "shots per attack" - ignored by the engine for melee/arcane rows regardless of
-   *  this value, so switching Type away from Ranged and back doesn't need to reset it. */
+  /** How many times this weapon fires, guaranteed (1-10) - independent of `rof`'s additional
+   *  random shots on top. Applies to every attack type, unlike `rof` (ranged-only). */
+  readonly attackCount: WritableSignal<number>;
+  /** Ranged-only "extra shots on top of `attackCount`" - ignored by the engine for melee/arcane
+   *  rows regardless of this value, so switching Type away from Ranged and back doesn't need to
+   *  reset it. */
   readonly rof: WritableSignal<RofValue>;
 
   /** "-X ARM" (generic persistent ARM debuff): two independent 0-10 counters (0 = off), one per
@@ -232,7 +243,8 @@ export function createAttackRow(): AttackRow {
     diceCount: signal(2),
     pow: signal<number | '-'>(12),
     damageDiceCount: signal(2),
-    rof: signal<RofValue>('1'),
+    attackCount: signal(1),
+    rof: signal<RofValue>('-'),
     armPenaltyHitAmount: signal(0),
     armPenaltyCritAmount: signal(0),
     triggerEffects: createTriggerEffects(),
@@ -247,6 +259,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     diceCount: signal(source.diceCount()),
     pow: signal(source.pow()),
     damageDiceCount: signal(source.damageDiceCount()),
+    attackCount: signal(source.attackCount()),
     rof: signal(source.rof()),
     armPenaltyHitAmount: signal(source.armPenaltyHitAmount()),
     armPenaltyCritAmount: signal(source.armPenaltyCritAmount()),
@@ -341,6 +354,7 @@ export function toSequencedAttack(
     label: `Attack ${index + 1}`,
     type: row.type(),
     stat,
+    attackCount: row.attackCount(),
     rof: row.rof(),
     modifiers: {
       boostDice: toBoostDice(row.diceCount()),

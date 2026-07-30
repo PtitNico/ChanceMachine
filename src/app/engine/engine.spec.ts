@@ -1235,27 +1235,45 @@ describe('sequence engine - Rate of Fire', () => {
     };
   }
 
-  it('rof "1" (or unset) behaves exactly like a single shot', () => {
+  it('rof "-" (or unset) behaves exactly like a single shot', () => {
     const target = { def: 13, arm: 15, boxes: 1000 };
-    const withRof1 = computeSequenceOdds([attack({ stat: 6, pow: 12, rof: '1' })], target);
+    const withRofDash = computeSequenceOdds([attack({ stat: 6, pow: 12, rof: '-' })], target);
     const withoutRof = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
-    expect(withRof1.steps[0].averageDamage).toBeCloseTo(withoutRof.steps[0].averageDamage, 9);
-    expect(withRof1.steps[0].hitChance).toBeCloseTo(withoutRof.steps[0].hitChance, 9);
+    expect(withRofDash.steps[0].averageDamage).toBeCloseTo(withoutRof.steps[0].averageDamage, 9);
+    expect(withRofDash.steps[0].hitChance).toBeCloseTo(withoutRof.steps[0].hitChance, 9);
   });
 
-  it('ROF d3 multiplies average damage by E[shots]=2 when nothing else changes between shots', () => {
+  it('attackCount multiplies average damage by exactly N, for any attack type, with no rof', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
+    const withCount = computeSequenceOdds([attack({ stat: 20, pow: 0, attackCount: 3 })], target);
+    expect(withCount.steps[0].averageDamage).toBeCloseTo(3 * baseline.steps[0].averageDamage, 9);
+
+    const meleeBaseline = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0 })], target);
+    const meleeWithCount = computeSequenceOdds([attack({ type: 'melee', stat: 20, pow: 0, attackCount: 3 })], target);
+    expect(meleeWithCount.steps[0].averageDamage).toBeCloseTo(3 * meleeBaseline.steps[0].averageDamage, 9);
+  });
+
+  it('attackCount and rof are additive, not multiplicative: attackCount=2 + rof d3 fires (2 + E[d3]=2) = 4 shots on average', () => {
+    const target = { def: 2, arm: 0, boxes: 1000 };
+    const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
+    const combined = computeSequenceOdds([attack({ stat: 20, pow: 0, attackCount: 2, rof: 'd3' })], target);
+    expect(combined.steps[0].averageDamage).toBeCloseTo(4 * baseline.steps[0].averageDamage, 9);
+  });
+
+  it('ROF d3 multiplies average damage by E[shots]=1+2=3 (default attackCount=1 base, E[d3]=2 extra) when nothing else changes between shots', () => {
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withRof = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: 'd3' })], target);
-    expect(withRof.steps[0].averageDamage).toBeCloseTo(2 * baseline.steps[0].averageDamage, 9);
+    expect(withRof.steps[0].averageDamage).toBeCloseTo(3 * baseline.steps[0].averageDamage, 9);
   });
 
-  it('ROF 2d3 multiplies average damage by E[shots]=4 when nothing else changes between shots', () => {
+  it('ROF 2d3 multiplies average damage by E[shots]=1+4=5 (default attackCount=1 base, E[2d3]=4 extra) when nothing else changes between shots', () => {
     // Sum of two independent d3 rolls: E[2d3] = 2 * E[d3] = 2 * 2 = 4.
     const target = { def: 2, arm: 0, boxes: 1000 };
     const baseline = computeSequenceOdds([attack({ stat: 20, pow: 0 })], target);
     const withRof = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: '2d3' })], target);
-    expect(withRof.steps[0].averageDamage).toBeCloseTo(4 * baseline.steps[0].averageDamage, 9);
+    expect(withRof.steps[0].averageDamage).toBeCloseTo(5 * baseline.steps[0].averageDamage, 9);
   });
 
   it("hit/crit chance stay the FIRST shot's own probability, unaffected by ROF", () => {
@@ -1279,16 +1297,17 @@ describe('sequence engine - Rate of Fire', () => {
     // of its K shots regardless of hit/miss UNLESS the target is already destroyed - so the volley
     // only stops early once a hit actually lands, not merely because one WOULD be lethal. Destroy
     // chance is therefore "at least one hit among up to `count` shots", 1 - missChance^count,
-    // averaged over rofOutcomes('2d3') - not simply the single-shot hit chance.
+    // averaged over rofOutcomes('2d3') (default attackCount=1 base + sum of two d3, so K ranges 3-7)
+    // - not simply the single-shot hit chance.
     const target = { def: 2, arm: 0, boxes: 1, furyPoints: 0 };
     const result = computeSequenceOdds([attack({ stat: 20, pow: 0, rof: '2d3' })], target);
     const missChance = 1 / 36;
     const rofDist = [
-      { count: 2, probability: 1 / 9 },
-      { count: 3, probability: 2 / 9 },
-      { count: 4, probability: 3 / 9 },
-      { count: 5, probability: 2 / 9 },
-      { count: 6, probability: 1 / 9 },
+      { count: 3, probability: 1 / 9 },
+      { count: 4, probability: 2 / 9 },
+      { count: 5, probability: 3 / 9 },
+      { count: 6, probability: 2 / 9 },
+      { count: 7, probability: 1 / 9 },
     ];
     const expectedDestroyChance = 1 - rofDist.reduce((sum, { count, probability }) => sum + probability * missChance ** count, 0);
     expect(result.steps[0].destroyChanceAtThisStep).toBeCloseTo(expectedDestroyChance, 9);
@@ -1840,14 +1859,14 @@ describe('sequence engine - Shield Guards and Scapegoats', () => {
   });
 
   it('Rate of Fire: a Shield Guard blocks exactly one shot, not the whole volley', () => {
-    // Every shot alone is lethal (1 box, forceAutoHit) - without any block, ANY fired shot count
-    // (d3 always fires >= 1) destroys the target, so finalDestroyChance is 1. With 1 Shield Guard,
-    // only the FIRST shot is saved: the target survives only in the count===1 branch (prob 1/3) -
-    // whenever count >= 2, the second (unblocked) shot is still lethal.
+    // Every shot alone is lethal (1 box, forceAutoHit). With default attackCount=1 as the
+    // guaranteed base, `rof: 'd3'` fires 1 + (1,2,3) = 2, 3, or 4 shots - always at least 2 - so
+    // with only 1 Shield Guard blocking the FIRST shot, there's always a later, unblocked shot
+    // that's still lethal: finalDestroyChance is 1, not merely "very likely".
     const rofAttack = attack({ id: '1', type: 'ranged', stat: 6, pow: 1, forceAutoHit: true, rof: 'd3' });
     const target = { def: 13, arm: 0, boxes: 1, shieldGuards: 1 };
     const result = computeSequenceOdds([rofAttack], target);
-    expect(result.finalDestroyChance).toBeCloseTo(2 / 3, 9);
+    expect(result.finalDestroyChance).toBeCloseTo(1, 9);
   });
 
   it('more Shield Guards/Scapegoats never make the target worse off, and compose with Focus', () => {

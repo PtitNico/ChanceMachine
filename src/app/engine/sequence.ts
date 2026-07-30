@@ -73,12 +73,14 @@
  * position), but "Hit"/"Crit" chance stay the ORIGINAL roll's own - a single well-defined
  * probability, unlike "average damage" which stays meaningful however many rolls occurred.
  *
- * Rate of Fire (`SequencedAttack.rof`, ranged-only) fires MULTIPLE independent shots against the
- * target instead of just one - the shot count is decided ONCE via a die roll before any of this
- * attack's own dice are thrown, unlike Critical Shred's per-instance crit-triggered recursion: by
- * the time the target is deciding whether to spend Focus/Fury on shot i, it already knows the
- * total shot count K for the whole volley (common knowledge the moment the attacker rolls ROF,
- * before any attack/damage dice), not merely an average over an unknown future. That's why
+ * Every attack fires `SequencedAttack.attackCount` shots as its guaranteed base (1-10, defaults to
+ * 1) - a fixed, always-known repeat count set by the player, applying to every attack type. Rate
+ * of Fire (`SequencedAttack.rof`, ranged-only) adds EXTRA shots on top of that base - the extra
+ * count is decided ONCE via a die roll before any of this attack's own dice are thrown, unlike
+ * Critical Shred's per-instance crit-triggered recursion: by the time the target is deciding
+ * whether to spend Focus/Fury on shot i, it already knows the total shot count K for the whole
+ * volley (common knowledge the moment the attacker rolls ROF, before any attack/damage dice), not
+ * merely an average over an unknown future. That's why
  * `buildShotsValue`'s backward-induction helper builds one memoized value function PER POSSIBLE
  * "shots remaining" count, rather than folding ROF into a single blended lookahead the way a
  * crit-triggered continuation could: `shotsValue(s, ...)` is "resolve one more shot of this same
@@ -263,7 +265,7 @@ export interface StatEffect {
   amount?: number;
 }
 
-export type RofValue = '1' | 'd3' | '2d3';
+export type RofValue = '-' | 'd3' | '2d3';
 
 export interface SequencedAttack {
   id: string;
@@ -275,10 +277,15 @@ export interface SequencedAttack {
   modifiers?: RollModifiers;
   pow: number;
   damageModifiers?: RollModifiers;
-  /** Ranged-only: fires this many independent shots against the target instead of just one, the
-   *  shot count decided ONCE via a die roll before any of this attack's dice are thrown (see the
-   *  module doc comment's "Rate of Fire" section). Ignored for melee/arcane attacks. Unset/'1'
-   *  means a single shot, same as every other attack. */
+  /** How many times this weapon fires, guaranteed (1-10, set by the player) - independent of
+   *  `rof`'s additional random shots on top. Applies to every attack type, unlike `rof`
+   *  (ranged-only). Unset defaults to 1, matching every attack's behavior before this field
+   *  existed. */
+  attackCount?: number;
+  /** Ranged-only: on top of `attackCount`'s guaranteed shots, fires this many EXTRA independent
+   *  shots against the target, decided ONCE via a die roll before any of this attack's dice are
+   *  thrown (see the module doc comment's "Rate of Fire" section) - total shots fired = `attackCount`
+   *  + this roll's result. Ignored for melee/arcane attacks. Unset/'-' means no extra shots. */
   rof?: RofValue;
   /** Effects scoped to this attack alone (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter). */
   effects?: AttackEffects;
@@ -529,22 +536,24 @@ function applyStatEffectsForOutcome(s: DebuffState, statEffects: StatEffect[] | 
   return next;
 }
 
-/** For a `rof`-equipped RANGED attack, the probability distribution over how many independent
- *  shots actually fire - decided ONCE, via a single die roll, before any of THIS attack's own
- *  dice are thrown (see the module doc comment's "Rate of Fire" section). Anything else
- *  (melee/arcane, or `rof` unset/'1') always fires exactly one shot. */
+/** The probability distribution over how many total shots actually fire: `attackCount`'s
+ *  guaranteed base (defaults to 1), plus - for a `rof`-equipped RANGED attack - EXTRA shots
+ *  decided ONCE, via a single die roll, before any of THIS attack's own dice are thrown (see the
+ *  module doc comment's "Rate of Fire" section). Melee/arcane, or `rof` unset/'-', always fires
+ *  exactly `attackCount` shots (no extra roll). */
 function rofOutcomes(atk: SequencedAttack): { count: number; probability: number }[] {
-  if (atk.type !== 'ranged' || !atk.rof || atk.rof === '1') {
-    return [{ count: 1, probability: 1 }];
+  const base = atk.attackCount ?? 1;
+  if (atk.type !== 'ranged' || !atk.rof || atk.rof === '-') {
+    return [{ count: base, probability: 1 }];
   }
   if (atk.rof === 'd3') {
-    return [1, 2, 3].map((count) => ({ count, probability: 1 / 3 }));
+    return [1, 2, 3].map((extra) => ({ count: base + extra, probability: 1 / 3 }));
   }
-  // '2d3': sum of two independent d3 rolls, faces 1-3 each equally likely.
+  // '2d3': sum of two independent d3 rolls, faces 1-3 each equally likely, added to base.
   const dist = new Map<number, number>();
   for (let a = 1; a <= 3; a++) {
     for (let b = 1; b <= 3; b++) {
-      dist.set(a + b, (dist.get(a + b) ?? 0) + 1 / 9);
+      dist.set(base + a + b, (dist.get(base + a + b) ?? 0) + 1 / 9);
     }
   }
   return [...dist.entries()].sort(([a], [b]) => a - b).map(([count, probability]) => ({ count, probability }));
