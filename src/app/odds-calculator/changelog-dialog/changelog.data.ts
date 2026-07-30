@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
       "Added the (Critical) Sustained Attack weapon effect: once an attack from a weapon hits (or crits), the rest of that weapon's attacks auto-hit.",
+      'Reworked the Details "Step by step" breakdown into one row per attack again (not per weapon), grouped under the owning attacker\'s name and weapon type icon, with a "Chance" column showing how likely a variable-count shot (from ROF or a shot past a destroyed target) is to happen at all.',
     ],
   },
   {
