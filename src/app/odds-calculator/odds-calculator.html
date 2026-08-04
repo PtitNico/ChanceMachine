@@ -12,7 +12,24 @@
   <app-pwa-install-banner />
 
   <div class="panel__body">
-    <app-target-panel [target]="target" (openProfile)="targetProfileDialogRef.open()" />
+    <section class="console console--targets" aria-label="Targets">
+      <h2 class="console__title">Target{{ targets().length > 1 ? 's' : '' }}</h2>
+
+      <div #targetList class="target-list">
+        @for (target of targets(); track target.id; let i = $index; let count = $count) {
+          <app-target-panel
+            [target]="target"
+            [index]="i"
+            [count]="count"
+            [removable]="count > 1"
+            (openProfile)="targetProfileDialogRef.open(target.state)"
+            (remove)="onRemoveTarget(target.id)"
+          />
+        }
+      </div>
+
+      <button type="button" class="add-target-btn" (click)="onAddTarget()">+ Add target</button>
+    </section>
 
     <section class="console console--attacks" aria-label="Attack sequence">
       <div #attackerList class="attacker-list" cdkDropList (cdkDropListDropped)="onAttackerDrop($event)">
@@ -36,25 +53,29 @@
     </section>
 
     <app-results-panel
-      [sequence]="sequence()"
-      [boxesInitial]="target.boxes()"
+      [results]="sequence()"
+      [targetNames]="targetNames()"
+      [averageDamageByTarget]="averageDamageByTarget()"
       [calculating]="calculating()"
       [progress]="progress()"
-      (showDetails)="detailsDialogRef.open()"
+      (showDetails)="detailsDialogRef.open($event)"
     />
   </div>
 
-  <app-attack-edit-dialog #attackEditDialogRef />
+  <app-attack-edit-dialog #attackEditDialogRef [targets]="targets()" />
 
   <app-attacker-rules-dialog #attackerRulesDialogRef />
 
-  <app-target-profile-dialog #targetProfileDialogRef [target]="target" />
+  <app-target-profile-dialog #targetProfileDialogRef />
 
   <app-details-dialog
     #detailsDialogRef
-    [shotRows]="shotRows()"
-    [damagePoints]="damageDistributionPoints()"
-    [maxDamageProbability]="maxDamageProbability()"
+    [targetNames]="targetNames()"
+    [shotRowsByTarget]="shotRowsByTarget()"
+    [damagePointsByTarget]="damageDistributionPointsByTarget()"
+    [maxDamageProbabilityByTarget]="maxDamageProbabilityByTarget()"
+    [destroyChanceByTarget]="destroyChanceByTarget()"
+    [engagementChanceByTarget]="engagementChanceByTarget()"
   />
 
   <app-about-dialog #aboutDialogRef />

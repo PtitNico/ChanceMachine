@@ -55,6 +55,22 @@
         title="ARM penalty on a critical hit"
       />
     </div>
+
+    @if (targets().length > 1) {
+      <h3 class="dialog__section-title">Targets</h3>
+      <div class="toggle-group">
+        @for (target of targets(); track target.id; let i = $index) {
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="isTargetEligible(row, target.id)"
+            (click)="toggleTarget(row, target.id)"
+          >
+            {{ targetDisplayName(target, i, targets().length) }}
+          </button>
+        }
+      </div>
+    }
   }
 
   <!-- A separate @if, rather than one more root node inside the block above: Angular can't route

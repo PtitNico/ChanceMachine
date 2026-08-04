@@ -30,6 +30,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
       "Added the (Critical) Sustained Attack weapon effect: once an attack from a weapon hits (or crits), the rest of that weapon's attacks auto-hit.",
       'Reworked the Details "Step by step" breakdown into one row per attack, grouped under the owning attacker\'s name and weapon type icon, with a "Chance" column showing how likely a variable-count shot (from ROF or a shot past a destroyed target) is to happen at all.',
+      'Added support for multiple targets: attacks now go against the first target until it\'s destroyed, then spill onto the next - even mid-volley, if a multi-shot weapon\'s remaining shots outlive the target they were aimed at. Each target keeps its own independent DEF/ARM/Boxes/profile. A weapon can optionally be scoped to a subset of targets ("Targets" in its Effects pop-up) - defaults to all. Results and Details both grow a per-target breakdown once there\'s more than one.',
     ],
   },
   {

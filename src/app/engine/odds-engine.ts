@@ -1,8 +1,8 @@
 import { Injectable, signal } from '@angular/core';
-import { SequencedAttack, SequenceResult, SequenceTarget } from './sequence';
+import { SequencedAttack, SequenceTarget, TargetSequenceResult } from './sequence';
 import { SequenceWorkerRequest, SequenceWorkerResponse } from './sequence.worker';
 
-const EMPTY_RESULT: SequenceResult = { steps: [], finalDestroyChance: 0, survivalDistribution: [] };
+const EMPTY_RESULTS: TargetSequenceResult[] = [];
 
 /** How long a computation must still be running before `calculating` flips on - short recomputes
  *  (the overwhelming majority) never show the indicator at all, avoiding a flash on every keystroke. */
@@ -29,10 +29,11 @@ export class OddsEngine {
   private worker: Worker | null = null;
   private showTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly _result = signal<SequenceResult>(EMPTY_RESULT);
+  private readonly _result = signal<TargetSequenceResult[]>(EMPTY_RESULTS);
   private readonly _progress = signal<number | null>(null);
   private readonly _calculating = signal(false);
 
+  /** One entry per target, in order - see `computeMultiTargetSequenceOdds`. */
   readonly result = this._result.asReadonly();
   /** 0-1, or `null` whenever nothing is in flight. See `computeSequenceOdds`'s own `onProgress` doc
    *  comment - this can jump unevenly rather than advancing smoothly. */
@@ -41,7 +42,7 @@ export class OddsEngine {
    *  for a fast (the common case) recompute. */
   readonly calculating = this._calculating.asReadonly();
 
-  computeSequence(attacks: SequencedAttack[], target: SequenceTarget): void {
+  computeSequence(attacks: SequencedAttack[], targets: SequenceTarget[]): void {
     this.cancelInFlight();
 
     this._progress.set(0);
@@ -56,7 +57,7 @@ export class OddsEngine {
           this._progress.set(data.fraction);
           break;
         case 'result':
-          this._result.set(data.result);
+          this._result.set(data.results);
           this.settle();
           break;
         case 'error':
@@ -70,7 +71,7 @@ export class OddsEngine {
       this.settle();
     };
 
-    worker.postMessage({ type: 'compute', attacks, target } satisfies SequenceWorkerRequest);
+    worker.postMessage({ type: 'compute', attacks, targets } satisfies SequenceWorkerRequest);
   }
 
   private cancelInFlight(): void {

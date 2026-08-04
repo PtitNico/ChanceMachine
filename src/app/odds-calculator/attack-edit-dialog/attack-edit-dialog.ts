@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ViewChild, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewChild, input, signal } from '@angular/core';
 import {
   ARM_PENALTY_OPTIONS,
   ATTACK_EFFECT_KEYS,
@@ -11,6 +11,7 @@ import {
   resetEffects,
 } from '../attack-row.model';
 import { DialogShell } from '../dialog-shell/dialog-shell';
+import { Target, targetDisplayName } from '../target-panel/target-panel.model';
 import { ToggleButton } from '../toggle-button/toggle-button';
 import { ToggleSelect } from '../toggle-select/toggle-select';
 
@@ -34,6 +35,11 @@ export class AttackEditDialog {
   /** The row currently being edited - set by `open()`, read directly by the template. */
   protected readonly row = signal<AttackRow | null>(null);
 
+  /** The live target list - only used to render the "Targets" section (below), which itself is
+   *  only shown once there's more than one (see the module doc comment's "Multiple targets"
+   *  section for why a single-target sequence never needs this). */
+  readonly targets = input<Target[]>([]);
+
   protected readonly armPenaltyOptions = ARM_PENALTY_OPTIONS;
   protected readonly generalEffectKeys = GENERAL_EFFECT_KEYS;
   protected readonly attackEffectKeys = ATTACK_EFFECT_KEYS;
@@ -41,6 +47,7 @@ export class AttackEditDialog {
   protected readonly hitCritPairKeys = HIT_CRIT_PAIR_KEYS;
   protected readonly critOnlySimpleKeys = CRIT_ONLY_SIMPLE_KEYS;
   protected readonly effectsFor = effectsFor;
+  protected readonly targetDisplayName = targetDisplayName;
 
   /** The `-X ARM` `ToggleSelect`s show "-2 ARM" (value first, ignoring the pill's own off-state
    *  label) once active - `formatPenalty` supplies the "-N" half, `formatPenaltyActive` the
@@ -67,5 +74,20 @@ export class AttackEditDialog {
 
   protected onArmPenaltyCritChange(row: AttackRow, value: number): void {
     if (value > 0) row.armPenaltyHitAmount.set(0);
+  }
+
+  /** `null` means "every target" (the default) - see `AttackRow.eligibleTargetIds`'s own doc
+   *  comment. */
+  protected isTargetEligible(row: AttackRow, targetId: string): boolean {
+    const ids = row.eligibleTargetIds();
+    return ids === null || ids.includes(targetId);
+  }
+
+  /** Toggling a target while every target is currently eligible (`null`) starts from the full
+   *  current target list rather than an empty one, so the click reads as "turn OFF just this one"
+   *  (matching what the button visually showed as already active) instead of "turn on just this one". */
+  protected toggleTarget(row: AttackRow, targetId: string): void {
+    const current = row.eligibleTargetIds() ?? this.targets().map((t) => t.id);
+    row.eligibleTargetIds.set(current.includes(targetId) ? current.filter((id) => id !== targetId) : [...current, targetId]);
   }
 }

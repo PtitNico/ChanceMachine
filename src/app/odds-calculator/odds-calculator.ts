@@ -28,17 +28,17 @@ import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
 import {
-  TargetState,
-  createTargetState,
+  Target,
+  createTarget,
   effectiveCarapace,
   effectiveToughKind,
   effectiveUnyielding,
-  resetTargetFully,
   shieldArmBonus,
   spellArmBonus,
   spellArmBonusPostDispel,
   spellDefBonus,
   spellDefBonusPostDispel,
+  targetDisplayName,
 } from './target-panel/target-panel.model';
 import { TargetProfileDialog } from './target-profile-dialog/target-profile-dialog';
 
@@ -75,9 +75,12 @@ export class OddsCalculator {
   /** The scrollable list of attacker cards (see `.attacker-list` in odds-calculator.css) - used
    *  by `onAddAttacker` to scroll a freshly-added card into view. */
   @ViewChild('attackerList') private attackerListRef?: ElementRef<HTMLDivElement>;
+  /** Same idea as `attackerListRef`, for the target list - see `onAddTarget`. */
+  @ViewChild('targetList') private targetListRef?: ElementRef<HTMLDivElement>;
 
-  // --- Target (shared across the whole sequence) ---
-  protected readonly target: TargetState = createTargetState();
+  // --- Targets: attacks resolve against the first (still-alive) target until it's destroyed,
+  // then spill onto the next - see sequence.ts's "Multiple targets" module doc comment section. ---
+  protected readonly targets = signal<Target[]>([createTarget()]);
 
   // --- Attack sequence, grouped by attacker ---
   protected readonly attackers = signal<Attacker[]>([createAttacker()]);
@@ -86,13 +89,16 @@ export class OddsCalculator {
    *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see
    *  attacker.model.ts), so they're resolved here from the row's parent attacker. `attackerIndex`
    *  (this loop's own index, not the display name) is Puppet Master's stable grouping key - see
-   *  `sequence.ts`'s `SequencedAttack` doc comment for why `attackerName` can't be used for that. */
+   *  `sequence.ts`'s `SequencedAttack` doc comment for why `attackerName` can't be used for that.
+   *  `targets()` is passed through so each row's own `eligibleTargetIds` (stable ids) can be
+   *  resolved into the engine's index-based `eligibleTargetIndices`. */
   private readonly sequencedAttacks = computed<SequencedAttack[]>(() => {
     const result: SequencedAttack[] = [];
+    const targets = this.targets();
     this.attackers().forEach((attacker, attackerIndex) => {
       const name = attackerDisplayName(attacker, attackerIndex);
       for (const row of attacker.attacks()) {
-        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster()));
+        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), targets));
       }
     });
     return result;
@@ -110,104 +116,151 @@ export class OddsCalculator {
     return OddsCalculator.clampToCap(value, OddsCalculator.MAX_RESOURCE_POINTS);
   }
 
-  /** Recomputed automatically whenever any target input changes. */
-  private readonly sequenceTarget = computed<SequenceTarget>(() => ({
-    def: this.target.def(),
-    arm: this.target.arm(),
-    boxes: this.target.boxes(),
-    tough: effectiveToughKind(this.target) === 'tough',
-    toughSteady: effectiveToughKind(this.target) === 'toughSteady',
-    toughPostDispel: this.target.toughKind() === 'tough',
-    toughSteadyPostDispel: this.target.toughKind() === 'toughSteady',
-    focusPoints: OddsCalculator.clampResourcePoints(this.target.focusPoints()),
-    furyPoints: OddsCalculator.clampResourcePoints(this.target.furyPoints()),
-    offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.offensiveKnowledgeOfTheDamned()),
-    defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(this.target.defensiveKnowledgeOfTheDamned()),
-    shieldGuards: OddsCalculator.clampResourcePoints(this.target.shieldGuards()),
-    scapegoats: OddsCalculator.clampToCap(this.target.scapegoats(), OddsCalculator.MAX_SCAPEGOATS),
-    shieldArmBonus: shieldArmBonus(this.target),
-    spellArmBonus: spellArmBonus(this.target),
-    spellArmBonusPostDispel: spellArmBonusPostDispel(this.target),
-    defBonus: spellDefBonus(this.target),
-    defBonusPostDispel: spellDefBonusPostDispel(this.target),
-    unyielding: effectiveUnyielding(this.target),
-    unyieldingPostDispel: this.target.unyielding(),
-    carapace: effectiveCarapace(this.target),
-    carapacePostDispel: this.target.carapace(),
-    rapidHealing: this.target.rapidHealing(),
-  }));
+  private static toSequenceTarget(target: Target): SequenceTarget {
+    const state = target.state;
+    return {
+      def: state.def(),
+      arm: state.arm(),
+      boxes: state.boxes(),
+      tough: effectiveToughKind(state) === 'tough',
+      toughSteady: effectiveToughKind(state) === 'toughSteady',
+      toughPostDispel: state.toughKind() === 'tough',
+      toughSteadyPostDispel: state.toughKind() === 'toughSteady',
+      focusPoints: OddsCalculator.clampResourcePoints(state.focusPoints()),
+      furyPoints: OddsCalculator.clampResourcePoints(state.furyPoints()),
+      offensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(state.offensiveKnowledgeOfTheDamned()),
+      defensiveKnowledgeOfTheDamned: OddsCalculator.clampResourcePoints(state.defensiveKnowledgeOfTheDamned()),
+      shieldGuards: OddsCalculator.clampResourcePoints(state.shieldGuards()),
+      scapegoats: OddsCalculator.clampToCap(state.scapegoats(), OddsCalculator.MAX_SCAPEGOATS),
+      shieldArmBonus: shieldArmBonus(state),
+      spellArmBonus: spellArmBonus(state),
+      spellArmBonusPostDispel: spellArmBonusPostDispel(state),
+      defBonus: spellDefBonus(state),
+      defBonusPostDispel: spellDefBonusPostDispel(state),
+      unyielding: effectiveUnyielding(state),
+      unyieldingPostDispel: state.unyielding(),
+      carapace: effectiveCarapace(state),
+      carapacePostDispel: state.carapace(),
+      rapidHealing: state.rapidHealing(),
+    };
+  }
+
+  /** Recomputed automatically whenever any target's own profile changes. */
+  private readonly sequenceTargets = computed<SequenceTarget[]>(() => this.targets().map(OddsCalculator.toSequenceTarget));
 
   /** `OddsEngine` runs the actual computation in a Web Worker (see its own doc comment) - this
    *  effect just kicks off a new run whenever the inputs change; the result/progress/calculating
    *  signals below are read straight from the engine, not held here. */
   constructor() {
     effect(() => {
-      this.engine.computeSequence(this.sequencedAttacks(), this.sequenceTarget());
+      this.engine.computeSequence(this.sequencedAttacks(), this.sequenceTargets());
     });
   }
 
+  /** One entry per target, in order - see `computeMultiTargetSequenceOdds`. */
   protected readonly sequence = this.engine.result;
   protected readonly calculating = this.engine.calculating;
   protected readonly progress = this.engine.progress;
 
-  /** Total damage dealt over the whole sequence: `survivalDistribution` (boxes remaining if
-   *  the target survives) converted to `boxesInitial - boxes`, plus one aggregated bucket for
-   *  every outcome that destroys the target (>= boxesInitial damage, labelled "N+") - since a
-   *  destroyed target's exact overkill isn't tracked, only that it reached or exceeded its box count. */
-  protected readonly damageDistributionPoints = computed<DamagePoint[]>(() => {
-    const { survivalDistribution, finalDestroyChance } = this.sequence();
-    const boxesInitial = this.target.boxes();
-
-    const points: DamagePoint[] = survivalDistribution.map((p) => ({
-      damage: boxesInitial - p.boxes,
-      label: `${boxesInitial - p.boxes}`,
-      probability: p.probability,
-    }));
-    if (finalDestroyChance > 0) {
-      points.push({ damage: boxesInitial, label: `${boxesInitial}+`, probability: finalDestroyChance });
-    }
-
-    return points.filter((p) => p.probability >= 0.0005).sort((a, b) => a.damage - b.damage);
+  protected readonly targetNames = computed<string[]>(() => {
+    const targets = this.targets();
+    return targets.map((t, i) => targetDisplayName(t, i, targets.length));
   });
 
-  protected readonly maxDamageProbability = computed(() =>
-    Math.max(...this.damageDistributionPoints().map((p) => p.probability), 0.0001)
+  protected readonly destroyChanceByTarget = computed<number[]>(() => this.sequence().map((t) => t.result.finalDestroyChance));
+
+  protected readonly engagementChanceByTarget = computed<number[]>(() => this.sequence().map((t) => t.engagementChance));
+
+  /** Damage -> probability, per target, UNFILTERED and un-labelled - see
+   *  `damageDistributionPointsByTarget` (the filtered/labelled display version) and
+   *  `averageDamageByTarget` (its expected value), both derived from this so they stay consistent
+   *  with each other. A target's own `result` only accounts for mass the engine actually resolved
+   *  against it - mass that never reached it at all (an earlier target survived, or a mid-volley
+   *  redirect landed on a weapon out of THIS target's own range - see `sequence.ts`'s "Multiple
+   *  targets" module doc comment section) is folded in here as "0 damage, full boxes" (the same
+   *  bucket a genuine miss would land in) rather than silently vanishing from the total, which
+   *  would otherwise make a barely-engaged target's own average damage read as unrealistically high. */
+  private readonly rawDamageDistributionByTarget = computed<Map<number, number>[]>(() =>
+    this.sequence().map((t, targetIndex) => {
+      const { survivalDistribution, finalDestroyChance } = t.result;
+      const boxesInitial = this.targets()[targetIndex]?.state.boxes() ?? 0;
+
+      const points = new Map<number, number>();
+      for (const p of survivalDistribution) {
+        const damage = boxesInitial - p.boxes;
+        points.set(damage, (points.get(damage) ?? 0) + p.probability);
+      }
+      const accountedFor = finalDestroyChance + survivalDistribution.reduce((sum, p) => sum + p.probability, 0);
+      const neverTouchedMass = Math.max(0, 1 - accountedFor);
+      if (neverTouchedMass > 0) {
+        points.set(0, (points.get(0) ?? 0) + neverTouchedMass);
+      }
+      if (finalDestroyChance > 0) {
+        points.set(boxesInitial, (points.get(boxesInitial) ?? 0) + finalDestroyChance);
+      }
+      return points;
+    })
   );
 
-  /** Flattens `sequence().steps[].shots[]` (one array per weapon, one entry per shot in that
-   *  weapon's own volley) into a single continuously-numbered list for the Details pop-up - a
-   *  weapon firing multiple times (via # Atks/ROF) no longer collapses into one combined row, and
-   *  numbering restarts nowhere, matching how it read before weapons could fire more than once.
-   *  `isNewWeapon` marks every weapon's own first shot (including row 1) so the template can render
-   *  a group header (attacker name + weapon type icon) right before it without breaking the
-   *  continuous count; `isNewAttacker` (a strict subset of `isNewWeapon`) additionally compares
-   *  `attackerIndex` (the stable per-attacker key - see `SequencedAttack`'s own doc comment for why
-   *  `attackerName` alone isn't safe to compare, two different unnamed attackers can share a display
-   *  name) against the PREVIOUS weapon's, so consecutive weapons owned by the SAME attacker share one
-   *  header line instead of repeating that attacker's name for each of its own weapons. */
-  protected readonly shotRows = computed<ShotRow[]>(() => {
-    const rows: ShotRow[] = [];
-    let previousAttackerIndex: number | undefined;
-    this.sequence().steps.forEach((step, stepIndex) => {
-      const isNewAttacker = stepIndex === 0 || step.attack.attackerIndex !== previousAttackerIndex;
-      step.shots.forEach((shot, shotIndex) => {
-        rows.push({
-          key: `${step.attack.id}-${shotIndex}`,
-          label: `${rows.length + 1}`,
-          isNewWeapon: shotIndex === 0,
-          isNewAttacker: shotIndex === 0 && isNewAttacker,
-          attackerName: step.attack.attackerName,
-          typeEmoji: TYPE_EMOJI[step.attack.type],
-          occursChance: shot.occursChance,
-          hitChance: shot.hitChance,
-          critChance: shot.critChance,
-          averageDamage: shot.averageDamage,
+  /** Total damage dealt over the whole sequence against target `targetIndex`, one aggregated
+   *  bucket for every outcome that destroys it (>= boxesInitial damage, labelled "N+") - since a
+   *  destroyed target's exact overkill isn't tracked, only that it reached or exceeded its box count. */
+  protected readonly damageDistributionPointsByTarget = computed<DamagePoint[][]>(() =>
+    this.rawDamageDistributionByTarget().map((points, targetIndex) => {
+      const boxesInitial = this.targets()[targetIndex]?.state.boxes() ?? 0;
+      return [...points.entries()]
+        .map(([damage, probability]) => ({ damage, label: damage >= boxesInitial ? `${boxesInitial}+` : `${damage}`, probability }))
+        .filter((p) => p.probability >= 0.0005)
+        .sort((a, b) => a.damage - b.damage);
+    })
+  );
+
+  protected readonly maxDamageProbabilityByTarget = computed<number[]>(() =>
+    this.damageDistributionPointsByTarget().map((points) => Math.max(...points.map((p) => p.probability), 0.0001))
+  );
+
+  /** Expected value of `rawDamageDistributionByTarget` - see its own doc comment for why this
+   *  isn't simply `boxesInitial - steps.at(-1).expectedBoxesRemaining` anymore. */
+  protected readonly averageDamageByTarget = computed<number[]>(() =>
+    this.rawDamageDistributionByTarget().map((points) => [...points.entries()].reduce((sum, [damage, p]) => sum + damage * p, 0))
+  );
+
+  /** Flattens each target's own `result.steps[].shots[]` (one array per weapon, one entry per shot
+   *  in that weapon's own volley) into a single continuously-numbered list for the Details pop-up -
+   *  see `docs`/`sequence.ts`'s own doc comments. A step with no shots at all is a no-op row for
+   *  THIS target (the weapon isn't in its range, or - for a later target - hasn't come under fire
+   *  yet on this row) and is skipped entirely, so each target's own list only ever shows the
+   *  weapons that could actually hit it. `isNewWeapon` marks every weapon's own first shot so the
+   *  template can render a group header (attacker name + weapon type icon); `isNewAttacker` (a
+   *  strict subset) additionally compares `attackerIndex` (not the display name - see
+   *  `SequencedAttack`'s own doc comment) against the last RENDERED weapon's, so consecutive
+   *  weapons owned by the same attacker share one header line. */
+  protected readonly shotRowsByTarget = computed<ShotRow[][]>(() =>
+    this.sequence().map((t) => {
+      const rows: ShotRow[] = [];
+      let previousAttackerIndex: number | undefined;
+      t.result.steps.forEach((step) => {
+        if (step.shots.length === 0) return;
+        const isNewAttacker = rows.length === 0 || step.attack.attackerIndex !== previousAttackerIndex;
+        step.shots.forEach((shot, shotIndex) => {
+          rows.push({
+            key: `${step.attack.id}-${shotIndex}`,
+            label: `${rows.length + 1}`,
+            isNewWeapon: shotIndex === 0,
+            isNewAttacker: shotIndex === 0 && isNewAttacker,
+            attackerName: step.attack.attackerName,
+            typeEmoji: TYPE_EMOJI[step.attack.type],
+            occursChance: shot.occursChance,
+            hitChance: shot.hitChance,
+            critChance: shot.critChance,
+            averageDamage: shot.averageDamage,
+          });
         });
+        previousAttackerIndex = step.attack.attackerIndex;
       });
-      previousAttackerIndex = step.attack.attackerIndex;
-    });
-    return rows;
-  });
+      return rows;
+    })
+  );
 
   /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part
    *  of the screen that scrolls (see odds-calculator.css), so a sequence with several attackers
@@ -242,11 +295,26 @@ export class OddsCalculator {
     removeAttackFrom(attacker, rowId);
   }
 
-  /** Hamburger menu's "Reset": wipes the target's profile AND its DEF/ARM/Boxes (unlike the
-   *  Target profile pop-up's own Reset, which only touches the profile), and collapses the
-   *  attack sequence back down to a single default attacker with a single default attack. */
+  /** Appends a new target card, cloning the LAST target's current profile ("default copies the
+   *  last one" - see `createTarget`), then scrolls it into view - same UX as `onAddAttacker`. */
+  protected onAddTarget(): void {
+    this.targets.update((list) => [...list, createTarget(list.at(-1))]);
+    afterNextRender(() => this.targetListRef?.nativeElement.lastElementChild?.scrollIntoView({ block: 'nearest' }), {
+      injector: this.injector,
+    });
+  }
+
+  /** A target can't be removed while it's the only one - same "always >=1" rule as attackers. */
+  protected onRemoveTarget(targetId: string): void {
+    this.targets.update((list) => (list.length > 1 ? list.filter((t) => t.id !== targetId) : list));
+  }
+
+  /** Hamburger menu's "Reset": wipes every target's profile AND DEF/ARM/Boxes, collapsing back
+   *  down to a single default target (unlike the Target profile pop-up's own Reset, which only
+   *  touches one target's profile), and collapses the attack sequence back down to a single
+   *  default attacker with a single default attack. */
   protected resetAll(): void {
-    resetTargetFully(this.target);
+    this.targets.set([createTarget()]);
     this.attackers.set([createAttacker()]);
   }
 }

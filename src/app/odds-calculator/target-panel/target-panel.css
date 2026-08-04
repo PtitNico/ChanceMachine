@@ -1,40 +1,36 @@
-/* This component's host wraps the "Target" section, which is a direct flex item of
-   .panel__body (a flex column) in the parent - it must keep its natural size (never
-   compressed) and must not have a flexbox min-width floor. Previously these two rules
-   lived directly on `.console` when that element was itself the flex item; now that
-   `.console` is nested one level deeper (inside this component's host), the host itself
-   needs them instead. */
 :host {
   display: block;
   flex-shrink: 0;
-  min-width: 0;
 }
 
-/* The cog button sits directly in .target-row (no .mini-field wrapper around it), so it
-   needs the same flex-end alignment AttackRow's own icon buttons get. */
-.target-row .icon-btn {
-  align-self: flex-end;
+.target-card {
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  padding: 0.2rem 0.3rem;
 }
 
-/* Puts the section title on the same line as the DEF/ARM/Boxes row instead of its own row above -
-   saves a line of vertical space. .target-row keeps its own centering/scroll behavior within
-   whatever width is left after the title (see shared/scrollable-row.css); the title itself drops
-   the title's usual bottom border/margin (see shared/section.css), since that read as a divider
-   between a title row and the fields below it - redundant now that they're the same row. */
-.target-header {
+/* Name, DEF/ARM/Boxes, settings, and remove all share one row - wraps (rather than the old
+   single-target row's nowrap/horizontal-scroll) since this now sits inside a card in a scrollable
+   list, same reasoning as `.attacker-card__header`. */
+.target-card__header {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.target-header .console__title {
-  flex-shrink: 0;
-  margin: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.target-row {
+.target-card__header app-editable-name {
+  align-self: center;
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 5rem;
+}
+
+.target-card__header:has(+ app-effect-tags:not(:empty)) {
+  margin-bottom: 0.2rem;
+}
+
+.target-card > app-effect-tags ::ng-deep .effect-tags {
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
 }

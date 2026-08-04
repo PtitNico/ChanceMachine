@@ -117,6 +117,52 @@
  * existing "auto-hit never crits" / Puppet Master reroll / Knowledge of the Damned reserve-rule
  * behavior applies to a sustained-forced hit for free, with no new branching anywhere else.
  *
+ * Multiple targets (`computeMultiTargetSequenceOdds`, `SequencedAttack.eligibleTargetIndices`) -
+ * attacks go against the first target until it's destroyed, then spill onto the next, and so on.
+ * Each target has its own fully independent DEF/ARM/boxes/debuffs/Focus/Fury/Knowledge of the
+ * Damned/Shield Guards/Scapegoats - a target's own optimal defensive play never depends on any
+ * OTHER target, only on which attacks it faces, in what order, starting from what row/shot. That
+ * means each target's own survival is answerable by running this SAME single-target engine once
+ * per target, completely unmodified in its expensive part (the backward induction), chained
+ * together by a "fresh mass enters the fight partway through" mechanism (`SequenceOptions.injection`,
+ * `RowInjection`) rather than modeling every target jointly (which would blow up the state space
+ * combinatorially). A weapon can be scoped to a subset of targets ("in range of" -
+ * `eligibleTargetIndices`, unset = every target); an out-of-range row is a pure no-op for that
+ * target (`SequenceOptions.rowActive`) - `getValueTableAt[k]` aliases straight to
+ * `getValueTableAt[k+1]` in the backward pass, and the forward pass leaves `dist` untouched.
+ *
+ * The handoff between targets happens at SHOT granularity, not just row (weapon) boundaries: if
+ * shot 2 of a 5-shot ROF weapon destroys the current target, shots 3-5 of that SAME weapon
+ * redirect to the next one, matching the tabletop rule precisely. This works because
+ * `buildShotsValue`'s `shotsValue(s, ...)` already answers "value of s more shots of row k's
+ * weapon, then rows k+1 onward" for every possible `s` - that's its entire purpose, already built
+ * and memoized per row for the ROF feature above. A mid-row handoff is just the forward pass
+ * starting some fresh probability mass at that same coordinate instead of only before row 0 - no
+ * backward-induction change needed. `resolveRofAttackForward` tracks each row's own destroyed mass
+ * bucketed not by absolute shot index but by `shotsRemainingAfter` (`SequenceStepResult
+ * .destroyChanceByShotsRemaining`) - the exact "how many of this row's own shots are still owed"
+ * coordinate the next target needs to resume firing (`RowInjection.shotsRemaining`), K-invariant
+ * unlike absolute position (different ROF branches reach a given remaining-count at different
+ * absolute shot indices). A resumed volley does NOT get a fresh ROF roll (the weapon's total shot
+ * count for THIS volley was already decided, before the target it's now facing ever came under
+ * fire) - it fires exactly the inherited count, starting from the new target's own fresh state
+ * (full boxes, no debuffs, full resources). Since there's no single true absolute position for a
+ * resumed volley's own shots (again, K-branch-dependent), they're reported into `shots[]` as if
+ * resuming at the position that leaves exactly that many shots before the row's maximum possible
+ * count ends - a REPORTING simplification only (which row of the Details breakdown a shot's stats
+ * land in), never affecting any actual probability. Sustained Attack's `sustained` flag does NOT
+ * reset on a mid-row handoff (only on a genuine new row) - the weapon itself is "sustaining",
+ * independent of which target it's currently hitting.
+ *
+ * `computeMultiTargetSequenceOdds` runs each target sequentially: target 0 with the default
+ * injection (100% fresh before row 0); target t+1's own injection schedule is built directly from
+ * target t's own per-row `destroyChanceByShotsRemaining`, filtered to rows actually in target
+ * (t+1)'s own range (a redirect landing on a weapon out of range for the new current target
+ * fizzles for the rest of that row - it does NOT search further down the target list for one that
+ * is). Cost is linear in target count: each target's own run is the same complexity class as
+ * today's single-target computation, since the backward induction (the expensive part) is
+ * unchanged - only the forward pass gets a constant-factor more bookkeeping.
+ *
  * Puppet Master (`SequencedAttack.hasPuppetMaster`, one bit per distinct `attackerIndex` with it
  * active - see `pmMask` below) grants ONE ATTACKER a single shared reroll token, spendable once on
  * ANY of that attacker's own attack or damage rolls, across every attack it makes. Deliberately
@@ -337,6 +383,11 @@ export interface SequencedAttack {
   /** True on every attack belonging to an attacker with Puppet Master active - see the module doc
    *  comment's Puppet Master section and `resolvePmSplit`. */
   hasPuppetMaster?: boolean;
+  /** Which targets (by index into `computeMultiTargetSequenceOdds`'s own `targets` array) this
+   *  weapon is in range of - unset means every target (the default - see the module doc comment's
+   *  "Multiple targets" section). Index-based for the same reason `attackerIndex` is: a display
+   *  name isn't a safe, collision-free key. */
+  eligibleTargetIndices?: number[];
 }
 
 export interface SequenceTarget {
@@ -453,6 +504,15 @@ export interface SequenceStepResult {
   cumulativeDestroyChance: number;
   /** Unconditional expectation of remaining boxes after this attack (destroyed counts as 0). */
   expectedBoxesRemaining: number;
+  /** Chance the target is newly destroyed on this attack, bucketed by how many of THIS weapon's
+   *  own shots were still owed (never fired) at the moment it died - index `s` holds the chance it
+   *  died leaving exactly `s` shots of this row unresolved. Unlike `shots[]` (indexed by absolute
+   *  shot position, which K-branch-dependently corresponds to different "shots remaining" values),
+   *  this index is K-INVARIANT: it's exactly the coordinate `computeMultiTargetSequenceOdds` needs
+   *  to hand this row's unfired shots to the next target - see the module doc comment's "Multiple
+   *  targets" section. Sums to `destroyChanceAtThisStep`. Length equals this row's own maximum
+   *  possible shot count. */
+  destroyChanceByShotsRemaining: number[];
 }
 
 export interface SequenceResult {
@@ -460,6 +520,41 @@ export interface SequenceResult {
   finalDestroyChance: number;
   /** Remaining-boxes distribution conditional on the target surviving the whole sequence. */
   survivalDistribution: { boxes: number; probability: number }[];
+}
+
+/** Where a target's probability mass enters the fight, instead of the default "100% before row
+ *  0" - see the module doc comment's "Multiple targets" section. `shotsRemaining === 0` means
+ *  "enter row `row` completely fresh" (it gets its own newly-rolled ROF shot count, exactly like
+ *  row 0 does today); `shotsRemaining > 0` means "resume row `row`'s own weapon with exactly this
+ *  many of its shots still unfired" (a fixed count - it does NOT get a fresh ROF roll, since the
+ *  weapon's total shot count for this volley was already decided before the target it's now
+ *  facing ever came under fire). */
+export interface RowInjection {
+  row: number;
+  shotsRemaining: number;
+  probability: number;
+}
+
+export interface SequenceOptions {
+  /** `false` means this row is a no-op for this target (the weapon isn't in range of it): `dist`
+   *  passes through unchanged, the row contributes an empty step, and the backward induction
+   *  aliases `getValueTableAt[k]` straight to `getValueTableAt[k+1]` rather than building a table.
+   *  Defaults to every row active - see the module doc comment's "Multiple targets" section. */
+  rowActive?: boolean[];
+  /** Defaults to `[{ row: 0, shotsRemaining: 0, probability: 1 }]` - today's exact single-target
+   *  behavior (100% of the mass starts fresh before row 0). See `RowInjection`. */
+  injection?: RowInjection[];
+}
+
+/** One target's own result from `computeMultiTargetSequenceOdds`. */
+export interface TargetSequenceResult {
+  result: SequenceResult;
+  /** Chance this target is even engaged at all: 1 for the first target in the list, otherwise the
+   *  PRECEDING target's own `finalDestroyChance` (a target only starts taking fire once the one
+   *  ahead of it in the queue is destroyed) - see the module doc comment's "Multiple targets"
+   *  section. Not the same as "chance every one of its own attackers' weapons actually reaches it":
+   *  a weapon out of THIS target's range still contributes nothing even once engaged. */
+  engagementChance: number;
 }
 
 const MAX_RESOURCE_POINTS = 10; // far beyond any Warmachine/Hordes caster's focus/fury stat; guards the value-table size.
@@ -958,7 +1053,8 @@ function readValueTable(
 export function computeSequenceOdds(
   attacks: SequencedAttack[],
   target: SequenceTarget,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  options?: SequenceOptions
 ): SequenceResult {
   const initialBoxes = target.boxes;
   const maxFocus = Math.floor(target.focusPoints ?? 0);
@@ -1007,6 +1103,17 @@ export function computeSequenceOdds(
   toughRules.failChance = hasAnyTough ? ((target.toughOn ?? 5) - 1) / 6 : 0;
   const healingRules: HealingRules = { hasRapidHealing: !!target.rapidHealing, initialBoxes };
   const n = attacks.length;
+
+  // See the module doc comment's "Multiple targets" section. Omitted entirely (every existing
+  // caller/test), this reproduces today's exact single-target behavior: every row active, 100% of
+  // the mass starting fresh before row 0.
+  const rowActive = options?.rowActive ?? attacks.map(() => true);
+  const injectionsByRow = new Map<number, RowInjection[]>();
+  for (const inj of options?.injection ?? [{ row: 0, shotsRemaining: 0, probability: 1 }]) {
+    const list = injectionsByRow.get(inj.row);
+    if (list) list.push(inj);
+    else injectionsByRow.set(inj.row, [inj]);
+  }
 
   // DEF = 'KD' means the target starts the sequence Knocked Down (see SequenceTarget doc).
   const startsKnockedDown = target.def === 'KD';
@@ -1962,6 +2069,13 @@ export function computeSequenceOdds(
 
   for (let k = n - 1; k >= 0; k--) {
     const atk = attacks[k];
+    if (!rowActive[k]) {
+      // No-op row for this target (weapon out of range - see the module doc comment's "Multiple
+      // targets" section): "attacks k..n-1" is worth exactly what "attacks k+1..n-1" is worth, so
+      // alias straight through rather than building a table nobody needs.
+      getValueTableAt[k] = getValueTableAt[k + 1];
+      continue;
+    }
     const shotsValue = buildShotsValue(k, atk, getValueTableAt[k + 1]);
     shotsValueByAttack[k] = shotsValue;
     const rofDist = rofOutcomes(atk);
@@ -1999,30 +2113,34 @@ export function computeSequenceOdds(
     initialDist: Map<string, { state: FwdState; probability: number }>,
     shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, sustained: boolean) => number,
     shotStats: ShotStats[],
+    destroyedByShotsRemaining: { mass: number }[],
     next: Map<string, { state: FwdState; probability: number }>,
-    destroyed: { mass: number }
+    partialInjections: RowInjection[]
   ): void {
-    for (const { count, probability: rofP } of rofOutcomes(atk)) {
-      // `initialDist` is the PREVIOUS row's own ending distribution - `sustained` must never carry
-      // forward into a new row's volley, so every copied state is reset to `sustained: false` here,
-      // regardless of what it was (see the module doc comment's "Sustained Attack" section).
-      let current = new Map<string, { state: FwdState; probability: number }>();
-      for (const { state, probability } of initialDist.values()) {
-        const p = probability * rofP;
-        if (p <= 0) continue;
-        const freshState: FwdState = { ...state, sustained: false };
-        const key = fwdKey(freshState);
-        const existing = current.get(key);
-        if (existing) existing.probability += p;
-        else current.set(key, { state: freshState, probability: p });
-      }
-
-      for (let shotIndex = 1; shotIndex <= count; shotIndex++) {
-        const entry = shotStats[shotIndex - 1];
+    /** Resolves exactly `count` sequential shots of this row's weapon starting from `initial`,
+     *  feeding survivors of the LAST shot into `next` - shared by every branch below (a normally
+     *  ROF-rolled count, or a fixed count resumed mid-volley via `partialInjections` - see the
+     *  module doc comment's "Multiple targets" section), since both are just "some number of this
+     *  row's own shots, resolved in sequence" once `count` itself is already known.
+     *
+     *  `reportOffset` is where this volley's OWN first shot lands in `shotStats`/the returned
+     *  `SequenceStepResult.shots[]` (absolute-position-indexed, `shotStats.length` = this row's
+     *  overall max shot count). For a normal branch that's always 0 (shot 1 IS absolute shot 1).
+     *  For a `partialInjections` branch there's no single true absolute position (different
+     *  original ROF branches can reach the SAME `shotsRemaining` at different absolute shot
+     *  indices) - it's reported as if resuming at the position that leaves exactly this many shots
+     *  before the row's own maximum possible count ends, i.e. `shotStats.length - count`. This is a
+     *  reporting simplification only (which `shots[]` ROW a mid-volley handoff's stats land in) -
+     *  it never affects `shotsRemainingAfter`, `shotsValue`, or `destroyedByShotsRemaining` below,
+     *  which stay exactly correct regardless of `reportOffset`. */
+    const resolveVolley = (initial: Map<string, { state: FwdState; probability: number }>, count: number, reportOffset: number): void => {
+      let current = initial;
+      for (let i = 1; i <= count; i++) {
+        const entry = shotStats[reportOffset + i - 1];
         for (const { probability } of current.values()) entry.occursMass += probability;
 
-        const shotsRemainingAfter = count - shotIndex;
-        const isLastShot = shotIndex === count;
+        const shotsRemainingAfter = count - i;
+        const isLastShot = i === count;
         const shredCache = new Map<string, number>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
         const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk, sus) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk, sus);
@@ -2047,16 +2165,51 @@ export function computeSequenceOdds(
             shredCache,
             entry,
             isLastShot ? next : survivors,
-            destroyed
+            destroyedByShotsRemaining[shotsRemainingAfter]
           );
         }
 
         current = survivors;
       }
+    };
+
+    for (const { count, probability: rofP } of rofOutcomes(atk)) {
+      // `initialDist` is the PREVIOUS row's own ending distribution (plus any fresh mass injected
+      // right before this row for a newly-engaged target - see computeSequenceOdds) - `sustained`
+      // must never carry forward into a new row's volley, so every copied state is reset to
+      // `sustained: false` here, regardless of what it was (see the module doc comment's
+      // "Sustained Attack" section).
+      const current = new Map<string, { state: FwdState; probability: number }>();
+      for (const { state, probability } of initialDist.values()) {
+        const p = probability * rofP;
+        if (p <= 0) continue;
+        const freshState: FwdState = { ...state, sustained: false };
+        const key = fwdKey(freshState);
+        const existing = current.get(key);
+        if (existing) existing.probability += p;
+        else current.set(key, { state: freshState, probability: p });
+      }
+      resolveVolley(current, count, 0);
+    }
+
+    // Mid-volley handoff from an earlier target's own destroyed mass (see the module doc comment's
+    // "Multiple targets" section): each entry resumes THIS row's own weapon with a FIXED,
+    // already-known shot count (no fresh ROF roll - `RowInjection`'s own doc comment explains why),
+    // starting from a completely fresh state (full boxes, no debuffs, full resources) rather than
+    // `initialDist` (which is mass already alive from earlier rows of THIS target's own fight -
+    // irrelevant to a target that's only just now coming under fire).
+    for (const { shotsRemaining, probability } of partialInjections) {
+      if (probability <= 0 || shotsRemaining <= 0) continue;
+      resolveVolley(new Map([[fwdKey(initialState), { state: initialState, probability }]]), shotsRemaining, shotStats.length - shotsRemaining);
     }
   }
 
   // --- Forward simulation, replaying the policy above to get step-by-step stats ---
+  // `dist` starts EMPTY (not pre-seeded with probability 1) - all of a target's mass, including
+  // today's default single-target case, enters exclusively through the `injection` mechanism below
+  // (defaulting to `[{ row: 0, shotsRemaining: 0, probability: 1 }]`, i.e. "100% fresh before row
+  // 0" - see the module doc comment's "Multiple targets" section). Seeding it here TOO would
+  // double-count that same mass once row 0's own injection merge runs.
   let dist = new Map<string, { state: FwdState; probability: number }>();
   const initialDebuffs = startsKnockedDown ? { ...INITIAL_DEBUFFS, knockedDown: true } : INITIAL_DEBUFFS;
   const initialState: FwdState = {
@@ -2071,25 +2224,62 @@ export function computeSequenceOdds(
     kotdDefLeft: maxKotdDef,
     sustained: false,
   };
-  dist.set(fwdKey(initialState), { state: initialState, probability: 1 });
 
   const steps: SequenceStepResult[] = [];
   let cumulativeDestroy = 0;
 
   for (let k = 0; k < n; k++) {
     const atk = attacks[k];
+
+    if (!rowActive[k]) {
+      // No-op row for this target (see the module doc comment's "Multiple targets" section) -
+      // `dist` passes through unchanged, contributing no shots and no destroy chance.
+      const expectedBoxesRemaining = [...dist.values()].reduce((acc, { state, probability }) => acc + state.boxes * probability, 0);
+      steps.push({
+        attack: atk,
+        shots: [],
+        destroyChanceAtThisStep: 0,
+        cumulativeDestroyChance: cumulativeDestroy,
+        expectedBoxesRemaining,
+        destroyChanceByShotsRemaining: [],
+      });
+      onProgress?.((k + 1) / n);
+      continue;
+    }
+
     const shotsValue = shotsValueByAttack[k];
     const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
 
+    // Fresh mass ("enter this row completely fresh, roll its own ROF count") merges into the SAME
+    // mass `dist` already carries forward from earlier rows before the normal per-K-branch split;
+    // a mid-volley resume ("this many of this row's own shots still owed, no fresh ROF roll") is
+    // handled separately inside resolveRofAttackForward - see RowInjection's doc comment.
+    const rowInjections = injectionsByRow.get(k) ?? [];
+    const freshInjectedMass = rowInjections.filter((inj) => inj.shotsRemaining === 0).reduce((sum, inj) => sum + inj.probability, 0);
+    const partialInjections = rowInjections.filter((inj) => inj.shotsRemaining > 0);
+
+    const enteringDist = new Map(dist);
+    if (freshInjectedMass > 0) {
+      const key = fwdKey(initialState);
+      const existing = enteringDist.get(key);
+      enteringDist.set(key, { state: initialState, probability: (existing?.probability ?? 0) + freshInjectedMass });
+    }
+
     const next = new Map<string, { state: FwdState; probability: number }>();
     const shotStats: ShotStats[] = Array.from({ length: maxShots }, () => ({ hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 }));
-    const destroyed = { mass: 0 };
+    const destroyedByShotsRemaining: { mass: number }[] = Array.from({ length: maxShots }, () => ({ mass: 0 }));
+    // Includes `partialInjections`' own mass too, even though it never enters `enteringDist` (it
+    // resolves via its own synthetic branches inside resolveRofAttackForward, not the normal
+    // rofOutcomes split) - otherwise a row entered ENTIRELY via a mid-volley handoff would divide
+    // occursChance by zero alive mass despite 100% of this target's mass genuinely being present.
     let aliveMass = 0;
-    for (const { probability } of dist.values()) aliveMass += probability;
+    for (const { probability } of enteringDist.values()) aliveMass += probability;
+    for (const { probability } of partialInjections) aliveMass += probability;
 
-    resolveRofAttackForward(k, atk, dist, shotsValue, shotStats, next, destroyed);
+    resolveRofAttackForward(k, atk, enteringDist, shotsValue, shotStats, destroyedByShotsRemaining, next, partialInjections);
 
-    cumulativeDestroy += destroyed.mass;
+    const destroyChanceAtThisStep = destroyedByShotsRemaining.reduce((sum, d) => sum + d.mass, 0);
+    cumulativeDestroy += destroyChanceAtThisStep;
     dist = next;
 
     const expectedBoxesRemaining = [...dist.values()].reduce(
@@ -2107,9 +2297,10 @@ export function computeSequenceOdds(
     steps.push({
       attack: atk,
       shots,
-      destroyChanceAtThisStep: destroyed.mass,
+      destroyChanceAtThisStep,
       cumulativeDestroyChance: cumulativeDestroy,
       expectedBoxesRemaining,
+      destroyChanceByShotsRemaining: destroyedByShotsRemaining.map((d) => d.mass),
     });
 
     onProgress?.((k + 1) / n);
@@ -2124,4 +2315,55 @@ export function computeSequenceOdds(
     .sort((a, b) => a.boxes - b.boxes);
 
   return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution };
+}
+
+/**
+ * Runs `computeSequenceOdds` once per target, in order, chaining each target's own destroyed mass
+ * into the next target's injection schedule - see the module doc comment's "Multiple targets"
+ * section for the full design. Target 0 gets the default injection (100% fresh before row 0, i.e.
+ * today's exact single-target starting condition); target t+1's injection is built directly from
+ * target t's own `SequenceStepResult.destroyChanceByShotsRemaining`, filtered down to rows that are
+ * actually in target (t+1)'s own range (`eligibleTargetIndices`) - a redirect landing on a weapon
+ * out of range for the new current target fizzles for the rest of that row rather than searching
+ * further down the target list. `onProgress`, if given, is scaled so it advances smoothly across
+ * every target's own share of the overall work, not just the current one's.
+ */
+export function computeMultiTargetSequenceOdds(
+  attacks: SequencedAttack[],
+  targets: SequenceTarget[],
+  onProgress?: (fraction: number) => void
+): TargetSequenceResult[] {
+  const results: TargetSequenceResult[] = [];
+  let injection: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
+  let engagementChance = 1;
+
+  targets.forEach((target, targetIndex) => {
+    const rowActive = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(targetIndex));
+    const activeInjection = injection.filter((inj) => rowActive[inj.row]);
+
+    const result = computeSequenceOdds(
+      attacks,
+      target,
+      onProgress ? (fraction) => onProgress((targetIndex + fraction) / targets.length) : undefined,
+      { rowActive, injection: activeInjection }
+    );
+    results.push({ result, engagementChance });
+
+    const nextInjection: RowInjection[] = [];
+    result.steps.forEach((step, k) => {
+      step.destroyChanceByShotsRemaining.forEach((probability, shotsRemaining) => {
+        if (probability <= 0) return;
+        // `shotsRemaining === 0` means THIS target died on row k's own LAST shot - row k's whole
+        // volley is already spent, so the next target starts fresh at row k+1, not row k again.
+        // `shotsRemaining > 0` means row k's weapon still owes shots - the next target resumes
+        // WITHIN that same row (a genuine mid-volley handoff, `row: k` is correct there).
+        if (shotsRemaining === 0) nextInjection.push({ row: k + 1, shotsRemaining: 0, probability });
+        else nextInjection.push({ row: k, shotsRemaining, probability });
+      });
+    });
+    injection = nextInjection;
+    engagementChance = result.finalDestroyChance;
+  });
+
+  return results;
 }

@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { SequenceResult } from '../../engine/sequence';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { TargetSequenceResult } from '../../engine/sequence';
 import { pct } from '../format.util';
 
 @Component({
@@ -11,8 +11,15 @@ import { pct } from '../format.util';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResultsPanel {
-  readonly sequence = input.required<SequenceResult>();
-  readonly boxesInitial = input.required<number>();
+  /** One entry per target, in order - see `computeMultiTargetSequenceOdds`. */
+  readonly results = input.required<TargetSequenceResult[]>();
+  readonly targetNames = input.required<string[]>();
+  /** Same order as `results`/`targetNames` - see `OddsCalculator.averageDamageByTarget`'s own doc
+   *  comment for why this is computed by the orchestrator rather than derived here from
+   *  `expectedBoxesRemaining` (this component doesn't know each target's own `boxesInitial`, and
+   *  more importantly the naive `boxesInitial - expectedBoxesRemaining` subtraction silently drops
+   *  mass that never reached a given target at all). */
+  readonly averageDamageByTarget = input.required<number[]>();
   /** True once a recompute has been running long enough to be worth telling the user about - see
    *  `OddsEngine`'s own doc comment for the delay. The gauges below keep showing the LAST result
    *  (dimmed), not blanked, while this is true - reassurance the app hasn't frozen, not a reset. */
@@ -20,19 +27,8 @@ export class ResultsPanel {
   /** 0-1, or `null` while nothing is in flight - see `computeSequenceOdds`'s own `onProgress` doc
    *  comment for why this can jump unevenly rather than advancing smoothly. */
   readonly progress = input<number | null>(null);
-  readonly showDetails = output<void>();
+  /** Which target's own Details breakdown to open - always 0 with a single target. */
+  readonly showDetails = output<number>();
 
   protected readonly pct = pct;
-
-  /** `expectedBoxesRemaining` is already an UNCONDITIONAL expectation that treats a destroyed
-   *  target as 0 boxes remaining (see SequenceStepResult), so `boxesInitial - that` is exactly
-   *  the expected total damage dealt over the whole sequence - no separate engine field needed.
-   *  `expectedBoxesRemaining` can never legitimately exceed `boxesInitial` (damage is never
-   *  negative), but summing many small floating-point probability terms can leave it a hair above
-   *  (e.g. `15.000000000000002`), which would otherwise render as "-0.0" (`(-1e-15).toFixed(1)`
-   *  keeps the minus sign) - `Math.max(0, ...)` clamps that noise away rather than exposing it. */
-  protected readonly averageDamage = computed(() => {
-    const lastStep = this.sequence().steps.at(-1);
-    return lastStep ? Math.max(0, this.boxesInitial() - lastStep.expectedBoxesRemaining) : undefined;
-  });
 }

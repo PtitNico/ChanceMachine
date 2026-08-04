@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { probabilityAtLeast, probabilityOfDouble, rerollPoolOnceIfBelow, rollDicePool } from './dice-pool';
 import { computeAttackOdds } from './attack-model';
-import { computeSequenceOdds, SequencedAttack, SequenceStepResult } from './sequence';
+import { computeMultiTargetSequenceOdds, computeSequenceOdds, SequencedAttack, SequenceStepResult, SequenceTarget } from './sequence';
 
 /** Reconstructs the old row-level UNCONDITIONAL total average damage (summed across every shot in
  *  a weapon's own volley) from the new per-shot `shots[]` breakdown - each shot's own
@@ -2032,5 +2032,132 @@ describe('sequence engine - onProgress', () => {
 
   it('is never called when omitted (regression safety)', () => {
     expect(() => computeSequenceOdds([attack()], target)).not.toThrow();
+  });
+});
+
+describe('sequence engine - multiple targets', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  function survivalMass(result: { survivalDistribution: { probability: number }[] }): number {
+    return result.survivalDistribution.reduce((sum, p) => sum + p.probability, 0);
+  }
+
+  it("redirects a weapon's remaining shots mid-volley once the current target dies", () => {
+    // forceAutoHit + pow 20 vs arm 0: damage is always 2d6+20 (min 22), always lethal against a
+    // 1-box target - shot 1 of this 3-shot volley deterministically destroys target 1, leaving
+    // shots 2-3 to redirect to target 2 (also 1 box, also always destroyed by whichever shot it
+    // first receives).
+    const weapon = attack({ forceAutoHit: true, pow: 20, attackCount: 3 });
+    const target1: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+    const target2: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([weapon], [target1, target2]);
+
+    expect(t1.engagementChance).toBeCloseTo(1, 9);
+    expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
+    // Target 1 dies deterministically on shot 1, leaving exactly 2 shots (of 3 max) owed.
+    expect(t1.result.steps[0].destroyChanceByShotsRemaining[0]).toBeCloseTo(0, 9);
+    expect(t1.result.steps[0].destroyChanceByShotsRemaining[1]).toBeCloseTo(0, 9);
+    expect(t1.result.steps[0].destroyChanceByShotsRemaining[2]).toBeCloseTo(1, 9);
+
+    expect(t2.engagementChance).toBeCloseTo(1, 9);
+    expect(t2.result.finalDestroyChance).toBeCloseTo(1, 9);
+    // Target 2 never sees absolute shot 1 (that mass was already spent destroying target 1) - it
+    // enters fresh at absolute shot 2 with the full mass, and dies right there.
+    expect(t2.result.steps[0].shots[0].occursChance).toBeCloseTo(0, 9);
+    expect(t2.result.steps[0].shots[1].occursChance).toBeCloseTo(1, 9);
+    expect(t2.result.steps[0].shots[1].hitChance).toBeCloseTo(1, 9);
+    expect(t2.result.steps[0].destroyChanceAtThisStep).toBeCloseTo(1, 9);
+  });
+
+  it('a weapon scoped to only the current target contributes nothing once a later target becomes current', () => {
+    const scoped = attack({ id: 'scoped', forceAutoHit: true, pow: 20, attackCount: 3, eligibleTargetIndices: [0] });
+    const target1: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+    const target2: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([scoped], [target1, target2]);
+
+    expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
+    // The sequence DOES reach target 2 (target 1 died)...
+    expect(t2.engagementChance).toBeCloseTo(1, 9);
+    // ...but this weapon can't hit it (out of range) - its leftover shots simply fizzle rather
+    // than searching further down the target list.
+    expect(t2.result.steps[0].shots).toEqual([]);
+    expect(t2.result.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
+  it("a debuff inflicted on the first target never carries over to the second target's DEF/ARM", () => {
+    const knockdownAttack = attack({ id: 'kd', forceAutoHit: true, pow: -9999, statEffects: [{ type: 'knockdown', trigger: 'hit' }] });
+    const lethalAttack = attack({ id: 'lethal', forceAutoHit: true, pow: 20 });
+    const probeAttack = attack({ id: 'probe', stat: -3, pow: 12 });
+    const target1: SequenceTarget = { def: 5, arm: 0, boxes: 1 };
+    const target2: SequenceTarget = { def: 13, arm: 0, boxes: 1000 };
+
+    const [, t2] = computeMultiTargetSequenceOdds([knockdownAttack, lethalAttack, probeAttack], [target1, target2]);
+    const reference = computeSequenceOdds([probeAttack], target2);
+
+    // Melee auto-hits a Knocked Down target - if target 1's Knockdown had leaked into target 2's
+    // own state, probeAttack's hit chance here would jump to 1 instead of matching a plain
+    // single-target computation of the exact same attack against a never-knocked-down target 2.
+    expect(t2.result.steps[2].shots[0].hitChance).toBeCloseTo(reference.steps[0].shots[0].hitChance, 9);
+    expect(t2.result.steps[2].shots[0].hitChance).toBeLessThan(1);
+  });
+
+  it('every target is destroyed with certainty when the volley always has enough shots for all of them', () => {
+    const weapon = attack({ type: 'ranged', forceAutoHit: true, pow: 20, attackCount: 2, rof: 'd3' });
+    const targets: SequenceTarget[] = [
+      { def: 13, arm: 0, boxes: 1 },
+      { def: 13, arm: 0, boxes: 1 },
+      { def: 13, arm: 0, boxes: 1 },
+    ];
+    // Base 2 + at least 1 from 'd3' = at least 3 shots on every branch - always enough to fell
+    // all 3 (guaranteed-lethal-on-any-hit) targets in the chain.
+    const results = computeMultiTargetSequenceOdds([weapon], targets);
+    for (const t of results) {
+      expect(t.result.finalDestroyChance).toBeCloseTo(1, 9);
+    }
+  });
+
+  it('never fabricates or double-counts probability mass across the chain', () => {
+    const weapon1 = attack({ id: '1', type: 'ranged', stat: 8, pow: 14, attackCount: 3 });
+    const weapon2 = attack({ id: '2', type: 'ranged', stat: 8, pow: 14, attackCount: 3 });
+    const target1: SequenceTarget = { def: 13, arm: 10, boxes: 3 };
+    const target2: SequenceTarget = { def: 13, arm: 10, boxes: 3 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([weapon1, weapon2], [target1, target2]);
+
+    expect(t1.result.finalDestroyChance + survivalMass(t1.result)).toBeCloseTo(1, 9);
+    // Target 2's own total accounted-for probability (destroyed + survived) can never exceed how
+    // much mass target 1's own destruction handed it - it can fall only SLIGHTLY short of exact
+    // equality, and only because dying on the very last shot of the very last row of the whole
+    // sequence leaves nothing left to hand off (there's no "row after the last row"). A bug that
+    // fabricates or double-counts mass (like the one this test caught during development) would
+    // push the total well ABOVE target 1's own destroy chance, not just slightly below it.
+    const target2Total = t2.result.finalDestroyChance + survivalMass(t2.result);
+    expect(target2Total).toBeLessThanOrEqual(t1.result.finalDestroyChance + 1e-9);
+    expect(target2Total).toBeGreaterThan(0);
+  });
+
+  it('with exactly one target, reproduces computeSequenceOdds exactly (regression safety)', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2', pow: 10, attackCount: 2 })];
+    const target: SequenceTarget = { def: 13, arm: 10, boxes: 10, focusPoints: 2 };
+
+    const direct = computeSequenceOdds(attacks, target);
+    const [viaOrchestrator] = computeMultiTargetSequenceOdds(attacks, [target]);
+
+    expect(viaOrchestrator.engagementChance).toBe(1);
+    expect(viaOrchestrator.result.finalDestroyChance).toBeCloseTo(direct.finalDestroyChance, 9);
+    expect(viaOrchestrator.result.steps[0].shots[0].hitChance).toBeCloseTo(direct.steps[0].shots[0].hitChance, 9);
+    expect(viaOrchestrator.result.steps[1].shots[0].averageDamage).toBeCloseTo(direct.steps[1].shots[0].averageDamage, 9);
   });
 });

@@ -73,6 +73,70 @@ const DEFAULT_DEF = 15;
 const DEFAULT_ARM = 15;
 const DEFAULT_BOXES = 15;
 
+let nextTargetId = 0;
+
+/**
+ * One target in the sequence: a name (mirroring `Attacker`'s own `name`/`attackerDisplayName`
+ * pattern) plus its full profile (`TargetState`, unchanged - the same signal bag a single target
+ * has always used). Attacks resolve against the first target in the list until it's destroyed,
+ * then spill onto the next - see `sequence.ts`'s "Multiple targets" module doc comment section.
+ */
+export interface Target {
+  readonly id: string;
+  /** '' means unnamed - see `targetDisplayName`. */
+  readonly name: WritableSignal<string>;
+  readonly state: TargetState;
+}
+
+/** Clones every field of an existing target's profile into fresh signals (not shared references) -
+ *  used by `createTarget` when copying the previous target, the same "fresh signals per clone"
+ *  shape `cloneAttackRow` uses. */
+function cloneTargetState(source: TargetState): TargetState {
+  return {
+    def: signal(source.def()),
+    arm: signal(source.arm()),
+    boxes: signal(source.boxes()),
+    focusPoints: signal(source.focusPoints()),
+    furyPoints: signal(source.furyPoints()),
+    offensiveKnowledgeOfTheDamned: signal(source.offensiveKnowledgeOfTheDamned()),
+    defensiveKnowledgeOfTheDamned: signal(source.defensiveKnowledgeOfTheDamned()),
+    shieldGuards: signal(source.shieldGuards()),
+    scapegoats: signal(source.scapegoats()),
+    toughKind: signal(source.toughKind()),
+    shieldAmount: signal(source.shieldAmount()),
+    unyielding: signal(source.unyielding()),
+    carapace: signal(source.carapace()),
+    dispellableTough: signal(source.dispellableTough()),
+    dispellableUnyielding: signal(source.dispellableUnyielding()),
+    rapidHealing: signal(source.rapidHealing()),
+    spellDefAmount: signal(source.spellDefAmount()),
+    spellArmAmount: signal(source.spellArmAmount()),
+    upkeepSpellDefAmount: signal(source.upkeepSpellDefAmount()),
+    upkeepSpellArmAmount: signal(source.upkeepSpellArmAmount()),
+  };
+}
+
+/** A fresh, default target - or, given `source`, a clone of its CURRENT profile (fresh signals, not
+ *  shared references) - matches "default copies the last one" (the same "copy the previous one"
+ *  convention `addAttackTo` already uses for a new weapon). */
+export function createTarget(source?: Target): Target {
+  return {
+    id: `target-${nextTargetId++}`,
+    name: signal(''),
+    state: source ? cloneTargetState(source.state) : createTargetState(),
+  };
+}
+
+/** Falls back to "Target" while it's the only one, or "Target N" (by current position) once
+ *  there's more than one - until explicitly renamed. Matches `attackerDisplayName`'s own pattern,
+ *  with the added "only number them once it'd actually be ambiguous not to" wrinkle the user asked
+ *  for specifically for targets. */
+export function targetDisplayName(target: Target, index: number, count: number): string {
+  const name = target.name().trim();
+  if (name) return name;
+  return count > 1 ? `Target ${index + 1}` : 'Target';
+}
+
 export function createTargetState(): TargetState {
   return {
     def: signal<number | 'KD'>(DEFAULT_DEF),
@@ -116,17 +180,6 @@ export function resetTargetProfile(target: TargetState): void {
   target.spellArmAmount.set(0);
   target.upkeepSpellDefAmount.set(0);
   target.upkeepSpellArmAmount.set(0);
-}
-
-/** Full reset used by the hamburger menu's app-wide Reset action - unlike `resetTargetProfile`
- *  (which the Target profile pop-up's own Reset button uses, deliberately leaving DEF/ARM/Boxes
- *  untouched since those live outside that pop-up, on the Target row itself), this also restores
- *  DEF/ARM/Boxes to their defaults. */
-export function resetTargetFully(target: TargetState): void {
-  target.def.set(DEFAULT_DEF);
-  target.arm.set(DEFAULT_ARM);
-  target.boxes.set(DEFAULT_BOXES);
-  resetTargetProfile(target);
 }
 
 /** A capability is active either because it's toggled directly (permanent) or because

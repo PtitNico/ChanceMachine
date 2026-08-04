@@ -1,7 +1,7 @@
 /**
  * sequence.worker.ts
  * -------------------
- * Runs `computeSequenceOdds` off the main thread, so a slow sequence (a lot of Focus/Fury/Knowledge
+ * Runs `computeMultiTargetSequenceOdds` off the main thread, so a slow sequence (a lot of Focus/Fury/Knowledge
  * of the Damned resource points combined with Puppet Master/Rate of Fire/Critical Shred can take
  * several seconds even after the engine's own lazy value-table optimization - see sequence.ts's
  * module doc comment) never freezes the tab. `sequence.ts` only imports from `attack-model.ts`,
@@ -15,26 +15,26 @@
  * spins up a fresh one, rather than queuing a second message on the same worker (see its own doc
  * comment for why).
  */
-import { SequencedAttack, SequenceResult, SequenceTarget, computeSequenceOdds } from './sequence';
+import { SequencedAttack, SequenceTarget, TargetSequenceResult, computeMultiTargetSequenceOdds } from './sequence';
 
 export interface SequenceWorkerRequest {
   type: 'compute';
   attacks: SequencedAttack[];
-  target: SequenceTarget;
+  targets: SequenceTarget[];
 }
 
 export type SequenceWorkerResponse =
   | { type: 'progress'; fraction: number }
-  | { type: 'result'; result: SequenceResult }
+  | { type: 'result'; results: TargetSequenceResult[] }
   | { type: 'error'; message: string };
 
 addEventListener('message', ({ data }: MessageEvent<SequenceWorkerRequest>) => {
   if (data.type !== 'compute') return;
   try {
-    const result = computeSequenceOdds(data.attacks, data.target, (fraction) =>
+    const results = computeMultiTargetSequenceOdds(data.attacks, data.targets, (fraction) =>
       postMessage({ type: 'progress', fraction } satisfies SequenceWorkerResponse)
     );
-    postMessage({ type: 'result', result } satisfies SequenceWorkerResponse);
+    postMessage({ type: 'result', results } satisfies SequenceWorkerResponse);
   } catch (err) {
     postMessage({
       type: 'error',

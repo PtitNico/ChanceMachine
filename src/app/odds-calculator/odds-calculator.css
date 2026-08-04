@@ -119,3 +119,35 @@
 .add-attack-btn:hover {
   background: rgba(201, 151, 61, 0.1);
 }
+
+/* --- Targets ---
+   Unlike .console--attacks, this section doesn't scroll internally - target counts stay small
+   enough in practice that just letting the section grow (pushing the flexible Attack sequence
+   section to shrink, same as it already does for any other fixed-height sibling) is simpler than
+   adding a second nested scroller. */
+
+.target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.add-target-btn {
+  width: 100%;
+  padding: 0.45rem;
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--text-dim);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.add-target-btn:hover {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
