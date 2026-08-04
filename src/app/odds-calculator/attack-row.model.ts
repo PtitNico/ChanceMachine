@@ -311,9 +311,15 @@ export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
   return tags;
 }
 
-/** Total dice picked by the user -> extra dice on top of the game's 2d6 baseline (never negative). */
+/** Total dice picked by the user -> offset from the engine's 2d6 baseline (`BASE_DICE` in
+ *  attack-model.ts) - genuinely NEGATIVE for `diceCount < 2` (1 is a valid, real dice pool, e.g.
+ *  DICE_OPTIONS' own floor), not clamped to 0. Clamping this to 0 was a bug: it silently made
+ *  picking "1" roll 2d6 anyway, identical to picking "2" - `attack-model.ts`'s own dice-pool math
+ *  (`isHitOutcome`'s single-die special case, `rollDicePool`'s `diceCount < 1` guard) already
+ *  correctly supports a genuine 1-die roll, so nothing downstream needed to change once this
+ *  stopped throwing the negative value away. */
 function toBoostDice(diceCount: number): number {
-  return Math.max(0, Math.floor(diceCount) - 2);
+  return Math.floor(diceCount) - 2;
 }
 
 function discardModifier(lowest: boolean, highest: boolean): { highest?: number; lowest?: number } | undefined {

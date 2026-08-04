@@ -19,6 +19,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: '2026-08-04',
+    items: [
+      "Fixed a bug where picking \"1\" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking \"2\".",
+    ],
+  },
+  {
     date: '2026-07-30',
     items: [
       "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
