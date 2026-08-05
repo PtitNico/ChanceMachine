@@ -14,8 +14,7 @@
  * A feature still in development, on a branch not yet merged/pushed to `develop`, isn't live for
  * any player yet - it doesn't belong under a real date (that would claim it shipped on a day it
  * didn't). Collect everything still unreleased under one `date: 'Unreleased'` entry (sorted first,
- * add the entry if it doesn't exist yet) instead; replace that placeholder with the real date once
- * the branch actually reaches `develop`. Deciding where a change goes:
+ * add the entry if it doesn't exist yet) instead. Deciding where a change goes:
  * - A genuinely new feature, or a fix/change to a feature ALREADY on `develop`: add a new item
  *   under `'Unreleased'` (creating that entry if it doesn't exist).
  * - A fix/change to a feature that's ITSELF still only under `'Unreleased'`: that feature was
@@ -23,6 +22,12 @@
  *   its own item. Fold the correction straight into that feature's own existing item instead (only
  *   if the correction actually changes how the feature reads to a player - a pure implementation
  *   detail needs no changelog wording at all), rather than appending a second item about it.
+ *
+ * `'Unreleased'` never reaches an actual player: `scripts/finalize-changelog.js`, run by
+ * `.github/workflows/deploy.yml` on every push to `develop` (right before the production build),
+ * rewrites it to that day's real date automatically and commits the result - by the time anything
+ * ships to GitHub Pages, the placeholder is already gone. Nothing here needs to remember to swap
+ * it by hand.
  */
 export interface ChangelogEntry {
   /** ISO date ('YYYY-MM-DD'), or the literal 'Unreleased' for work not yet merged/pushed to
