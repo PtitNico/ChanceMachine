@@ -1,18 +1,38 @@
 /**
  * changelog.data.ts
  * ------------------
- * Hand-maintained "what's new" list shown in the Changelog pop-up, newest entry first. Add a new
- * entry here (with today's date) whenever a change is worth telling a player about - new effects,
- * fixes that change a calculated result, notable UI changes. Not every commit belongs here - this
- * is player-facing, not a git log.
+ * Hand-maintained "what's new" list shown in the Changelog pop-up, newest entry first. Not every
+ * commit belongs here - this is player-facing, not a git log. Assume the reader already knows
+ * Warmachine/Hordes rules; describe what the app does differently now, as concisely as possible -
+ * no rules tutorials, no restating obvious mechanics.
  *
  * This list also drives the whole "have they seen what's new" versioning scheme: there's no
  * separate version number anywhere in the app (see ChangelogDialog) - `LATEST_CHANGELOG_DATE`
  * (simply the first entry's date) IS the current version, compared directly against whatever date
  * a visitor last saw in localStorage.
+ *
+ * A feature still in development, on a branch not yet merged/pushed to `develop`, isn't live for
+ * any player yet - it doesn't belong under a real date (that would claim it shipped on a day it
+ * didn't). Collect everything still unreleased under one `date: 'Unreleased'` entry (sorted first,
+ * add the entry if it doesn't exist yet) instead. Deciding where a change goes:
+ * - A genuinely new feature, or a fix/change to a feature ALREADY on `develop`: add a new item
+ *   under `'Unreleased'` (creating that entry if it doesn't exist).
+ * - A fix/change to a feature that's ITSELF still only under `'Unreleased'`: that feature was
+ *   never live, so a bug in it was never something a player hit - it isn't a "fix" and doesn't get
+ *   its own item. Fold the correction straight into that feature's own existing item instead (only
+ *   if the correction actually changes how the feature reads to a player - a pure implementation
+ *   detail needs no changelog wording at all), rather than appending a second item about it.
+ *
+ * `'Unreleased'` never reaches an actual player: `scripts/finalize-changelog.js`, run by
+ * `.github/workflows/deploy.yml` on every push to `develop` (right before the production build),
+ * rewrites it to that day's real date automatically and commits the result - by the time anything
+ * ships to GitHub Pages, the placeholder is already gone. Nothing here needs to remember to swap
+ * it by hand.
  */
 export interface ChangelogEntry {
-  /** ISO date ('YYYY-MM-DD'). Entries must stay sorted newest-first. */
+  /** ISO date ('YYYY-MM-DD'), or the literal 'Unreleased' for work not yet merged/pushed to
+   *  `develop` - see the module doc comment. Entries must stay sorted newest-first, with any
+   *  'Unreleased' entry first of all. */
   date: string;
   items: string[];
 }
