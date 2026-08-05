@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ViewChild, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ViewChild, signal } from '@angular/core';
 import {
   KOTD_OPTIONS,
   RESOURCE_OPTIONS,
@@ -22,7 +22,10 @@ import { ToggleSelect } from '../toggle-select/toggle-select';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TargetProfileDialog {
-  readonly target = input.required<TargetState>();
+  /** The target currently being edited - set by `open()`, read directly by the template (like
+   *  `AttackEditDialog.row`), since which target this pop-up shows changes per open() call now
+   *  that there can be more than one. */
+  protected readonly target = signal<TargetState | null>(null);
 
   protected readonly resourceOptions = RESOURCE_OPTIONS;
   protected readonly kotdOptions = KOTD_OPTIONS;
@@ -39,7 +42,8 @@ export class TargetProfileDialog {
 
   @ViewChild('shell') private shell?: DialogShell;
 
-  open(): void {
+  open(target: TargetState): void {
+    this.target.set(target);
     this.shell?.open();
   }
 

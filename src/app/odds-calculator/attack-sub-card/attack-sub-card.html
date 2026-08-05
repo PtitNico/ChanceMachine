@@ -64,5 +64,14 @@
     </div>
   </div>
 
+  @if (rangeSummary(row(), targets()); as rangeTags) {
+    @if (rangeTags.length > 0) {
+      <div class="range-line">
+        <span class="range-line__label">In range of:</span>
+        <span class="range-line__targets">{{ rangeLabel(rangeTags) }}</span>
+      </div>
+    }
+  }
+
   <app-effect-tags [tags]="effectsSummary(row())" />
 </div>

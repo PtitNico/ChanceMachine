@@ -1,14 +1,47 @@
 <section class="readout" aria-label="Results">
-  <div class="readout__row">
-    <div class="readout__grid" [class.readout__grid--calculating]="calculating()">
-      <div class="gauge gauge--highlight">
-        <span class="gauge__value">{{ pct(sequence().finalDestroyChance) }}</span>
-        <span class="gauge__label">Chance to destroy</span>
+  @if (results().length <= 1) {
+    <div class="readout__row">
+      <div class="readout__grid" [class.readout__grid--calculating]="calculating()">
+        <div class="gauge gauge--highlight">
+          <span class="gauge__value">{{ pct(results()[0]?.result?.finalDestroyChance ?? 0) }}</span>
+          <span class="gauge__label">Chance to destroy</span>
+        </div>
+        <div class="gauge">
+          <span class="gauge__value">{{ averageDamageByTarget()[0]?.toFixed(1) ?? '—' }}</span>
+          <span class="gauge__label">Average damage</span>
+        </div>
+
+        @if (calculating()) {
+          <div class="readout__overlay" aria-live="polite">
+            <span class="material-symbols-outlined readout__overlay-gear">settings</span>
+            <span class="readout__overlay-label">
+              Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
+            </span>
+          </div>
+        }
       </div>
-      <div class="gauge">
-        <span class="gauge__value">{{ averageDamage()?.toFixed(1) ?? '—' }}</span>
-        <span class="gauge__label">Average damage</span>
-      </div>
+
+      <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit(0)" aria-label="Show details">
+        <span class="material-symbols-outlined">query_stats</span>
+      </button>
+    </div>
+  } @else {
+    <div class="readout__all-destroyed" [class.readout__all-destroyed--calculating]="calculating()">
+      Chance to destroy all targets:
+      <span class="readout__all-destroyed-value">{{ pct(chanceToDestroyAll() ?? 0) }}</span>
+    </div>
+
+    <div class="readout__targets" [class.readout__targets--calculating]="calculating()">
+      @for (t of results(); track $index; let i = $index) {
+        <div class="readout__target-row">
+          <span class="readout__target-name">{{ targetNames()[i] }}</span>
+          <span class="readout__target-stat readout__target-stat--highlight">{{ pct(t.result.finalDestroyChance) }} destroyed</span>
+          <span class="readout__target-stat">{{ averageDamageByTarget()[i]?.toFixed(1) ?? '—' }} dmg</span>
+          <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit(i)" aria-label="Show details">
+            <span class="material-symbols-outlined">query_stats</span>
+          </button>
+        </div>
+      }
 
       @if (calculating()) {
         <div class="readout__overlay" aria-live="polite">
@@ -19,9 +52,5 @@
         </div>
       }
     </div>
-
-    <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit()" aria-label="Show details">
-      <span class="material-symbols-outlined">query_stats</span>
-    </button>
-  </div>
+  }
 </section>

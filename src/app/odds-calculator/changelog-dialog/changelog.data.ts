@@ -39,6 +39,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown, plus a "Chance to destroy all targets" figure.',
+    ],
+  },
+  {
     date: '2026-08-04',
     items: [
       "Fixed a bug where picking \"1\" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking \"2\".",

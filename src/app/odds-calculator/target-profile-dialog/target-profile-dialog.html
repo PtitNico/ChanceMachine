@@ -1,5 +1,5 @@
 <app-dialog-shell #shell title="Target profile" [framed]="true">
-  @let t = target();
+  @if (target(); as t) {
   <h3 class="dialog__section-title">Resources</h3>
   <div class="toggle-group">
     <app-toggle-select label="Focus" [signal]="t.focusPoints" [options]="resourceOptions" (valueChange)="onFocusChange(t, $event)" />
@@ -139,8 +139,11 @@
     />
   </div>
 
+  }
+  @if (target(); as t) {
   <div dialogActions class="dialog__actions">
     <button type="button" class="dialog__reset-btn" (click)="resetProfile(t)">Reset</button>
     <button type="button" class="dialog__done-btn" (click)="shell.close()">Done</button>
   </div>
+  }
 </app-dialog-shell>

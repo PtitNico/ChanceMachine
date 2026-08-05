@@ -1,3 +1,46 @@
+/* --- Target tabs (only rendered with more than one target) --- */
+
+.target-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.target-tabs__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.target-tabs__tab--active {
+  border-color: var(--brass);
+  color: var(--text);
+}
+
+.target-tabs__name {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.target-tabs__tab--active .target-tabs__name {
+  color: var(--brass-bright);
+}
+
+.target-tabs__stat {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+}
+
 /* --- Step-by-step and damage distribution --- */
 
 .steps {

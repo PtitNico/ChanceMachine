@@ -2,6 +2,7 @@ import { WritableSignal, signal } from '@angular/core';
 import { AttackType, EffectTrigger } from '../engine/attack-model';
 import { RofValue, SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
 import { range } from './range.util';
+import { Target, targetDisplayName } from './target-panel/target-panel.model';
 
 let nextRowId = 0;
 
@@ -240,6 +241,13 @@ export interface AttackRow {
   /** Every toggleable effect on this attack - always one entry per `TRIGGER_EFFECT_KEYS` (a fixed
    *  set) - see `TriggerEffectRow`'s doc comment above. */
   readonly triggerEffects: TriggerEffectRow[];
+
+  /** Which targets (by stable `Target.id`, not index - a target's own position can shift when an
+   *  earlier one is removed) this weapon is in range of - `null` means every target (the default).
+   *  Resolved into `SequencedAttack.eligibleTargetIndices` at compute time by `toSequencedAttack`,
+   *  looking each id up in the CURRENT targets list, mirroring how `attackerIndex` is resolved
+   *  fresh from the row's parent `Attacker` rather than stored on the row itself. */
+  readonly eligibleTargetIds: WritableSignal<string[] | null>;
 }
 
 export function createAttackRow(): AttackRow {
@@ -254,6 +262,7 @@ export function createAttackRow(): AttackRow {
     armPenaltyHitAmount: signal(0),
     armPenaltyCritAmount: signal(0),
     triggerEffects: createTriggerEffects(),
+    eligibleTargetIds: signal<string[] | null>(null),
   };
 }
 
@@ -270,6 +279,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     armPenaltyHitAmount: signal(source.armPenaltyHitAmount()),
     armPenaltyCritAmount: signal(source.armPenaltyCritAmount()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
+    eligibleTargetIds: signal(source.eligibleTargetIds()),
   };
 }
 
@@ -311,6 +321,22 @@ export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
   return tags;
 }
 
+/** Every target this row is in range of, shown under the attack row (as an "In range of: ..." line
+ *  - see `AttackSubCard`'s template) alongside `effectsSummary`'s own tags, but styled distinctly
+ *  since this isn't an effect. Always the FULL current target list when `eligibleTargetIds` is
+ *  `null` (the default - unset means every target) - shown unconditionally, not just once a weapon
+ *  is actually scoped down, so a player never has to open the Effects pop-up just to confirm a
+ *  weapon covers everyone. Empty (nothing shown at all) only when there's a single target to begin
+ *  with, since the whole notion of "range" is meaningless there. */
+export function rangeSummary(row: AttackRow, targets: Target[]): { key: string; label: string }[] {
+  if (targets.length <= 1) return [];
+  const eligibleIds = row.eligibleTargetIds();
+  return targets
+    .map((target, i) => ({ id: target.id, label: targetDisplayName(target, i, targets.length) }))
+    .filter(({ id }) => !eligibleIds || eligibleIds.includes(id))
+    .map(({ id, label }) => ({ key: id, label }));
+}
+
 /** Total dice picked by the user -> offset from the engine's 2d6 baseline (`BASE_DICE` in
  *  attack-model.ts) - genuinely NEGATIVE for `diceCount < 2` (1 is a valid, real dice pool, e.g.
  *  DICE_OPTIONS' own floor), not clamped to 0. Clamping this to 0 was a bug: it silently made
@@ -342,15 +368,22 @@ function isEffectOn(row: AttackRow, key: TriggerEffectKey): boolean {
  *  `attackerDisplayName` in `attacker.model.ts`), resolved by the caller and passed in here.
  *  `attackerIndex`/`hasPuppetMaster` are the same idea for Puppet Master's shared reroll token -
  *  see `sequence.ts`'s `SequencedAttack` doc comment for why `attackerIndex`, not `attackerName`,
- *  is the grouping key. */
+ *  is the grouping key. `targets` resolves `row.eligibleTargetIds` (stable ids) into
+ *  `eligibleTargetIndices` (the engine's own index-based key) by looking each id up in the
+ *  CURRENT targets list - same "resolve stable id to current position at compute time" pattern. */
 export function toSequencedAttack(
   row: AttackRow,
   index: number,
   stat: number,
   attackerName: string,
   attackerIndex: number,
-  hasPuppetMaster: boolean
+  hasPuppetMaster: boolean,
+  targets: Target[]
 ): SequencedAttack {
+  const eligibleTargetIds = row.eligibleTargetIds();
+  const eligibleTargetIndices = eligibleTargetIds
+    ? eligibleTargetIds.map((id) => targets.findIndex((t) => t.id === id)).filter((i) => i >= 0)
+    : undefined;
   const statEffects: StatEffect[] = row.triggerEffects
     .filter((e) => isStatEffectKey(e.key) && e.trigger() !== 'off')
     .map((e): StatEffect => ({ type: e.key as StatEffectType, trigger: e.trigger() as EffectTrigger }));
@@ -397,5 +430,6 @@ export function toSequencedAttack(
     sustainedAttack: triggerOf(row, 'sustainedAttack'),
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
+    eligibleTargetIndices,
   };
 }

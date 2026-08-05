@@ -1,7 +1,23 @@
 <app-dialog-shell #shell title="Details" [wide]="true">
+  @if (targetNames().length > 1) {
+    <div class="target-tabs">
+      @for (name of targetNames(); track name; let i = $index) {
+        <button
+          type="button"
+          class="target-tabs__tab"
+          [class.target-tabs__tab--active]="selectedIndex() === i"
+          (click)="selectTarget(i)"
+        >
+          <span class="target-tabs__name">{{ name }}</span>
+          <span class="target-tabs__stat">{{ pct(destroyChanceByTarget()[i]) }} destroyed</span>
+        </button>
+      }
+    </div>
+  }
+
   <div class="steps">
     <h3 class="distribution__title">Step by step</h3>
-    @for (row of shotRows(); track row.key) {
+    @for (row of shotRowsByTarget()[selectedIndex()]; track row.key) {
       @if (row.isNewWeapon) {
         <div class="steps__group-header">
           @if (row.isNewAttacker) {
@@ -29,16 +45,18 @@
           <span class="steps__metric-value">{{ row.averageDamage.toFixed(1) }}</span>
         </span>
       </div>
+    } @empty {
+      <p class="distribution__empty">No weapon in the sequence is in range of this target.</p>
     }
   </div>
 
   <div class="distribution">
     <h3 class="distribution__title">Total damage distribution</h3>
-    @for (point of damagePoints(); track point.damage) {
+    @for (point of damagePointsByTarget()[selectedIndex()]; track point.damage) {
       <div class="distribution__row">
         <span class="distribution__damage">{{ point.label }}</span>
         <span class="distribution__bar-track">
-          <span class="distribution__bar" [style.width.%]="(point.probability / maxDamageProbability()) * 100"></span>
+          <span class="distribution__bar" [style.width.%]="(point.probability / maxDamageProbabilityByTarget()[selectedIndex()]) * 100"></span>
         </span>
         <span class="distribution__prob">{{ pct(point.probability) }}</span>
       </div>

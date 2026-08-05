@@ -1,5 +1,22 @@
 <app-dialog-shell #shell title="Effects" [framed]="true">
   @if (row(); as row) {
+    @if (targets().length > 1) {
+      <h3 class="dialog__section-title">In range of</h3>
+      <div class="toggle-group">
+        @for (target of targets(); track target.id; let i = $index) {
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.toggle-btn--active]="isTargetEligible(row, target.id)"
+            [disabled]="isOnlyEligibleTarget(row, target.id)"
+            (click)="toggleTarget(row, target.id)"
+          >
+            {{ targetDisplayName(target, i, targets().length) }}
+          </button>
+        }
+      </div>
+    }
+
     <h3 class="dialog__section-title">General</h3>
     <div class="toggle-group">
       @for (effect of effectsFor(row, generalEffectKeys); track effect.key) {

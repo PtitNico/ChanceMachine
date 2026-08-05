@@ -58,3 +58,26 @@
   color: var(--text-dim);
   font-size: 0.7rem;
 }
+
+/* "In range of: Target 1, Target 2" - a single line, always shown once there's more than one
+   target (see `rangeSummary`'s own doc comment), not just once a weapon is scoped down - brass
+   rather than steel (unlike the effect tags right below it) since this isn't an effect, it's which
+   targets this weapon can even reach. */
+.range-line {
+  display: flex;
+  gap: 0.3em; /* Angular collapses the inter-element whitespace in the template to nothing, not a
+                 space - this is what actually separates the label from the target list. */
+  margin-top: 0.4rem;
+  padding-left: 1.4rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+
+.range-line__label {
+  color: var(--text-dim);
+}
+
+.range-line__targets {
+  color: var(--brass-bright);
+  font-weight: 600;
+}

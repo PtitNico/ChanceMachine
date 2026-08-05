@@ -15,14 +15,14 @@ The international Warmachine/Hordes player community — which is why the interf
 ## What the app calculates
 
 Given:
-- a **single target** (DEF, ARM, remaining damage boxes, plus an optional profile of resource points and capabilities — Focus/Fury, Tough, Shield, Unyielding, Carapace, spell bonuses),
+- **one or more targets**, each independent (DEF, ARM, remaining damage boxes, plus an optional profile of resource points and capabilities — Focus/Fury, Tough, Shield, Unyielding, Carapace, spell bonuses),
 - an **ordered attack sequence** (one or more attackers, each with one or more attacks),
 
-the app calculates, via **exact enumeration** of dice rolls (no approximation or random simulation):
+the app calculates, via **exact enumeration** of dice rolls (no approximation or random simulation), for EACH target in turn (attacks go against the first target until it's destroyed, then spill onto the next):
 - the chance to hit for each attack in the sequence,
-- the chance to destroy the target at *each step* of the sequence,
-- the cumulative chance to destroy the target after N attacks,
-- the expected number of boxes remaining if the target survives,
+- the chance to destroy that target at *each step* of the sequence,
+- the cumulative chance to destroy that target after N attacks,
+- the expected number of boxes remaining if that target survives,
 - the full distribution of boxes remaining in case of survival.
 
 Results recompute **instantly** on every field change, with no "Calculate" button.
@@ -42,7 +42,7 @@ A banner between the header and the Target section, with a bordered "Install app
 ### Menu
 
 A **☰ (hamburger)** icon button in the top-right corner of the header opens a small dropdown:
-- **Reset**: clears **everything** — the target's DEF/ARM/Boxes and its whole profile (Focus/Fury, Special rules, spell bonuses), plus the attack sequence, which collapses back down to a single default weapon row. Unlike the Reset buttons inside the Effects/Target profile pop-ups (which only ever touch what's inside that specific pop-up), this is the one "start completely over" action in the app. It takes effect immediately, with no confirmation step.
+- **Reset**: clears **everything** — every target collapses back down to a single default target (DEF/ARM/Boxes and its whole profile reset), and the attack sequence collapses back down to a single default weapon row. Unlike the Reset buttons inside the Effects/Target profile pop-ups (which only ever touch what's inside that specific pop-up), this is the one "start completely over" action in the app. It takes effect immediately, with no confirmation step.
 - **About**: a short pop-up explaining what the app does and how it computes its numbers. It also opens **automatically, once**, the very first time the app is loaded on a device/browser — a new visitor gets that explanation without having to find the menu first. It never opens itself again afterwards, whether or not that first pop-up was actually read (closing it instantly still counts as "seen"), and opening it manually from the menu doesn't affect this in either direction.
 - **Changelog**: a pop-up listing recent changes, grouped by date (newest first). It also opens **automatically**, once, whenever new entries have been added since the last time a visitor saw it — but never on that very first-ever visit, since About already covers "what is this app" there, and a full history of "what's new" would just be noise for someone who's never used any earlier version. A returning visitor who's genuinely missed something new sees exactly that, once, the next time they open the app.
 - **Feedback**: a pop-up with a small form (a Feedback/Bug report toggle, a message, and an optional email) to send feedback or report a bug directly from the app, without leaving it or knowing where to file an issue. Submissions go to a spreadsheet via a small Google Apps Script backend (see the technical documentation) — there's no visible confirmation that the *script* processed it successfully (only that the message was sent), a limitation of that kind of lightweight backend.
@@ -50,13 +50,49 @@ A **☰ (hamburger)** icon button in the top-right corner of the header opens a 
 
 The dropdown closes itself after picking an action, on pressing Escape, or on clicking anywhere outside it.
 
-### 1. Target
+### 1. Targets
 
-A single row of fields, shared across the whole attack sequence:
-- **DEF**: `KD` (the target is Knocked Down from the start of the sequence — **melee** attacks then automatically hit for the whole sequence, but **ranged** and **magic** attacks still roll normally against a DEF of 5), then 5 to 25.
+One or more **target cards**, each an independent model with its own DEF/ARM/Boxes and its own full
+profile (Focus/Fury, Special rules, resource counters, spell bonuses) — nothing about one target's
+own state (debuffs, resources, capabilities) ever affects another's. **Attacks resolve against the
+first target in the list until it's destroyed, then spill onto the next, and so on** — the SAME
+order-matters principle "Card order is resolution order" (see "Attack sequence" below) already
+applies to, just extended across targets too, including **mid-volley**: if one shot of a multi-shot
+weapon (`# Atks`/ROF) destroys the current target, that SAME weapon's remaining shots redirect to
+the next target immediately, exactly like the tabletop rule, rather than waiting for the next weapon
+in the sequence.
+
+Each card shows:
+- A **name**: click/tap directly on it to rename in place, same as an attacker's own name — shown as
+  dimmed placeholder text (**"Target"** while it's the only one, **"Target N"** by position once
+  there's more than one) until explicitly renamed.
+- **DEF**: `KD` (this target is Knocked Down from the start of the sequence — **melee** attacks then
+  automatically hit it for the whole sequence, but **ranged** and **magic** attacks still roll
+  normally against a DEF of 5), then 5 to 25.
 - **ARM**: 1 to 35.
 - **Boxes** (remaining damage capacity): 1 to 99.
-- A **⚙ (cog)** icon button that opens the **Target profile** pop-up (see below). Once the pop-up is closed, a compact summary of every active item is shown in small text **below the row** (e.g. `Focus 2`, `Tough Steady`, `Shield +2 ARM`, `Upkeep +3 ARM`), the same "tags under the row" presentation already used for each attack's active effects.
+- A **⚙ (cog)** icon button that opens THIS target's own **Target profile** pop-up (see below). Once
+  closed, a compact summary of every active item is shown in small text below the card, same as
+  before.
+- A trash icon button that removes this target (disabled while it's the only one — at least one
+  target always remains).
+
+A **"+ Add target"** button below the list adds a new target, copying the LAST target's current
+profile (DEF/ARM/Boxes and everything in its Target profile pop-up) — the same "copy the previous
+one" convenience the attack sequence's own "+ Add weapon"/"+ Add attacker" buttons already offer.
+
+**Weapon range**: once there's more than one target, each weapon's own Effects pop-up gains an
+**In range of** section at the very top — one toggle button per target, all on by default —
+narrowing which targets that specific weapon can hit at all. A weapon that isn't in range of the
+currently-engaged target keeps checking further down the target list for one it CAN reach, rather
+than sitting the round out — a weapon scoped to target 2 only fires at target 2 regardless of what
+happens to target 1, exactly as if it had never been aimed at target 1 in the first place. With only
+one target, this section is hidden entirely — there's nothing to narrow. A weapon must stay in range
+of at least one target — its last remaining toggle can't be switched off, so it's never possible to
+leave a weapon with nothing to fire at. Once there's more than one target, every weapon's own row in
+the attack sequence shows an **"In range of: Target 1, Target 2..."** line underneath its fields —
+listing every target it can reach, even when that's all of them — so a player never has to open the
+Effects pop-up just to check.
 
 The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, organized into toggle-button sections identical in style to the Effects pop-up (see "Attack sequence" below):
 - **Resources**: independent **Focus** and **Fury** toggles, each 0 to 15 — picking a value on one automatically clears the other (a model has one or the other, never both) — see "Focus and Fury" below.
@@ -141,12 +177,29 @@ The **"+ Add attacker"** button below the list adds a new attacker with one defa
 
 ### 3. Results
 
-By default, only two figures are shown:
+**With a single target** (the common case), two figures are shown:
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
 - **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
-A small **query_stats** icon next to the Average damage gauge (rather than a full-width button or a section title, to keep this fixed section as compact as possible — see "Compact layout" above) opens a pop-up with the full breakdown:
-- **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, or a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways.
+**With more than one target**, the two gauges are replaced by a **"Chance to destroy all targets"**
+line, above a compact list with one row per target (name, chance to destroy, average damage). A
+target only waits behind an earlier one if it genuinely shares a weapon with it — every weapon
+scoped away from every earlier target fires at it regardless of what happens to them (see "Weapon
+range" above). (A target that a specific weapon can never reach — see "Weapon range" above — still
+shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full boxes.)
+
+**"Chance to destroy all targets"** is the true joint probability every target dies, not just each
+one's own chance multiplied together — two targets sharing a weapon aren't independent (the same
+dice decide both of their fates), so naively multiplying can be badly wrong in either direction. Two
+targets that share no weapon at all really are independent, so multiplying works exactly there.
+
+A small **query_stats** icon opens a pop-up with the full breakdown — one icon per target once
+there's more than one, at the end of that target's own row (the row itself isn't clickable). With
+more than one target, a row of tabs at the top of this pop-up — one per target, each showing its own
+chance to destroy — lets the player switch which target's breakdown is shown below (defaulting to
+whichever icon was clicked); with a single target, this tab row is hidden entirely and the pop-up
+looks exactly as it always has:
+- **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target, or — with more than one target — a shot that never gets reached because an earlier TARGET is still alive when the sequence runs out), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways. With more than one target selected in the tab row above, a weapon that isn't in THIS target's own range (see "Weapon range" above) contributes no rows at all — each target's own list only ever shows the weapons that could actually hit it.
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 
 A large sequence with several resource counters (Focus/Fury, Knowledge of the Damned) pushed high at once can take a few seconds to calculate. If a calculation is still running after a brief moment, a **Calculating...** message with a spinning gear appears over the two gauges — the last-known numbers stay visible underneath, dimmed, rather than disappearing, and a rough progress estimate is shown alongside the message when one's available. The rest of the app (editing attacks, opening pop-ups) stays fully usable while this runs in the background.
@@ -273,6 +326,7 @@ Some rules points were implemented using the most commonly accepted formulation 
 - **No separate version number: the changelog's own newest date IS the version**, compared directly against whatever date a visitor last saw. Simpler than introducing a parallel semver scheme nothing else in the app needs, and it reuses the exact same "auto-open once, remember with a localStorage flag" idea already validated by About - just with "once" meaning "once per new set of entries" instead of "once ever".
 - **Shield Guards/Scapegoats are a true block, not mitigation like Focus/Fury**: Focus/Fury only ever soften or negate the DAMAGE of a hit that still technically landed — Rapid Healing still triggers off a Fury-negated hit, and a Fury-negated crit still lets Critical Shred chain. A Shield Guard/Scapegoat block instead reverts the hit as if it had missed outright, including any persistent effect it would have inflicted, so neither of those consequences fires. The one thing it deliberately does NOT touch is the displayed Hit%/Crit% for that attack — those reflect the roll that was actually made, not what the target chose to do about it afterward, matching how Focus/Fury already leave Hit%/Crit% alone too.
 - **The calculation runs in a background Web Worker, not on the main thread**: with Focus/Fury and both Knowledge of the Damned counters all pushed high at once, a calculation can take several seconds - and since a plain synchronous calculation would freeze the whole page for that whole time (no repaint, no animation, nothing), it now runs in the background instead, so the page stays fully responsive and the "Calculating..." message can actually appear and animate. The progress percentage shown alongside it is a rough estimate (how many of the sequence's attacks have finished resolving) rather than an exact figure - the very first attack often does the bulk of the total work internally, so the percentage can jump unevenly (e.g. straight to 80%, then crawl for the rest) rather than climbing smoothly. This was accepted as a reasonable tradeoff over showing no progress indication at all.
+- **Multiple targets redirect mid-volley, not just between weapons**: when the current target dies partway through a multi-shot weapon's own volley (`# Atks`/ROF), that SAME weapon's remaining shots redirect to the next target immediately, matching the tabletop rule precisely - chosen over the simpler (and cheaper to compute) alternative of only switching targets between whole weapons, after weighing the tradeoff explicitly (see the technical documentation for the engine design this required). A weapon whose own range doesn't cover the newly-current target simply stops firing for the rest of that row rather than searching further down the target list for one it CAN hit - a deliberately narrower rule than "always find any valid target," kept simple and predictable rather than trying to guess intent.
 
 ## Roadmap
 
