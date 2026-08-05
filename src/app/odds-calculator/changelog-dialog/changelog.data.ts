@@ -13,7 +13,7 @@
  *
  * A feature still in development, on a branch not yet merged/pushed to `develop`, isn't live for
  * any player yet - it doesn't belong under a real date (that would claim it shipped on a day it
- * didn't). Collect everything still unreleased under one `date: 'Unreleased'` entry (sorted first,
+ * didn't). Collect everything still unreleased under one `date: '2026-08-05'` entry (sorted first,
  * add the entry if it doesn't exist yet) instead. Deciding where a change goes:
  * - A genuinely new feature, or a fix/change to a feature ALREADY on `develop`: add a new item
  *   under `'Unreleased'` (creating that entry if it doesn't exist).
