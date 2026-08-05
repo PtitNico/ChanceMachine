@@ -89,10 +89,10 @@ than sitting the round out — a weapon scoped to target 2 only fires at target 
 happens to target 1, exactly as if it had never been aimed at target 1 in the first place. With only
 one target, this section is hidden entirely — there's nothing to narrow. A weapon must stay in range
 of at least one target — its last remaining toggle can't be switched off, so it's never possible to
-leave a weapon with nothing to fire at. Whenever a weapon isn't in range of every target, its own row
-in the attack sequence shows which targets it CAN reach as a row of tags underneath its fields — the
-same small-pill style the active-effects summary already uses right below it, but in brass rather
-than steel, so range doesn't get mistaken for an effect.
+leave a weapon with nothing to fire at. Once there's more than one target, every weapon's own row in
+the attack sequence shows an **"In range of: Target 1, Target 2..."** line underneath its fields —
+listing every target it can reach, even when that's all of them — so a player never has to open the
+Effects pop-up just to check.
 
 The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, organized into toggle-button sections identical in style to the Effects pop-up (see "Attack sequence" below):
 - **Resources**: independent **Focus** and **Fury** toggles, each 0 to 15 — picking a value on one automatically clears the other (a model has one or the other, never both) — see "Focus and Fury" below.

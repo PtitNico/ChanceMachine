@@ -66,10 +66,9 @@
 
   @if (rangeSummary(row(), targets()); as rangeTags) {
     @if (rangeTags.length > 0) {
-      <div class="range-tags">
-        @for (tag of rangeTags; track tag.key) {
-          <span class="range-tag">{{ tag.label }}</span>
-        }
+      <div class="range-line">
+        <span class="range-line__label">In range of:</span>
+        <span class="range-line__targets">{{ rangeLabel(rangeTags) }}</span>
       </div>
     }
   }

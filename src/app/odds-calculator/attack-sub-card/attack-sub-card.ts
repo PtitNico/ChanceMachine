@@ -57,6 +57,12 @@ export class AttackSubCard {
   protected readonly effectsSummary = effectsSummary;
   protected readonly rangeSummary = rangeSummary;
 
+  /** "Target 1, Target 2" - `rangeSummary`'s own tag list joined into the single "In range of: ..."
+   *  line the template shows (see `attack-sub-card.html`). */
+  protected rangeLabel(tags: { label: string }[]): string {
+    return tags.map((t) => t.label).join(', ');
+  }
+
   /** Only `attackCount` can end up out of range on a Type change: `RANGED_ATTACK_COUNT_OPTIONS`
    *  allows 0 (a pure-ROF weapon), but melee/arcane's own `ATTACK_COUNT_OPTIONS` starts at 1 - so
    *  switching away from Ranged with 0 selected needs bumping back to a valid value. `rof` itself
