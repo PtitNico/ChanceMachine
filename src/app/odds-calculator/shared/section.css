@@ -1,29 +1,16 @@
 /* Shared "console" chrome: the Target and Attack-sequence sections use .console,
    Results uses .readout (identical background/padding, different name for clarity
-   in the markup) - both share the same section-title styling. */
+   in the markup). None of the three sections show a visible title anymore (see
+   odds-calculator.html) - kept tight so the fixed Target/Results chrome takes up as little
+   vertical space as possible, leaving more room for .attack-list (the one section that scrolls)
+   to show several attack rows at once, especially on short mobile screens. */
 
 .console,
 .readout {
   flex-shrink: 0;
   background: var(--panel);
-  padding: 0.5rem 0.6rem;
+  padding: 0.4rem 0.5rem;
   min-width: 0;
-}
-
-/* Kept small so the fixed Target/Results chrome takes up as little vertical space
-   as possible, leaving more room for .attack-list (the one section that scrolls)
-   to show several attack rows at once, especially on short mobile screens. */
-.console__title {
-  flex-shrink: 0;
-  font-family: 'Rajdhani', sans-serif;
-  font-weight: 700;
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--brass-bright);
-  margin: 0 0 0.5rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 1px solid var(--line);
 }
 
 /* Modifier for a title that also carries an inline action (e.g. Results' "+" button) -

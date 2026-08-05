@@ -7,9 +7,10 @@
   min-width: 0;
 }
 
-/* Grid + the "Show details" button side by side - the button used to sit inside a title row
-   above the grid (removed, along with the "Results" title itself, to save vertical space); now
-   it lines up with the right edge of the Average damage gauge instead. */
+/* The main readout (either the single-target gauge grid or the multi-target joint-summary line)
+   plus the "Show details" button, side by side - the button used to sit inside a title row above
+   the grid (removed, along with the "Results" title itself, to save vertical space); now it lines
+   up with the readout's own right edge instead. Shared by both branches below. */
 .readout__row {
   display: flex;
   align-items: center;
@@ -95,15 +96,18 @@
   text-transform: uppercase;
 }
 
-/* --- Per-target list (more than one target - see .readout__grid above for the single-target case) --- */
+/* --- Joint summary (more than one target - see .readout__grid above for the single-target case) --- */
 
 /* The joint "everyone destroyed" summary - same brass-glow treatment as .gauge--highlight above,
-   but a single full-width line (not a grid cell) since it sits above the per-target list rather
-   than alongside a second gauge. */
+   sized to fill the row alongside its own "Show details" button (see .readout__row), same layout
+   as the single-target gauge grid does with its own button. Per-target breakdowns (destroy chance,
+   average damage) live in the Details dialog's own tab strip instead of a row here - see
+   DetailsDialog's doc comment. */
 .readout__all-destroyed {
+  position: relative; /* anchors .readout__overlay below */
+  flex: 1 1 auto;
   background: #2e2a1e;
   border: 1px solid var(--line);
-  border-bottom: none; /* flush against .readout__targets right below it */
   padding: 0.6rem 0.7rem;
   font-family: 'Inter', sans-serif;
   font-size: 0.78rem;
@@ -121,48 +125,4 @@
   font-size: 0.95rem;
   color: var(--brass-bright);
   text-shadow: 0 0 12px rgba(230, 185, 92, 0.35);
-}
-
-.readout__targets {
-  position: relative; /* anchors .readout__overlay, same as .readout__grid */
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-}
-
-.readout__targets--calculating .readout__target-row {
-  opacity: 0.35;
-  transition: opacity 0.15s ease;
-}
-
-.readout__target-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
-  background: var(--panel-raised);
-  color: var(--text);
-  font-family: 'Inter', sans-serif;
-}
-
-.readout__target-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.readout__target-stat {
-  flex-shrink: 0;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-}
-
-.readout__target-stat--highlight {
-  color: var(--brass-bright);
 }

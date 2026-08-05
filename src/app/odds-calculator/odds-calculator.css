@@ -53,8 +53,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.5rem 1.75rem 1.25rem;
+  gap: 0.75rem;
+  padding: 0.85rem 1.75rem 0.7rem;
   border-bottom: 2px solid var(--brass);
   background: linear-gradient(180deg, var(--panel-raised), var(--bg));
 }
@@ -66,7 +66,7 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--brass);
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.15rem;
 }
 
 .panel__body {
@@ -79,14 +79,31 @@
 }
 
 /* --- Attack sequence builder ---
-   This is the one section that scrolls: it grows to fill whatever space is left
-   between the fixed Target and Results sections, and .attack-list (not this
-   whole section) is what actually scrolls, so the "Attack sequence" title and
-   the "+ Add attack" button stay visible above/below the scrolling rows. */
+   Shares the leftover vertical space with Targets below (both `flex: 1 1 auto`, see
+   .console--targets) rather than assuming Targets stays fixed-size - Results stays genuinely fixed
+   (a single compact row regardless of target count, see results-panel.css). .attacker-list (not
+   this whole section) is what actually scrolls, so the "+ Add attacker" button stays visible below
+   the scrolling rows. */
 
 .console--attacks {
   flex: 1 1 auto;
-  min-height: 0;
+  /* A floor, not 0: plain flexbox shrink is weighted by content size, so with e.g. many targets
+     and only one attacker, an unbounded 0 floor could squeeze that one attacker card down to a
+     sliver even though it isn't the side asking for all the space - see .console--targets below
+     for the matching floor on that side. Roughly "20% of the space between the header and
+     Results" - a real percentage of that exact region isn't expressible in plain CSS (it'd need
+     to subtract two OTHER siblings' own rendered heights, one of which - Results - varies with
+     target count), so `dvh` (dynamic viewport height, same unit `.page` already uses for
+     mobile-chrome-aware sizing - see app.css) is used as a close, robust approximation instead:
+     header and Results are both small relative to the whole screen, so 20dvh lands close to the
+     intended "about a fifth of the Targets/Attackers area" without hardcoding brittle exact pixel
+     math that would silently drift out of sync the next time either sibling's own size changes.
+     Deliberately set HERE, on the flex item `.panel__body` itself shrinks (not on `.attacker-list`
+     one level down) - a min-height on the inner list doesn't stop `.panel__body` from shrinking
+     THIS section below that floor, it just makes the list overflow ITS OWN section instead, which
+     (since neither this section nor `.panel__body` clips) leaks all the way up into the page
+     itself scrolling as a whole - the exact bug this section is written to avoid. */
+  min-height: 30dvh;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -130,16 +147,42 @@
 }
 
 /* --- Targets ---
-   Unlike .console--attacks, this section doesn't scroll internally - target counts stay small
-   enough in practice that just letting the section grow (pushing the flexible Attack sequence
-   section to shrink, same as it already does for any other fixed-height sibling) is simpler than
-   adding a second nested scroller. */
+   Same shape as .console--attacks above, and for the same reason: with several targets
+   configured (Tough/spell bonuses etc. push a card past one line), an unbounded Targets section
+   used to have `flex-shrink: 0` (via the shared .console rule) and no internal scroll, so it could
+   squeeze Attack sequence down to nothing with no way for the player to get it back short of
+   removing targets. Making both sections equally flexible (`flex: 1 1 auto`, a matching 20dvh
+   floor - see .console--attacks's own doc comment for why it lives here and not one level down)
+   lets the browser's own flexbox shrink algorithm split whatever space is actually short between
+   them, weighted by how much content each one has - not a rigid 50/50 (which would waste space
+   forcing an even split when one side barely has any content), but neither section can force the
+   other below its own floor anymore, either. */
+
+.console--targets {
+  flex: 1 1 auto;
+  min-height: 20dvh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .target-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   margin-bottom: 0.5rem;
+  /* Hidden scrollbar (still fully scrollable by touch/trackpad/drag) - same treatment as
+     .attacker-list, for the same reason (a visible scrollbar track would sit right next to the
+     target cards' own controls). */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+
+.target-list::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, modern Edge */
 }
 
 .add-target-btn {

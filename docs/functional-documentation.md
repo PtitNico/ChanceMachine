@@ -33,7 +33,7 @@ The screen is split into three vertically stacked zones: **Target** at the top, 
 
 All numeric fields are **dropdown lists** (`<select>`) rather than free-text inputs — on mobile, this opens a native picker instead of the keyboard, which is noticeably faster for choosing a value within a range known in advance. Values are centered within each field, with generous spacing between fields. The Target row and each weapon row fit on **a single line, including on mobile**; if a screen is genuinely too narrow to show everything, the row scrolls horizontally instead of wrapping to a new line — with no visible scrollbar (so it doesn't crowd the numbers), while finger/trackpad scrolling remains possible.
 
-**Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attacker cards — this matters most on short mobile screens. The Target section's title sits on the same line as its DEF/ARM/Boxes row rather than above it, and the standalone "Attack sequence"/"Results" section titles have been dropped entirely — the attacker cards and the two result gauges are self-explanatory enough on their own without them. Results' "Show details" pop-up (see below) opens from a small icon next to the Average damage gauge, rather than a full-width button, for the same reason.
+**Compact layout.** Since Target and Results are fixed and Attack sequence is the only part that scrolls, every pixel spent on Target/Results chrome is a pixel not available to show attacker cards — this matters most on short mobile screens, and especially once several targets are configured. None of the three sections ("Target(s)", "Attack sequence", "Results") shows a standalone section title anymore — each target card's own name already sits on the same line as its DEF/ARM/Boxes row, and the attacker cards/result gauges are self-explanatory enough without a heading above them. Results' "Show details" pop-up (see below) opens from a small icon next to the Average damage gauge (or, with more than one target, next to the "Chance to destroy all targets" line), rather than a full-width button, for the same reason — and with more than one target, per-target results live only in that pop-up's own tabs rather than a list that grows with target count (see "Results" below).
 
 ### Install banner
 
@@ -181,24 +181,26 @@ The **"+ Add attacker"** button below the list adds a new attacker with one defa
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
 - **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
-**With more than one target**, the two gauges are replaced by a **"Chance to destroy all targets"**
-line, above a compact list with one row per target (name, chance to destroy, average damage). A
-target only waits behind an earlier one if it genuinely shares a weapon with it — every weapon
-scoped away from every earlier target fires at it regardless of what happens to them (see "Weapon
-range" above). (A target that a specific weapon can never reach — see "Weapon range" above — still
-shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full boxes.)
+**With more than one target**, the two gauges are replaced by a single **"Chance to destroy all
+targets"** line — the per-target breakdown (chance to destroy, average damage) moved into the
+Details pop-up's own tabs (below) to keep this section compact regardless of how many targets are
+configured. A target only waits behind an earlier one if it genuinely shares a weapon with it —
+every weapon scoped away from every earlier target fires at it regardless of what happens to them
+(see "Weapon range" above). (A target that a specific weapon can never reach — see "Weapon range"
+above — still shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full
+boxes.)
 
 **"Chance to destroy all targets"** is the true joint probability every target dies, not just each
 one's own chance multiplied together — two targets sharing a weapon aren't independent (the same
 dice decide both of their fates), so naively multiplying can be badly wrong in either direction. Two
 targets that share no weapon at all really are independent, so multiplying works exactly there.
 
-A small **query_stats** icon opens a pop-up with the full breakdown — one icon per target once
-there's more than one, at the end of that target's own row (the row itself isn't clickable). With
-more than one target, a row of tabs at the top of this pop-up — one per target, each showing its own
-chance to destroy — lets the player switch which target's breakdown is shown below (defaulting to
-whichever icon was clicked); with a single target, this tab row is hidden entirely and the pop-up
-looks exactly as it always has:
+A small **query_stats** icon opens a pop-up with the full breakdown (always the first target once
+there's more than one — the tab row described below lets the player switch from there). With more
+than one target, a row of tabs at the top of this pop-up — one per target, each showing its own
+chance to destroy AND average damage — lets the player switch which target's breakdown is shown
+below; with a single target, this tab row is hidden entirely and the pop-up looks exactly as it
+always has:
 - **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target, or — with more than one target — a shot that never gets reached because an earlier TARGET is still alive when the sequence runs out), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways. With more than one target selected in the tab row above, a weapon that isn't in THIS target's own range (see "Weapon range" above) contributes no rows at all — each target's own list only ever shows the weapons that could actually hit it.
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 

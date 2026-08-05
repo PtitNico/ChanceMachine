@@ -26,31 +26,24 @@
       </button>
     </div>
   } @else {
-    <div class="readout__all-destroyed" [class.readout__all-destroyed--calculating]="calculating()">
-      Chance to destroy all targets:
-      <span class="readout__all-destroyed-value">{{ pct(chanceToDestroyAll() ?? 0) }}</span>
-    </div>
+    <div class="readout__row">
+      <div class="readout__all-destroyed" [class.readout__all-destroyed--calculating]="calculating()">
+        Chance to destroy all targets:
+        <span class="readout__all-destroyed-value">{{ pct(chanceToDestroyAll() ?? 0) }}</span>
 
-    <div class="readout__targets" [class.readout__targets--calculating]="calculating()">
-      @for (t of results(); track $index; let i = $index) {
-        <div class="readout__target-row">
-          <span class="readout__target-name">{{ targetNames()[i] }}</span>
-          <span class="readout__target-stat readout__target-stat--highlight">{{ pct(t.result.finalDestroyChance) }} destroyed</span>
-          <span class="readout__target-stat">{{ averageDamageByTarget()[i]?.toFixed(1) ?? '—' }} dmg</span>
-          <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit(i)" aria-label="Show details">
-            <span class="material-symbols-outlined">query_stats</span>
-          </button>
-        </div>
-      }
+        @if (calculating()) {
+          <div class="readout__overlay" aria-live="polite">
+            <span class="material-symbols-outlined readout__overlay-gear">settings</span>
+            <span class="readout__overlay-label">
+              Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
+            </span>
+          </div>
+        }
+      </div>
 
-      @if (calculating()) {
-        <div class="readout__overlay" aria-live="polite">
-          <span class="material-symbols-outlined readout__overlay-gear">settings</span>
-          <span class="readout__overlay-label">
-            Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
-          </span>
-        </div>
-      }
+      <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit(0)" aria-label="Show details">
+        <span class="material-symbols-outlined">query_stats</span>
+      </button>
     </div>
   }
 </section>

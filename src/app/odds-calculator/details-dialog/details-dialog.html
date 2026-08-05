@@ -10,6 +10,7 @@
         >
           <span class="target-tabs__name">{{ name }}</span>
           <span class="target-tabs__stat">{{ pct(destroyChanceByTarget()[i]) }} destroyed</span>
+          <span class="target-tabs__stat">{{ averageDamageByTarget()[i]?.toFixed(1) ?? '—' }} dmg</span>
         </button>
       }
     </div>

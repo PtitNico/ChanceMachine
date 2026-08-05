@@ -13,8 +13,6 @@
 
   <div class="panel__body">
     <section class="console console--targets" aria-label="Targets">
-      <h2 class="console__title">Target{{ targets().length > 1 ? 's' : '' }}</h2>
-
       <div #targetList class="target-list">
         @for (target of targets(); track target.id; let i = $index; let count = $count) {
           <app-target-panel
@@ -77,6 +75,7 @@
     [damagePointsByTarget]="damageDistributionPointsByTarget()"
     [maxDamageProbabilityByTarget]="maxDamageProbabilityByTarget()"
     [destroyChanceByTarget]="destroyChanceByTarget()"
+    [averageDamageByTarget]="averageDamageByTarget()"
   />
 
   <app-about-dialog #aboutDialogRef />
