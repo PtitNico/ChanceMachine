@@ -20,6 +20,11 @@ export class ResultsPanel {
    *  more importantly the naive `boxesInitial - expectedBoxesRemaining` subtraction silently drops
    *  mass that never reached a given target at all). */
   readonly averageDamageByTarget = input.required<number[]>();
+  /** The true JOINT probability every target is destroyed - see `chanceToDestroyAllTargets`'s own
+   *  doc comment for why this is NOT simply the product of each target's own `finalDestroyChance`.
+   *  Only ever read once `results().length > 1` (see the template), so `null` (while a computation
+   *  is still in flight and no `results` exist yet) never actually reaches the page. */
+  readonly chanceToDestroyAll = input<number | null>(null);
   /** True once a recompute has been running long enough to be worth telling the user about - see
    *  `OddsEngine`'s own doc comment for the delay. The gauges below keep showing the LAST result
    *  (dimmed), not blanked, while this is true - reassurance the app hasn't frozen, not a reset. */

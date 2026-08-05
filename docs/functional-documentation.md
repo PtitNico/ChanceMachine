@@ -181,12 +181,17 @@ The **"+ Add attacker"** button below the list adds a new attacker with one defa
 - **Chance to destroy**: total probability of destroying the target over the whole sequence.
 - **Average damage**: expected total damage dealt over the whole sequence (unconditional — a destroyed target's exact overkill isn't tracked, so a destroyed outcome counts as exactly `boxesInitial` damage, same convention as the "N+" bucket in the damage distribution below).
 
-**With more than one target**, the two gauges are replaced by a compact list, one row per target
-(name, chance to destroy, average damage), each clickable to open the Details pop-up scoped to that
-target. A target only waits behind an earlier one if it genuinely shares a weapon with it — every
-weapon scoped away from every earlier target fires at it regardless of what happens to them (see
-"Weapon range" above). (A target that a specific weapon can never reach — see "Weapon range" above —
-still shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full boxes.)
+**With more than one target**, the two gauges are replaced by a **"Chance to destroy all targets"**
+line, above a compact list with one row per target (name, chance to destroy, average damage). A
+target only waits behind an earlier one if it genuinely shares a weapon with it — every weapon
+scoped away from every earlier target fires at it regardless of what happens to them (see "Weapon
+range" above). (A target that a specific weapon can never reach — see "Weapon range" above — still
+shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full boxes.)
+
+**"Chance to destroy all targets"** is the true joint probability every target dies, not just each
+one's own chance multiplied together — two targets sharing a weapon aren't independent (the same
+dice decide both of their fates), so naively multiplying can be badly wrong in either direction. Two
+targets that share no weapon at all really are independent, so multiplying works exactly there.
 
 A small **query_stats** icon opens a pop-up with the full breakdown — one icon per target once
 there's more than one, at the end of that target's own row (the row itself isn't clickable). With

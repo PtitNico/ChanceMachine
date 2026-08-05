@@ -97,6 +97,32 @@
 
 /* --- Per-target list (more than one target - see .readout__grid above for the single-target case) --- */
 
+/* The joint "everyone destroyed" summary - same brass-glow treatment as .gauge--highlight above,
+   but a single full-width line (not a grid cell) since it sits above the per-target list rather
+   than alongside a second gauge. */
+.readout__all-destroyed {
+  background: #2e2a1e;
+  border: 1px solid var(--line);
+  border-bottom: none; /* flush against .readout__targets right below it */
+  padding: 0.6rem 0.7rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.readout__all-destroyed--calculating {
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.readout__all-destroyed-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--brass-bright);
+  text-shadow: 0 0 12px rgba(230, 185, 92, 0.35);
+}
+
 .readout__targets {
   position: relative; /* anchors .readout__overlay, same as .readout__grid */
   display: flex;

@@ -189,6 +189,13 @@
  * the same complexity class as today's single-target computation, since the backward induction (the
  * expensive part) is unchanged - only the forward pass gets a constant-factor more bookkeeping.
  *
+ * `chanceToDestroyAllTargets` answers a DIFFERENT question than any single `TargetSequenceResult`
+ * does: not "what's target N's own chance to die" but "what's the chance every target dies", a true
+ * joint probability - see its own doc comment for why that's NOT simply the product of every
+ * target's own `finalDestroyChance` (two targets sharing a weapon are correlated) and how it's
+ * still computed cheaply from data `computeMultiTargetSequenceOdds` already produces, with no new
+ * engine machinery.
+ *
  * Puppet Master (`SequencedAttack.hasPuppetMaster`, one bit per distinct `attackerIndex` with it
  * active - see `pmMask` below) grants ONE ATTACKER a single shared reroll token, spendable once on
  * ANY of that attacker's own attack or damage rolls, across every attack it makes. Deliberately
@@ -2449,4 +2456,63 @@ export function computeMultiTargetSequenceOdds(
   });
 
   return results;
+}
+
+/**
+ * "Chance to destroy every target" - the true JOINT probability, not simply the product of each
+ * target's own (marginal) `finalDestroyChance`: two targets that share a weapon are correlated
+ * (the same dice decide both of their fates, not independent draws), so naively multiplying their
+ * marginals over- or under-counts depending on the correlation - see the module doc comment's
+ * "Multiple targets" section for a worked counterexample of why independence can't be assumed here.
+ *
+ * Two targets that share NO weapon at all, transitively, are provably independent instead (their
+ * own dice never overlap at all) - so this groups targets into CONNECTED COMPONENTS by shared
+ * weapon eligibility and multiplies each component's own "everyone in it destroyed" probability
+ * together, safe since different components can never correlate with each other.
+ *
+ * Within one component, the highest-ranked (last-processed) target's own `finalDestroyChance`
+ * ALREADY equals that whole component's joint "everyone in it destroyed" probability, for the same
+ * reason `computeMultiTargetSequenceOdds`'s own passthrough mechanism is exact: any mass reaching a
+ * later target through a rivaled row structurally REQUIRES every earlier rival sharing that row to
+ * have already died first (a row that's still active for an earlier-ranked, still-alive rival
+ * always fully resolves against it - there's no "leftover, still-undecided" mass that skips past a
+ * living rival and reaches someone else instead) - so by induction, a target with no unrivaled row
+ * of its own already carries its whole chain's joint requirement forward inside its own single
+ * number. This is exact for exactly the same cases `computeMultiTargetSequenceOdds` itself is exact
+ * for (fully independent weapons; a single shared weapon, or one handing off to per-target
+ * dedicated ones) - it inherits that same function's one documented approximation for a target with
+ * BOTH an unrivaled row and a later row it shares with an earlier target.
+ */
+export function chanceToDestroyAllTargets(attacks: SequencedAttack[], results: TargetSequenceResult[]): number {
+  const targetCount = results.length;
+  const parent = Array.from({ length: targetCount }, (_, i) => i);
+  function find(i: number): number {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  }
+  function union(a: number, b: number): void {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent[rootA] = rootB;
+  }
+
+  for (const atk of attacks) {
+    const eligible = atk.eligibleTargetIndices ?? Array.from({ length: targetCount }, (_, i) => i);
+    for (let k = 1; k < eligible.length; k++) union(eligible[0], eligible[k]);
+  }
+
+  const lastIndexByComponent = new Map<number, number>();
+  for (let i = 0; i < targetCount; i++) {
+    const root = find(i);
+    lastIndexByComponent.set(root, Math.max(lastIndexByComponent.get(root) ?? -1, i));
+  }
+
+  let chance = 1;
+  for (const lastIndex of lastIndexByComponent.values()) {
+    chance *= results[lastIndex].result.finalDestroyChance;
+  }
+  return chance;
 }

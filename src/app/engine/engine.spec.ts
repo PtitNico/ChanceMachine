@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { probabilityAtLeast, probabilityOfDouble, rerollPoolOnceIfBelow, rollDicePool } from './dice-pool';
 import { computeAttackOdds } from './attack-model';
-import { computeMultiTargetSequenceOdds, computeSequenceOdds, SequencedAttack, SequenceStepResult, SequenceTarget } from './sequence';
+import {
+  chanceToDestroyAllTargets,
+  computeMultiTargetSequenceOdds,
+  computeSequenceOdds,
+  SequencedAttack,
+  SequenceStepResult,
+  SequenceTarget,
+} from './sequence';
 
 /** Reconstructs the old row-level UNCONDITIONAL total average damage (summed across every shot in
  *  a weapon's own volley) from the new per-shot `shots[]` breakdown - each shot's own
@@ -2228,5 +2235,68 @@ describe('sequence engine - multiple targets', () => {
     for (const shot of t2.result.steps[0].shots) {
       expect(shot.occursChance).toBeLessThanOrEqual(t2.engagementChance + 1e-9);
     }
+  });
+
+  describe('chanceToDestroyAllTargets', () => {
+    it('is exactly the last target\'s own finalDestroyChance when every weapon is fully shared (one connected component, a clean chain)', () => {
+      // Genuinely probabilistic (not forceAutoHit/guaranteed) and lethal enough that both targets'
+      // own destroy chances are substantial, not vanishingly small - so target1/target2 dying being
+      // NOT independent (target2 can only ever be reached at all once target1 has died) actually
+      // shows up numerically, not just in principle.
+      const weapon = attack({ stat: 6, pow: 14, attackCount: 3 });
+      const target1: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+      const target2: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+
+      const [t1, t2] = computeMultiTargetSequenceOdds([weapon], [target1, target2]);
+      const chanceAll = chanceToDestroyAllTargets([weapon], [t1, t2]);
+
+      expect(t1.result.finalDestroyChance).toBeGreaterThan(0.05);
+      expect(t2.result.finalDestroyChance).toBeGreaterThan(0.01);
+      expect(chanceAll).toBeCloseTo(t2.result.finalDestroyChance, 9);
+      // Confirms this genuinely differs from the naive independence-assuming product - the whole
+      // point of this function existing instead of just multiplying marginals. Here the naive
+      // product is actually an UNDERestimate: t2's own reported finalDestroyChance already IS the
+      // joint "both destroyed" probability (target2 can only ever be reached once target1 died), so
+      // multiplying it by t1 again double-counts that same requirement a second time.
+      expect(chanceAll).toBeGreaterThan(t1.result.finalDestroyChance * t2.result.finalDestroyChance);
+    });
+
+    it('is the product of each target\'s own finalDestroyChance when no two targets share any weapon (provably independent)', () => {
+      const attackA = attack({ id: 'a', stat: 6, pow: 12, eligibleTargetIndices: [0] });
+      const attackB = attack({ id: 'b', stat: 6, pow: 12, eligibleTargetIndices: [1] });
+      const target1: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+      const target2: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+
+      const [t1, t2] = computeMultiTargetSequenceOdds([attackA, attackB], [target1, target2]);
+      const chanceAll = chanceToDestroyAllTargets([attackA, attackB], [t1, t2]);
+
+      expect(t1.result.finalDestroyChance).toBeGreaterThan(0);
+      expect(t1.result.finalDestroyChance).toBeLessThan(1);
+      expect(chanceAll).toBeCloseTo(t1.result.finalDestroyChance * t2.result.finalDestroyChance, 9);
+    });
+
+    it('multiplies across more than two independent components (mixed: two solo targets plus one shared pair)', () => {
+      const attackA = attack({ id: 'a', forceAutoHit: true, pow: 20, eligibleTargetIndices: [0] });
+      const sharedBC = attack({ id: 'bc', stat: 6, pow: 12, attackCount: 3, eligibleTargetIndices: [1, 2] });
+      const target1: SequenceTarget = { def: 13, arm: 0, boxes: 1 }; // always dies (forceAutoHit, huge pow)
+      const target2: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+      const target3: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+
+      const [t1, t2, t3] = computeMultiTargetSequenceOdds([attackA, sharedBC], [target1, target2, target3]);
+      const chanceAll = chanceToDestroyAllTargets([attackA, sharedBC], [t1, t2, t3]);
+
+      // Component {0}: t1 alone, always destroyed. Component {1,2}: t3 (last-ranked) already
+      // carries the joint "both 1 and 2 destroyed" probability - see the dedicated chain test above.
+      expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
+      expect(chanceAll).toBeCloseTo(1 * t3.result.finalDestroyChance, 9);
+    });
+
+    it('is exactly finalDestroyChance with a single target (regression safety)', () => {
+      const weapon = attack({ stat: 6, pow: 12, attackCount: 2 });
+      const target: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+
+      const [t] = computeMultiTargetSequenceOdds([weapon], [target]);
+      expect(chanceToDestroyAllTargets([weapon], [t])).toBeCloseTo(t.result.finalDestroyChance, 9);
+    });
   });
 });

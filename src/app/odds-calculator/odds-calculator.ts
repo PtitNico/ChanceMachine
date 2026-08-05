@@ -12,7 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
-import { SequencedAttack, SequenceTarget } from '../engine/sequence';
+import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -168,6 +168,14 @@ export class OddsCalculator {
   });
 
   protected readonly destroyChanceByTarget = computed<number[]>(() => this.sequence().map((t) => t.result.finalDestroyChance));
+
+  /** Only meaningful once there's more than one target - see `chanceToDestroyAllTargets`'s own
+   *  doc comment for why this is a genuine joint computation, not just `destroyChanceByTarget`
+   *  multiplied together. */
+  protected readonly chanceToDestroyAll = computed<number | null>(() => {
+    const results = this.sequence();
+    return results.length > 1 ? chanceToDestroyAllTargets(this.sequencedAttacks(), results) : null;
+  });
 
   /** Damage -> probability, per target, UNFILTERED and un-labelled - see
    *  `damageDistributionPointsByTarget` (the filtered/labelled display version) and
