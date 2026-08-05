@@ -41,12 +41,6 @@
   font-size: 0.7rem;
 }
 
-.target-tabs__engagement {
-  margin: 0 0 0.75rem;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-}
-
 /* --- Step-by-step and damage distribution --- */
 
 .steps {

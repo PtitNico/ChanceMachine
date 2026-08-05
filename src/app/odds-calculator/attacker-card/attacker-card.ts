@@ -19,6 +19,7 @@ import { EditableName } from '../editable-name/editable-name';
 import { EffectTags } from '../effect-tags/effect-tags';
 import { MiniFieldSelect } from '../mini-field-select/mini-field-select';
 import { toNumber } from '../select.util';
+import { Target } from '../target-panel/target-panel.model';
 
 /** One attacker in the sequence: a card showing its name (an `EditableName` - click/tap the text
  *  directly to rename, no separate input/button pair) and MAT/RAT/AAT, holding its own attacks as
@@ -37,6 +38,9 @@ export class AttackerCard {
   readonly attacker = input.required<Attacker>();
   readonly index = input.required<number>();
   readonly removable = input(true);
+  /** The live target list - only used to render each attack's own "in range of" tags (see
+   *  `AttackSubCard`) once there's more than one target - passed straight through, unmodified. */
+  readonly targets = input<Target[]>([]);
 
   readonly addAttack = output<void>();
   readonly remove = output<void>();

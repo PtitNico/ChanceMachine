@@ -2080,7 +2080,7 @@ describe('sequence engine - multiple targets', () => {
     expect(t2.result.steps[0].destroyChanceAtThisStep).toBeCloseTo(1, 9);
   });
 
-  it('a weapon scoped to only the current target contributes nothing once a later target becomes current', () => {
+  it('a weapon scoped to only the first target never reaches a second target when there is no other weapon', () => {
     const scoped = attack({ id: 'scoped', forceAutoHit: true, pow: 20, attackCount: 3, eligibleTargetIndices: [0] });
     const target1: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
     const target2: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
@@ -2088,12 +2088,54 @@ describe('sequence engine - multiple targets', () => {
     const [t1, t2] = computeMultiTargetSequenceOdds([scoped], [target1, target2]);
 
     expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
-    // The sequence DOES reach target 2 (target 1 died)...
-    expect(t2.engagementChance).toBeCloseTo(1, 9);
-    // ...but this weapon can't hit it (out of range) - its leftover shots simply fizzle rather
-    // than searching further down the target list.
+    // Target 2 has zero eligible rows anywhere in this (single-row) sequence, so it's never even a
+    // candidate for anything - unlike the mid-sequence case (see the "cascades past" test below),
+    // there's no LATER row here for its leftover shots to reach, so engagementChance is genuinely 0,
+    // not "reached but out of range".
+    expect(t2.engagementChance).toBeCloseTo(0, 9);
     expect(t2.result.steps[0].shots).toEqual([]);
     expect(t2.result.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
+  it("two targets each guarded by their own dedicated weapon produce identical results (symmetry - regression for the 'weapon waits behind an unrelated target' bug)", () => {
+    const attackA = attack({ id: 'a', forceAutoHit: true, stat: 7, pow: 12, eligibleTargetIndices: [0] });
+    const attackB = attack({ id: 'b', forceAutoHit: true, stat: 7, pow: 12, eligibleTargetIndices: [1] });
+    const target1: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+    const target2: SequenceTarget = { def: 13, arm: 10, boxes: 8 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([attackA, attackB], [target1, target2]);
+
+    // Neither weapon can touch the other's target, so each target's own fate must be completely
+    // unaffected by the other - both should come out IDENTICAL, not just "both nonzero".
+    expect(t2.result.finalDestroyChance).toBeCloseTo(t1.result.finalDestroyChance, 9);
+    expect(t2.result.steps.at(-1)!.expectedBoxesRemaining).toBeCloseTo(t1.result.steps.at(-1)!.expectedBoxesRemaining, 9);
+    expect(t2.engagementChance).toBeCloseTo(1, 9);
+    // And each is fully engaged/resolved by its OWN dedicated weapon alone, unconditional on the
+    // other target's fate (not merely "close to 1" because the other one usually dies too).
+    expect(t1.engagementChance).toBeCloseTo(1, 9);
+  });
+
+  it("a weapon's leftover shots cascade past a target it can't reach to one further down the list", () => {
+    // row0: eligible for target1 only. row1: eligible for target1 AND target2. row2: eligible for
+    // target2 only. Every attack is a guaranteed, single, lethal shot (forceAutoHit, huge pow,
+    // 1 box) so the whole thing is deterministic and hand-checkable.
+    const rowA = attack({ id: 'a', forceAutoHit: true, pow: 20, eligibleTargetIndices: [0] });
+    const rowShared = attack({ id: 'shared', forceAutoHit: true, pow: 20 }); // eligible for both (unset)
+    const rowB = attack({ id: 'b', forceAutoHit: true, pow: 20, eligibleTargetIndices: [1] });
+    const target1: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+    const target2: SequenceTarget = { def: 13, arm: 0, boxes: 1 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([rowA, rowShared, rowB], [target1, target2]);
+
+    // Target 1 is destroyed deterministically by row0 (its own dedicated weapon).
+    expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
+    // Target 2 is engaged with certainty: row0 doesn't touch it, so it's never gated behind row0 at
+    // all - rowShared (row1) is the first row target2 is even a candidate for, and since target1 is
+    // ALWAYS already dead by then (guaranteed at row0), rowShared always resolves against target2,
+    // which it also destroys deterministically. row2's own dedicated shot never even matters here
+    // (target2 is already dead by the time it's reached).
+    expect(t2.engagementChance).toBeCloseTo(1, 9);
+    expect(t2.result.finalDestroyChance).toBeCloseTo(1, 9);
   });
 
   it("a debuff inflicted on the first target never carries over to the second target's DEF/ARM", () => {
@@ -2159,5 +2201,32 @@ describe('sequence engine - multiple targets', () => {
     expect(viaOrchestrator.result.finalDestroyChance).toBeCloseTo(direct.finalDestroyChance, 9);
     expect(viaOrchestrator.result.steps[0].shots[0].hitChance).toBeCloseTo(direct.steps[0].shots[0].hitChance, 9);
     expect(viaOrchestrator.result.steps[1].shots[0].averageDamage).toBeCloseTo(direct.steps[1].shots[0].averageDamage, 9);
+  });
+
+  it("a redirected shot's own Chance reflects how rare the redirect actually is, not '100%, given we got this far' (regression: a later target's occursChance was shown inflated, ignoring how unlikely it was to ever be reached)", () => {
+    const weapon = attack({ stat: 6, pow: 12, attackCount: 3 });
+    const target1: SequenceTarget = { def: 15, arm: 15, boxes: 15 };
+    const target2: SequenceTarget = { def: 15, arm: 15, boxes: 15 };
+
+    const [t1, t2] = computeMultiTargetSequenceOdds([weapon], [target1, target2]);
+
+    // Target 2 only ever comes under fire via a mid-volley redirect (target 1 dying before its own
+    // 3-shot volley is spent) - genuinely rare here, not "guaranteed once we got this far".
+    expect(t2.engagementChance).toBeGreaterThan(0);
+    expect(t2.engagementChance).toBeLessThan(1);
+
+    // Shot 1 can never redirect (target 1 always gets first crack at it).
+    expect(t2.result.steps[0].shots[0].occursChance).toBeCloseTo(0, 9);
+
+    // Shot 3 only ever reaches target 2 in the branch where target 1 died leaving EXACTLY 1 shot
+    // owed - its Chance must equal that exact handoff probability (small), not 100%.
+    const diedWithOneShotLeft = t1.result.steps[0].destroyChanceByShotsRemaining[1];
+    expect(diedWithOneShotLeft).toBeGreaterThan(0);
+    expect(t2.result.steps[0].shots[2].occursChance).toBeCloseTo(diedWithOneShotLeft, 9);
+
+    // No shot can look MORE certain than target 2's own overall engagement chance.
+    for (const shot of t2.result.steps[0].shots) {
+      expect(shot.occursChance).toBeLessThanOrEqual(t2.engagementChance + 1e-9);
+    }
   });
 });

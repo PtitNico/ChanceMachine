@@ -117,11 +117,8 @@
   gap: 0.6rem;
   padding: 0.5rem 0.7rem;
   background: var(--panel-raised);
-  border: none;
   color: var(--text);
   font-family: 'Inter', sans-serif;
-  cursor: pointer;
-  text-align: left;
 }
 
 .readout__target-name {
@@ -142,8 +139,4 @@
 
 .readout__target-stat--highlight {
   color: var(--brass-bright);
-}
-
-.readout__target-engagement {
-  color: var(--steel);
 }

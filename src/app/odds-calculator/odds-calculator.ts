@@ -169,8 +169,6 @@ export class OddsCalculator {
 
   protected readonly destroyChanceByTarget = computed<number[]>(() => this.sequence().map((t) => t.result.finalDestroyChance));
 
-  protected readonly engagementChanceByTarget = computed<number[]>(() => this.sequence().map((t) => t.engagementChance));
-
   /** Damage -> probability, per target, UNFILTERED and un-labelled - see
    *  `damageDistributionPointsByTarget` (the filtered/labelled display version) and
    *  `averageDamageByTarget` (its expected value), both derived from this so they stay consistent

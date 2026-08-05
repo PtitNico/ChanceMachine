@@ -40,6 +40,7 @@
             [attacker]="attacker"
             [index]="i"
             [removable]="count > 1"
+            [targets]="targets()"
             (addAttack)="onAddAttack(attacker)"
             (editAttack)="attackEditDialogRef.open($event)"
             (removeAttack)="onRemoveAttack(attacker, $event)"
@@ -75,7 +76,6 @@
     [damagePointsByTarget]="damageDistributionPointsByTarget()"
     [maxDamageProbabilityByTarget]="maxDamageProbabilityByTarget()"
     [destroyChanceByTarget]="destroyChanceByTarget()"
-    [engagementChanceByTarget]="engagementChanceByTarget()"
   />
 
   <app-about-dialog #aboutDialogRef />

@@ -2,7 +2,7 @@ import { WritableSignal, signal } from '@angular/core';
 import { AttackType, EffectTrigger } from '../engine/attack-model';
 import { RofValue, SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
 import { range } from './range.util';
-import { Target } from './target-panel/target-panel.model';
+import { Target, targetDisplayName } from './target-panel/target-panel.model';
 
 let nextRowId = 0;
 
@@ -319,6 +319,23 @@ export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
     tags.push({ key: effect.key, label });
   }
   return tags;
+}
+
+/** Which targets this row is in range of, one tag per eligible target - shown under the attack
+ *  row alongside `effectsSummary`'s own tags, but styled distinctly (see `AttackSubCard`'s
+ *  template) since this isn't an effect. Empty (nothing shown) whenever this weapon is in range of
+ *  every CURRENT target - either `eligibleTargetIds` is `null` (the default), or it was built by
+ *  re-toggling every target back on one at a time (leaving a real, non-null array that happens to
+ *  cover the full current list - see `toggleTarget`'s own doc comment) - or there's only one
+ *  target to begin with, since none of those is worth calling out. */
+export function rangeSummary(row: AttackRow, targets: Target[]): { key: string; label: string }[] {
+  const eligibleIds = row.eligibleTargetIds();
+  if (!eligibleIds || targets.length <= 1) return [];
+  const tags = targets
+    .map((target, i) => ({ id: target.id, label: targetDisplayName(target, i, targets.length) }))
+    .filter(({ id }) => eligibleIds.includes(id))
+    .map(({ id, label }) => ({ key: id, label }));
+  return tags.length < targets.length ? tags : [];
 }
 
 /** Total dice picked by the user -> offset from the engine's 2d6 baseline (`BASE_DICE` in

@@ -13,12 +13,6 @@
         </button>
       }
     </div>
-    @if (engagementChanceByTarget()[selectedIndex()] < 1) {
-      <p class="target-tabs__engagement">
-        {{ pct(engagementChanceByTarget()[selectedIndex()]) }} chance this target is even attacked - the rest of the
-        time an earlier target survives the whole sequence.
-      </p>
-    }
   }
 
   <div class="steps">

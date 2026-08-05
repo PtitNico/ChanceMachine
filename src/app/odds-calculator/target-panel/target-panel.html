@@ -1,10 +1,12 @@
 <div class="target-card">
   <div class="target-card__header">
-    <app-editable-name
-      [nameSignal]="target().name"
-      [placeholder]="count() > 1 ? 'Target ' + (index() + 1) : 'Target'"
-      ariaLabel="Target name"
-    />
+    <div class="target-card__name-row">
+      <app-editable-name
+        [nameSignal]="target().name"
+        [placeholder]="count() > 1 ? 'Target ' + (index() + 1) : 'Target'"
+        ariaLabel="Target name"
+      />
+    </div>
 
     <app-mini-field-select label="DEF" [signal]="target().state.def" [options]="defOptions" [parse]="parseDef" />
     <app-mini-field-select label="ARM" [signal]="target().state.arm" [options]="armOptions" [parse]="toNumber" />

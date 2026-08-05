@@ -77,9 +77,14 @@
   transition: background-color 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
 }
 
-.toggle-btn:hover {
+.toggle-btn:hover:not(:disabled) {
   border-color: var(--brass);
   color: var(--text);
+}
+
+.toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .toggle-btn--active {

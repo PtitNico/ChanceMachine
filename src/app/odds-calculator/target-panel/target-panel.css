@@ -20,10 +20,18 @@
   margin-bottom: 0.5rem;
 }
 
-.target-card__header app-editable-name {
+/* A real element (not `app-editable-name` directly - that component's `:host` is `display:
+   contents`, so it never actually participates in flex layout itself; its child span would just
+   grow to fit the name's own text and push DEF/ARM/Boxes/the buttons sideways as it's edited).
+   This wrapper is the genuine flex item instead: `flex: 1 1 auto` claims exactly the row's
+   leftover space, independent of the name's own length, so everything after it stays put - same
+   fix `AttackerCard`'s own `.attacker-card__name-row` uses for its name (see that file). */
+.target-card__name-row {
   align-self: center;
   flex: 1 1 auto;
   min-width: 5rem;
+  display: flex;
+  align-items: center;
 }
 
 .target-card__header:has(+ app-effect-tags:not(:empty)) {

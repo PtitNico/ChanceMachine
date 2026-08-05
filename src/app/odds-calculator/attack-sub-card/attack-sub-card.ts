@@ -12,10 +12,12 @@ import {
   TYPE_EMOJI,
   effectsSummary,
   parsePow,
+  rangeSummary,
 } from '../attack-row.model';
 import { EffectTags } from '../effect-tags/effect-tags';
 import { MiniFieldSelect } from '../mini-field-select/mini-field-select';
 import { toNumber } from '../select.util';
+import { Target } from '../target-panel/target-panel.model';
 
 /** One attack within an `AttackerCard`: Type/ROF/POW/dice are edited directly here (moved back
  *  out of the attack-edit pop-up, which is effects-only again - see `AttackEditDialog`), so this
@@ -32,6 +34,9 @@ import { toNumber } from '../select.util';
 export class AttackSubCard {
   readonly row = input.required<AttackRow>();
   readonly removable = input(true);
+  /** The live target list - only used to render `rangeSummary`'s own tags (below) once there's
+   *  more than one target. */
+  readonly targets = input<Target[]>([]);
 
   readonly edit = output<void>();
   readonly remove = output<void>();
@@ -50,6 +55,7 @@ export class AttackSubCard {
   protected readonly typeOptionLabel = (type: AttackType): string => TYPE_EMOJI[type];
 
   protected readonly effectsSummary = effectsSummary;
+  protected readonly rangeSummary = rangeSummary;
 
   /** Only `attackCount` can end up out of range on a Type change: `RANGED_ATTACK_COUNT_OPTIONS`
    *  allows 0 (a pure-ROF weapon), but melee/arcane's own `ATTACK_COUNT_OPTIONS` starts at 1 - so

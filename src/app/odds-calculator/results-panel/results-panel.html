@@ -28,14 +28,14 @@
   } @else {
     <div class="readout__targets" [class.readout__targets--calculating]="calculating()">
       @for (t of results(); track $index; let i = $index) {
-        <button type="button" class="readout__target-row" (click)="showDetails.emit(i)">
+        <div class="readout__target-row">
           <span class="readout__target-name">{{ targetNames()[i] }}</span>
           <span class="readout__target-stat readout__target-stat--highlight">{{ pct(t.result.finalDestroyChance) }} destroyed</span>
           <span class="readout__target-stat">{{ averageDamageByTarget()[i]?.toFixed(1) ?? '—' }} dmg</span>
-          @if (t.engagementChance < 1) {
-            <span class="readout__target-stat readout__target-engagement">{{ pct(t.engagementChance) }} engaged</span>
-          }
-        </button>
+          <button type="button" class="icon-btn icon-btn--stats" (click)="showDetails.emit(i)" aria-label="Show details">
+            <span class="material-symbols-outlined">query_stats</span>
+          </button>
+        </div>
       }
 
       @if (calculating()) {

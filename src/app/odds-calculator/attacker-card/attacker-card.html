@@ -46,6 +46,7 @@
         [cdkDragData]="row"
         [row]="row"
         [removable]="count > 1"
+        [targets]="targets()"
         (edit)="editAttack.emit(row)"
         (remove)="removeAttack.emit(row.id)"
       />

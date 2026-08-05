@@ -58,3 +58,25 @@
   color: var(--text-dim);
   font-size: 0.7rem;
 }
+
+/* "In range of" tags - same size/shape/spacing as `.effect-tag` (shared/effect-tags.css) so the
+   two rows read as one family, but in brass rather than steel: this isn't an effect, it's which
+   targets this weapon can even reach, so it deliberately doesn't blend in with the effects list
+   right below it. */
+.range-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-left: 1.4rem;
+}
+
+.range-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--brass-bright);
+  background: var(--bg);
+  border: 1px solid var(--brass);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}

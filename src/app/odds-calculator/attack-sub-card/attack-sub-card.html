@@ -64,5 +64,15 @@
     </div>
   </div>
 
+  @if (rangeSummary(row(), targets()); as rangeTags) {
+    @if (rangeTags.length > 0) {
+      <div class="range-tags">
+        @for (tag of rangeTags; track tag.key) {
+          <span class="range-tag">{{ tag.label }}</span>
+        }
+      </div>
+    }
+  }
+
   <app-effect-tags [tags]="effectsSummary(row())" />
 </div>

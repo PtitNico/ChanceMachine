@@ -155,13 +155,39 @@
  * independent of which target it's currently hitting.
  *
  * `computeMultiTargetSequenceOdds` runs each target sequentially: target 0 with the default
- * injection (100% fresh before row 0); target t+1's own injection schedule is built directly from
- * target t's own per-row `destroyChanceByShotsRemaining`, filtered to rows actually in target
- * (t+1)'s own range (a redirect landing on a weapon out of range for the new current target
- * fizzles for the rest of that row - it does NOT search further down the target list for one that
- * is). Cost is linear in target count: each target's own run is the same complexity class as
- * today's single-target computation, since the backward induction (the expensive part) is
- * unchanged - only the forward pass gets a constant-factor more bookkeeping.
+ * `available` schedule (100% fresh before row 0). Each target only consumes the slice of
+ * `available` landing on rows it's actually eligible for (`ownInjection`); the REST - mass on rows
+ * this target was never even a candidate for - carries forward UNCHANGED to the next target
+ * (`passthrough`), rather than being dropped: a weapon scoped away from one target is still exactly
+ * what a LATER target further down the list might need, regardless of whether the target(s) in
+ * between ever die. (An earlier version of this dropped that passthrough mass - making a weapon
+ * scoped to target 2 only wait behind target 1 even though it can never touch target 1 at all - a
+ * real bug, not a deliberate simplification; fixed once reported.)
+ *
+ * Passthrough alone isn't quite enough, though: `available` only ever holds EXPLICIT entries, never
+ * an implicit "100% is still available at every untouched row". That's invisible for target 0 (its
+ * first row IS row 0, exactly where the default entry already sits), but breaks for a LATER target
+ * whose own first eligible row has no earlier-ranked target eligible for it either - there is no
+ * rival that could ever "hold" that row, so it should be unconditionally, guaranteed reachable the
+ * moment the sequence gets there, same as target 0's row 0 - yet nothing upstream ever had a reason
+ * to produce an `available` entry AT that row, so a pure passthrough/death-handoff chain sees 0%
+ * there. `computeMultiTargetSequenceOdds` detects exactly this ("this target's own first eligible
+ * row has no earlier-ranked co-eligible target") and tops that row up to a full, unconditional 1,
+ * REPLACING whatever partial/coincidental mass the chain happened to carry there - a target scoped
+ * to a completely disjoint set of weapons from every earlier target is thus fully independent of
+ * them, exactly as it should be. (This is a narrower, deliberate simplification for the rarer case
+ * of a target with BOTH such an unrivaled row AND a later row it genuinely shares with an earlier
+ * target: once its own mass is flowing from the unrivaled entry point, a later shared row is treated
+ * as unconditionally active rather than gated by that earlier target's own survival odds - i.e. it
+ * can slightly overstate how often the shared row actually reaches this target. Every case the
+ * feature was designed for - fully independent weapons, and a single shared "general" weapon handing
+ * off to per-target dedicated ones - is exact.)
+ *
+ * Target t+1's own `available` is the passthrough UNION target t's own newly-destroyed mass,
+ * converted to `RowInjection`s exactly as before (row k+1 if t died on row k's own last shot, row k
+ * itself for a genuine mid-volley resume). Cost is linear in target count: each target's own run is
+ * the same complexity class as today's single-target computation, since the backward induction (the
+ * expensive part) is unchanged - only the forward pass gets a constant-factor more bookkeeping.
  *
  * Puppet Master (`SequencedAttack.hasPuppetMaster`, one bit per distinct `attackerIndex` with it
  * active - see `pmMask` below) grants ONE ATTACKER a single shared reroll token, spendable once on
@@ -549,11 +575,12 @@ export interface SequenceOptions {
 /** One target's own result from `computeMultiTargetSequenceOdds`. */
 export interface TargetSequenceResult {
   result: SequenceResult;
-  /** Chance this target is even engaged at all: 1 for the first target in the list, otherwise the
-   *  PRECEDING target's own `finalDestroyChance` (a target only starts taking fire once the one
-   *  ahead of it in the queue is destroyed) - see the module doc comment's "Multiple targets"
-   *  section. Not the same as "chance every one of its own attackers' weapons actually reaches it":
-   *  a weapon out of THIS target's range still contributes nothing even once engaged. */
+  /** Total probability mass that ever gets a chance to be resolved against THIS target - 1 for the
+   *  first target in the list (always engaged), less than 1 for a later one whenever it depends on
+   *  an earlier, shared-eligibility target dying first. NOT simply "the preceding target's own
+   *  `finalDestroyChance`": a target with NO weapons ranked ahead of it that share ANY of its own
+   *  eligible rows is engaged with certainty regardless of what happens to earlier targets (see the
+   *  module doc comment's "Multiple targets" section). */
   engagementChance: number;
 }
 
@@ -2318,15 +2345,19 @@ export function computeSequenceOdds(
 }
 
 /**
- * Runs `computeSequenceOdds` once per target, in order, chaining each target's own destroyed mass
- * into the next target's injection schedule - see the module doc comment's "Multiple targets"
- * section for the full design. Target 0 gets the default injection (100% fresh before row 0, i.e.
- * today's exact single-target starting condition); target t+1's injection is built directly from
- * target t's own `SequenceStepResult.destroyChanceByShotsRemaining`, filtered down to rows that are
- * actually in target (t+1)'s own range (`eligibleTargetIndices`) - a redirect landing on a weapon
- * out of range for the new current target fizzles for the rest of that row rather than searching
- * further down the target list. `onProgress`, if given, is scaled so it advances smoothly across
- * every target's own share of the overall work, not just the current one's.
+ * Runs `computeSequenceOdds` once per target, in order, chaining probability mass forward through
+ * the target list - see the module doc comment's "Multiple targets" section for the full design.
+ * Target 0 gets the default `available` schedule (100% fresh before row 0, i.e. today's exact
+ * single-target starting condition). Each target only consumes the SLICE of `available` landing on
+ * rows it's actually eligible for (`ownInjection`) - the REST (`passthrough`: mass on rows this
+ * target was never even a candidate for) carries forward to the next target completely UNCHANGED,
+ * not dropped - a weapon scoped away from this target might still be exactly what an EARLIER-ranked
+ * weapon-eligible-but-target-ineligible row needs once it reaches a target it CAN hit. Target t+1's
+ * own `available` is this passthrough UNION target t's own newly-destroyed mass
+ * (`destroyChanceByShotsRemaining`, converted to a `RowInjection` exactly as before - row k+1 if t
+ * died on row k's own last shot, row k itself for a genuine mid-volley resume). `onProgress`, if
+ * given, is scaled so it advances smoothly across every target's own share of the overall work, not
+ * just the current one's.
  */
 export function computeMultiTargetSequenceOdds(
   attacks: SequencedAttack[],
@@ -2334,22 +2365,75 @@ export function computeMultiTargetSequenceOdds(
   onProgress?: (fraction: number) => void
 ): TargetSequenceResult[] {
   const results: TargetSequenceResult[] = [];
-  let injection: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
-  let engagementChance = 1;
+  let available: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
 
   targets.forEach((target, targetIndex) => {
     const rowActive = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(targetIndex));
-    const activeInjection = injection.filter((inj) => rowActive[inj.row]);
+    let ownInjection = available.filter((inj) => rowActive[inj.row]);
+    // Mass on a row this target was never even a candidate for - untouched by this target's own
+    // computeSequenceOdds call (which only ever reports on rows in `rowActive`), so it has to be
+    // carried forward here explicitly rather than re-derived from `result` below.
+    const passthrough = available.filter((inj) => !rowActive[inj.row]);
+
+    // `available` only ever carries EXPLICIT injection entries forward - it has no notion of "100%
+    // is implicitly available at every row nobody's claimed yet". That's invisible for target 0 (its
+    // own first row IS row 0, exactly where the default entry sits) but breaks for a later target
+    // whose own first eligible row is one no EARLIER-ranked target is also eligible for: nothing
+    // upstream ever produces an `available` entry AT that row (there was never any reason to), so
+    // `ownInjection` would otherwise see 0% there even though this target is unconditionally
+    // guaranteed a fresh shot the moment the sequence reaches it - it has no rival that could ever
+    // "hold" that row instead. Detect that case and top the row up to a full, unconditional 1 -
+    // replacing (not adding to) whatever partial/coincidental mass the chain happened to carry there,
+    // since an unrivaled row's access can never actually depend on any earlier target's fate.
+    const firstEligibleRow = rowActive.indexOf(true);
+    if (firstEligibleRow !== -1) {
+      const eligibleForFirstRow = attacks[firstEligibleRow].eligibleTargetIndices;
+      const hasEarlierRivalAtFirstRow = eligibleForFirstRow
+        ? eligibleForFirstRow.some((idx) => idx < targetIndex)
+        : targetIndex > 0; // unset eligibleTargetIndices = eligible for every target, earlier ones included
+      if (!hasEarlierRivalAtFirstRow) {
+        ownInjection = [
+          ...ownInjection.filter((inj) => !(inj.row === firstEligibleRow && inj.shotsRemaining === 0)),
+          { row: firstEligibleRow, shotsRemaining: 0, probability: 1 },
+        ];
+      }
+    }
+
+    // Total mass that ever gets a chance to be resolved against THIS target - see
+    // `TargetSequenceResult.engagementChance`'s own doc comment.
+    const engagementChance = ownInjection.reduce((sum, inj) => sum + inj.probability, 0);
 
     const result = computeSequenceOdds(
       attacks,
       target,
       onProgress ? (fraction) => onProgress((targetIndex + fraction) / targets.length) : undefined,
-      { rowActive, injection: activeInjection }
+      { rowActive, injection: ownInjection }
     );
-    results.push({ result, engagementChance });
 
-    const nextInjection: RowInjection[] = [];
+    // `computeSequenceOdds` computes each shot's own `occursChance` relative to ITS OWN incoming
+    // mass (whatever `ownInjection` above sums to, i.e. `engagementChance`) - a correct, row-local
+    // ratio in isolation (see `SequenceShotResult`'s own doc comment: conditional on "the weapon's
+    // turn comes up"), but for a later target `engagementChance` is ALREADY a fraction of the true
+    // original 1.0, so left as-is this ratio silently drops that outer fraction: a shot that only
+    // ever fires in the rare branch where an earlier target died early would misleadingly read as
+    // 100% ("guaranteed, given we got this far") rather than genuinely rare. `computeSequenceOdds`
+    // is entirely linear in its own `injection` (nothing anywhere renormalizes - see the module doc
+    // comment), so scaling every `occursChance` by `engagementChance` converts it back into a true
+    // probability out of the original 1.0, exactly like `finalDestroyChance` already is - a no-op
+    // whenever `engagementChance` is 1 (target 0, or any later target with no earlier rival).
+    const rescaledResult: SequenceResult =
+      engagementChance === 1
+        ? result
+        : {
+            ...result,
+            steps: result.steps.map((step) => ({
+              ...step,
+              shots: step.shots.map((shot) => ({ ...shot, occursChance: shot.occursChance * engagementChance })),
+            })),
+          };
+    results.push({ result: rescaledResult, engagementChance });
+
+    const nextInjection: RowInjection[] = [...passthrough];
     result.steps.forEach((step, k) => {
       step.destroyChanceByShotsRemaining.forEach((probability, shotsRemaining) => {
         if (probability <= 0) return;
@@ -2361,8 +2445,7 @@ export function computeMultiTargetSequenceOdds(
         else nextInjection.push({ row: k, shotsRemaining, probability });
       });
     });
-    injection = nextInjection;
-    engagementChance = result.finalDestroyChance;
+    available = nextInjection;
   });
 
   return results;

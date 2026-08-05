@@ -1,23 +1,45 @@
 /**
  * changelog.data.ts
  * ------------------
- * Hand-maintained "what's new" list shown in the Changelog pop-up, newest entry first. Add a new
- * entry here (with today's date) whenever a change is worth telling a player about - new effects,
- * fixes that change a calculated result, notable UI changes. Not every commit belongs here - this
- * is player-facing, not a git log.
+ * Hand-maintained "what's new" list shown in the Changelog pop-up, newest entry first. Not every
+ * commit belongs here - this is player-facing, not a git log. Assume the reader already knows
+ * Warmachine/Hordes rules; describe what the app does differently now, as concisely as possible -
+ * no rules tutorials, no restating obvious mechanics.
  *
  * This list also drives the whole "have they seen what's new" versioning scheme: there's no
  * separate version number anywhere in the app (see ChangelogDialog) - `LATEST_CHANGELOG_DATE`
  * (simply the first entry's date) IS the current version, compared directly against whatever date
  * a visitor last saw in localStorage.
+ *
+ * A feature still in development, on a branch not yet merged/pushed to `develop`, isn't live for
+ * any player yet - it doesn't belong under a real date (that would claim it shipped on a day it
+ * didn't). Collect everything still unreleased under one `date: 'Unreleased'` entry (sorted first,
+ * add the entry if it doesn't exist yet) instead; replace that placeholder with the real date once
+ * the branch actually reaches `develop`. Deciding where a change goes:
+ * - A genuinely new feature, or a fix/change to a feature ALREADY on `develop`: add a new item
+ *   under `'Unreleased'` (creating that entry if it doesn't exist).
+ * - A fix/change to a feature that's ITSELF still only under `'Unreleased'`: that feature was
+ *   never live, so a bug in it was never something a player hit - it isn't a "fix" and doesn't get
+ *   its own item. Fold the correction straight into that feature's own existing item instead (only
+ *   if the correction actually changes how the feature reads to a player - a pure implementation
+ *   detail needs no changelog wording at all), rather than appending a second item about it.
  */
 export interface ChangelogEntry {
-  /** ISO date ('YYYY-MM-DD'). Entries must stay sorted newest-first. */
+  /** ISO date ('YYYY-MM-DD'), or the literal 'Unreleased' for work not yet merged/pushed to
+   *  `develop` - see the module doc comment. Entries must stay sorted newest-first, with any
+   *  'Unreleased' entry first of all. */
   date: string;
   items: string[];
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    date: 'Unreleased',
+    items: [
+      'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown.',
+      'Fixed a bug where editing a target\'s name could shift its DEF/ARM/Boxes fields and buttons sideways as you typed.',
+    ],
+  },
   {
     date: '2026-08-04',
     items: [
@@ -30,7 +52,6 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Attacks are now grouped into weapons: each weapon row can fire a fixed number of times (1-10) in a row, on top of ranged weapons' existing variable ROF (the two now add together).",
       "Added the (Critical) Sustained Attack weapon effect: once an attack from a weapon hits (or crits), the rest of that weapon's attacks auto-hit.",
       'Reworked the Details "Step by step" breakdown into one row per attack, grouped under the owning attacker\'s name and weapon type icon, with a "Chance" column showing how likely a variable-count shot (from ROF or a shot past a destroyed target) is to happen at all.',
-      'Added support for multiple targets: attacks now go against the first target until it\'s destroyed, then spill onto the next - even mid-volley, if a multi-shot weapon\'s remaining shots outlive the target they were aimed at. Each target keeps its own independent DEF/ARM/Boxes/profile. A weapon can optionally be scoped to a subset of targets ("Targets" in its Effects pop-up) - defaults to all. Results and Details both grow a per-target breakdown once there\'s more than one.',
     ],
   },
   {

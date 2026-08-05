@@ -83,11 +83,22 @@ export class AttackEditDialog {
     return ids === null || ids.includes(targetId);
   }
 
+  /** An attack must stay in range of at least one target - this is the one target left standing
+   *  once every other one has been toggled off, so its own button is disabled (see the template)
+   *  to keep it that way: nothing left to fall back on if this one also came off. */
+  protected isOnlyEligibleTarget(row: AttackRow, targetId: string): boolean {
+    const current = row.eligibleTargetIds() ?? this.targets().map((t) => t.id);
+    return current.length === 1 && current.includes(targetId);
+  }
+
   /** Toggling a target while every target is currently eligible (`null`) starts from the full
    *  current target list rather than an empty one, so the click reads as "turn OFF just this one"
-   *  (matching what the button visually showed as already active) instead of "turn on just this one". */
+   *  (matching what the button visually showed as already active) instead of "turn on just this one".
+   *  Turning off the LAST remaining eligible target is a no-op - see `isOnlyEligibleTarget`, which
+   *  also disables the button so this path is defense-in-depth, not the only guard. */
   protected toggleTarget(row: AttackRow, targetId: string): void {
     const current = row.eligibleTargetIds() ?? this.targets().map((t) => t.id);
+    if (current.includes(targetId) && current.length <= 1) return;
     row.eligibleTargetIds.set(current.includes(targetId) ? current.filter((id) => id !== targetId) : [...current, targetId]);
   }
 }

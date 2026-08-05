@@ -23,8 +23,7 @@ the app calculates, via **exact enumeration** of dice rolls (no approximation or
 - the chance to destroy that target at *each step* of the sequence,
 - the cumulative chance to destroy that target after N attacks,
 - the expected number of boxes remaining if that target survives,
-- the full distribution of boxes remaining in case of survival,
-- the chance that target is even engaged at all (only meaningful once there's more than one).
+- the full distribution of boxes remaining in case of survival.
 
 Results recompute **instantly** on every field change, with no "Calculate" button.
 
@@ -82,13 +81,18 @@ A **"+ Add target"** button below the list adds a new target, copying the LAST t
 profile (DEF/ARM/Boxes and everything in its Target profile pop-up) — the same "copy the previous
 one" convenience the attack sequence's own "+ Add weapon"/"+ Add attacker" buttons already offer.
 
-**Weapon range**: once there's more than one target, each weapon's own Effects pop-up gains a
-**Targets** section — one toggle button per target, all on by default — narrowing which targets that
-specific weapon can hit at all. A weapon whose currently-active target isn't in its own toggled-on
-set simply doesn't fire this round (no valid target in range) rather than searching further down the
-target list for one that is; the next weapon in the sequence checks again against whichever target
-is current by then. With only one target, this section is hidden entirely — there's nothing to
-narrow.
+**Weapon range**: once there's more than one target, each weapon's own Effects pop-up gains an
+**In range of** section at the very top — one toggle button per target, all on by default —
+narrowing which targets that specific weapon can hit at all. A weapon that isn't in range of the
+currently-engaged target keeps checking further down the target list for one it CAN reach, rather
+than sitting the round out — a weapon scoped to target 2 only fires at target 2 regardless of what
+happens to target 1, exactly as if it had never been aimed at target 1 in the first place. With only
+one target, this section is hidden entirely — there's nothing to narrow. A weapon must stay in range
+of at least one target — its last remaining toggle can't be switched off, so it's never possible to
+leave a weapon with nothing to fire at. Whenever a weapon isn't in range of every target, its own row
+in the attack sequence shows which targets it CAN reach as a row of tags underneath its fields — the
+same small-pill style the active-effects summary already uses right below it, but in brass rather
+than steel, so range doesn't get mistaken for an effect.
 
 The Target profile pop-up groups everything that isn't DEF/ARM/Boxes directly, organized into toggle-button sections identical in style to the Effects pop-up (see "Attack sequence" below):
 - **Resources**: independent **Focus** and **Fury** toggles, each 0 to 15 — picking a value on one automatically clears the other (a model has one or the other, never both) — see "Focus and Fury" below.
@@ -179,18 +183,17 @@ The **"+ Add attacker"** button below the list adds a new attacker with one defa
 
 **With more than one target**, the two gauges are replaced by a compact list, one row per target
 (name, chance to destroy, average damage), each clickable to open the Details pop-up scoped to that
-target. A target only starts taking fire once every target ahead of it in the list is destroyed, so
-a row also shows an **"X% engaged"** note whenever it's less than 100% — the chance the sequence even
-reaches that target at all, given how the ones ahead of it might turn out. (A target that's engaged
-but that a specific weapon can never reach — see "Weapon range" above — still shows 0% destroyed and
-0 average damage from that weapon's own share, same as a target that's never engaged at all: no
-damage, full boxes.)
+target. A target only waits behind an earlier one if it genuinely shares a weapon with it — every
+weapon scoped away from every earlier target fires at it regardless of what happens to them (see
+"Weapon range" above). (A target that a specific weapon can never reach — see "Weapon range" above —
+still shows 0% destroyed and 0 average damage from that weapon's own share: no damage, full boxes.)
 
-A small **query_stats** icon (single target) or clicking a target's own row (multiple targets) opens
-a pop-up with the full breakdown. With more than one target, a row of tabs at the top of this pop-up
-— one per target, each showing its own chance to destroy — lets the player switch which target's
-breakdown is shown below (defaulting to whichever was clicked); with a single target, this tab row
-is hidden entirely and the pop-up looks exactly as it always has:
+A small **query_stats** icon opens a pop-up with the full breakdown — one icon per target once
+there's more than one, at the end of that target's own row (the row itself isn't clickable). With
+more than one target, a row of tabs at the top of this pop-up — one per target, each showing its own
+chance to destroy — lets the player switch which target's breakdown is shown below (defaulting to
+whichever icon was clicked); with a single target, this tab row is hidden entirely and the pop-up
+looks exactly as it always has:
 - **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target, or — with more than one target — a shot that never gets reached because an earlier TARGET is still alive when the sequence runs out), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways. With more than one target selected in the tab row above, a weapon that isn't in THIS target's own range (see "Weapon range" above) contributes no rows at all — each target's own list only ever shows the weapons that could actually hit it.
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 

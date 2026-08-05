@@ -5,9 +5,8 @@ import { DamagePoint, ShotRow } from './details-dialog.model';
 
 /** Step-by-step breakdown + damage distribution, scoped to one target at a time. With a single
  *  target this looks exactly as it always has (no tab strip at all); with more than one, a tab
- *  strip at the top (one per target, showing its own destroy/engagement chance) lets the player
- *  switch which target's own breakdown is shown below - see `sequence.ts`'s "Multiple targets"
- *  module doc comment section for what `engagementChance` means. */
+ *  strip at the top (one per target, showing its own destroy chance) lets the player switch which
+ *  target's own breakdown is shown below. */
 @Component({
   selector: 'app-details-dialog',
   standalone: true,
@@ -23,9 +22,6 @@ export class DetailsDialog {
   readonly damagePointsByTarget = input.required<DamagePoint[][]>();
   readonly maxDamageProbabilityByTarget = input.required<number[]>();
   readonly destroyChanceByTarget = input.required<number[]>();
-  /** Chance this target is even engaged at all - see `TargetSequenceResult.engagementChance`'s own
-   *  doc comment. Always 1 for the first target. */
-  readonly engagementChanceByTarget = input.required<number[]>();
 
   protected readonly pct = pct;
   protected readonly selectedIndex = signal(0);
