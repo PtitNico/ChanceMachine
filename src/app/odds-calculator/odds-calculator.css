@@ -17,9 +17,18 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-width: 0; /* this component is a flex item of .page (app.css) - without this, the nowrap
-                   attack/target rows' min-content width would stop the flex item (and the whole
-                   page) from ever shrinking below it instead of just scrolling internally */
+  /* This component is a flex item of .page (app.css, a ROW-direction flex container centering its
+     one child) - without `flex: 1 1 auto`, this never GROWS to fill the available width, only
+     shrink-wraps to whatever `.panel` inside happens to need at the moment (e.g. narrower with one
+     target than with several, since the target/attack rows' own content needs differ) - `.page`
+     would then center that VARYING width instead of the app reliably filling the screen. Growing
+     here is what makes `.panel`'s own `width: 100%; max-width: 500px; margin-inline: auto` below
+     actually work as intended: full-width on a narrow/phone viewport, capped and centered only once
+     the viewport exceeds 500px. */
+  flex: 1 1 auto;
+  min-width: 0; /* without this, the nowrap attack/target rows' min-content width would stop the
+                   flex item (and the whole page) from ever shrinking below it instead of just
+                   scrolling internally */
   font-family: 'Inter', system-ui, sans-serif;
   color: var(--text);
 }
@@ -35,7 +44,7 @@
   width: 100%;
   background: var(--bg);
   border-inline: 1px solid var(--line);
-  max-width: 960px;
+  max-width: 500px;
   margin-inline: auto;
 }
 

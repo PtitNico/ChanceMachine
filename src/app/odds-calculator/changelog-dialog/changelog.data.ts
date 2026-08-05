@@ -41,8 +41,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: 'Unreleased',
     items: [
-      'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown, plus a "Chance to destroy all targets" figure - the true joint probability, correctly accounting for targets that share a weapon rather than just multiplying each one\'s own chance together.',
-      'Fixed a bug where editing a target\'s name could shift its DEF/ARM/Boxes fields and buttons sideways as you typed.',
+      'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown, plus a "Chance to destroy all targets" figure.',
     ],
   },
   {
