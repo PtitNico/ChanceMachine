@@ -25,6 +25,10 @@ export class DetailsDialog {
   readonly maxDamageProbabilityByTarget = input.required<number[]>();
   readonly destroyChanceByTarget = input.required<number[]>();
   readonly averageDamageByTarget = input.required<number[]>();
+  /** One sentence per Focus-enabled attacker, shared across every target (Focus is one pool for
+   *  the whole sequence - see odds-calculator.ts's own doc comment) rather than per-target like
+   *  everything else in this dialog. Empty whenever no attacker has Focus active. */
+  readonly focusStrategySummaries = input.required<string[]>();
 
   protected readonly pct = pct;
   protected readonly selectedIndex = signal(0);

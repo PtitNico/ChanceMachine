@@ -8,6 +8,7 @@ import {
   SequencedAttack,
   SequenceStepResult,
   SequenceTarget,
+  summarizeFocusStrategy,
 } from './sequence';
 
 /** Reconstructs the old row-level UNCONDITIONAL total average damage (summed across every shot in
@@ -1853,6 +1854,248 @@ describe('sequence engine - Knowledge of the Damned', () => {
   );
 });
 
+describe('sequence engine - Attacker Focus (boost attack/damage rolls)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when attackerFocus is absent or 0 (regression safety)', () => {
+    const attacks = [attack({ id: '1' }), attack({ id: '2' })];
+    const explicitlyZero = attacks.map((a) => ({ ...a, attackerIndex: 0, attackerFocus: 0 }));
+    const withoutField = computeSequenceOdds(attacks, target);
+    const withZero = computeSequenceOdds(explicitlyZero, target);
+    expect(withZero.finalDestroyChance).toBeCloseTo(withoutField.finalDestroyChance, 9);
+  });
+
+  it('strictly improves the destroy chance for a single marginal attack by boosting the attack roll', () => {
+    const withoutFocus = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const withFocus = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1 })], target);
+    expect(withFocus.finalDestroyChance).toBeGreaterThan(withoutFocus.finalDestroyChance);
+  });
+
+  it('boosts the damage roll instead when the attack roll is already guaranteed to hit (auto-hit)', () => {
+    // An auto-hit attack rolls no to-hit dice at all (see attack-model.ts), so boosting the attack
+    // roll is worthless here - the true-optimal policy should spend the point on the damage roll
+    // instead, strictly increasing average damage without changing hit/crit chance at all (an
+    // auto-hit attack can never crit). Ranged, so buying an extra melee attack (Phase 3) isn't a
+    // competing use of the point - isolates the damage-roll-boost decision on its own.
+    const guaranteedHit = attack({ stat: 6, pow: 12, type: 'ranged', forceAutoHit: true });
+    const without = computeSequenceOdds([guaranteedHit], target);
+    const withFocus = computeSequenceOdds([{ ...guaranteedHit, attackerIndex: 0, attackerFocus: 1 }], target);
+    expect(withFocus.steps[0].shots[0].averageDamage).toBeGreaterThan(without.steps[0].shots[0].averageDamage);
+    expect(withFocus.steps[0].shots[0].hitChance).toBeCloseTo(without.steps[0].shots[0].hitChance, 9);
+    expect(withFocus.steps[0].shots[0].critChance).toBeCloseTo(0, 9);
+  });
+
+  it('composes correctly with Puppet Master (a boosted attack roll is what Puppet Master\'s own reroll redraws from)', () => {
+    const both = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, hasPuppetMaster: true, attackerIndex: 0, attackerFocus: 1 })],
+      target
+    );
+    const pmOnly = computeSequenceOdds([attack({ stat: 6, pow: 12, hasPuppetMaster: true, attackerIndex: 0 })], target);
+    const focusOnly = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1 })], target);
+    expect(both.finalDestroyChance).toBeGreaterThanOrEqual(pmOnly.finalDestroyChance - 1e-9);
+    expect(both.finalDestroyChance).toBeGreaterThanOrEqual(focusOnly.finalDestroyChance - 1e-9);
+    const survivalMass = both.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(both.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('more Focus never hurts and probability mass stays conserved once it runs out mid-sequence', () => {
+    const attacksWith = (focus: number) => [
+      attack({ id: '1', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: focus }),
+      attack({ id: '2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: focus }),
+    ];
+    const with1 = computeSequenceOdds(attacksWith(1), target);
+    const with2 = computeSequenceOdds(attacksWith(2), target);
+    expect(with2.finalDestroyChance).toBeGreaterThanOrEqual(with1.finalDestroyChance - 1e-9);
+    const survivalMass = with1.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(with1.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('two different attackers each get their own independent Focus pool', () => {
+    const attackerA = attack({ id: 'a', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1 });
+    const attackerB = attack({ id: 'b', stat: 6, pow: 12, attackerIndex: 1, attackerFocus: 1 });
+    const attackerBNoFocus = attack({ id: 'b', stat: 6, pow: 12 });
+
+    const bothFocus = computeSequenceOdds([attackerA, attackerB], target);
+    const onlyAFocus = computeSequenceOdds([attackerA, attackerBNoFocus], target);
+    expect(bothFocus.finalDestroyChance).toBeGreaterThanOrEqual(onlyAFocus.finalDestroyChance - 1e-9);
+  });
+
+  it('throws when Focus is active on more attackers than the cap allows', () => {
+    const attacks = [0, 1, 2].map((i) => attack({ id: `${i}`, attackerIndex: i, attackerFocus: 1 }));
+    expect(() => computeSequenceOdds(attacks, target)).toThrow();
+  });
+
+  it('throws when attackerFocus exceeds the realistic point cap', () => {
+    expect(() => computeSequenceOdds([attack({ attackerIndex: 0, attackerFocus: 11 })], target)).toThrow();
+  });
+});
+
+describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('finalDestroyChance is strictly monotonic across a wide sweep of Focus values (regression: a stale "keep considering buying" value was once compared against itself as the "stop" baseline, causing occasional REGRESSIONS at higher Focus counts, not just missed improvements)', () => {
+    const values = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(
+      (f) => computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: f })], target).finalDestroyChance
+    );
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]).toBeGreaterThanOrEqual(values[i - 1] - 1e-9);
+    }
+  });
+
+  it('buys an extra attack when that beats what boosting the same roll alone could achieve', () => {
+    // Same stats/Focus on both - only the melee one can buy (buying is melee-only, see the module
+    // doc comment). With 2 points, a whole extra independent attack (buying) should outperform
+    // whatever boosting a single existing roll can achieve with the ranged one.
+    const melee = computeSequenceOdds([attack({ stat: 6, pow: 12, type: 'melee', attackerIndex: 0, attackerFocus: 2 })], target);
+    const ranged = computeSequenceOdds([attack({ stat: 6, pow: 12, type: 'ranged', attackerIndex: 0, attackerFocus: 2 })], target);
+    expect(melee.finalDestroyChance).toBeGreaterThan(ranged.finalDestroyChance);
+  });
+
+  it('probability mass is conserved when buying extra attacks', () => {
+    const result = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('handles multiple candidate melee weapons when buying without crashing or leaking probability mass', () => {
+    const attacks = [
+      attack({ id: 'a', stat: 6, pow: 4, attackerIndex: 0, attackerFocus: 2 }),
+      attack({ id: 'b', stat: 5, pow: 8, attackerIndex: 0, attackerFocus: 2 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+    expect(result.finalDestroyChance).toBeGreaterThan(0);
+  });
+
+  it("composes correctly with the target's own Focus/Fury mitigation on a bought shot", () => {
+    const richTarget = { ...target, focusPoints: 2, furyPoints: 1 };
+    const without = computeSequenceOdds([attack({ stat: 6, pow: 12 })], richTarget);
+    const withBuying = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], richTarget);
+    expect(withBuying.finalDestroyChance).toBeGreaterThanOrEqual(without.finalDestroyChance - 1e-9);
+    const survivalMass = withBuying.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(withBuying.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('a bought attack can still chain via Critical Shred if that weapon has it', () => {
+    const shredTarget = { def: 2, arm: 0, boxes: 1000 };
+    const without = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], shredTarget);
+    const withBuying = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true, attackerIndex: 0, attackerFocus: 1 })], shredTarget);
+    expect(withBuying.finalDestroyChance).toBeGreaterThanOrEqual(without.finalDestroyChance - 1e-9);
+    const survivalMass = withBuying.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(withBuying.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('is a no-op for a ranged-only attacker (buying is melee-only, boosting still applies)', () => {
+    const withoutFocus = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12 })], target);
+    const withFocus = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], target);
+    // Boosting still improves things (Phase 2), but never as much as the melee/ranged comparison
+    // above shows buying can - just confirm no crash and mass conservation here.
+    expect(withFocus.finalDestroyChance).toBeGreaterThanOrEqual(withoutFocus.finalDestroyChance - 1e-9);
+    const survivalMass = withFocus.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(withFocus.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('runs a multi-attack sequence with buying active quickly (no combinatorial blowup)', () => {
+    const attacks = Array.from({ length: 5 }, (_, i) => attack({ id: `${i}`, stat: 6 + (i % 3), pow: 10 + (i % 2), attackerIndex: 0, attackerFocus: 2 }));
+    const bigTarget = { def: 14, arm: 16, boxes: 15 };
+
+    const start = performance.now();
+    const result = computeSequenceOdds(attacks, bigTarget);
+    const elapsedMs = performance.now() - start;
+
+    expect(result.finalDestroyChance).toBeGreaterThan(0);
+    expect(elapsedMs).toBeLessThan(5000);
+  });
+});
+
+describe('sequence engine - Attacker Focus strategy summary', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is empty when no attacker has Focus active (regression safety)', () => {
+    const result = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    expect(result.focusStrategy).toEqual([]);
+  });
+
+  it('records a healthy-situation entry for a Focus-enabled attacker and produces non-empty advice text', () => {
+    const result = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], target);
+    expect(result.focusStrategy).toHaveLength(1);
+    const entry = result.focusStrategy[0];
+    expect(entry.attackerIndex).toBe(0);
+    expect(entry.debuffed).toBeUndefined();
+    expect(entry.healthy).toBeDefined();
+    const totalHealthyMass = entry.healthy!.boostAttackMass + entry.healthy!.boostDamageMass + entry.healthy!.buyMass;
+    expect(totalHealthyMass).toBeGreaterThan(0);
+
+    const text = summarizeFocusStrategy(entry, 'Attacker 1');
+    expect(text).toContain('Attacker 1');
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('reports no spending when Focus never improves an already-certain outcome', () => {
+    // forceAutoHit + massive POW vs 0 ARM/1 box: already-certain, maximal destruction regardless -
+    // spending Focus here can never do better than doing nothing.
+    const certainKill = attack({ forceAutoHit: true, pow: 100, attackerIndex: 0, attackerFocus: 3 });
+    const result = computeSequenceOdds([certainKill], { def: 13, arm: 0, boxes: 1 });
+    const entry = result.focusStrategy[0];
+    const text = summarizeFocusStrategy(entry, 'Attacker 1');
+    expect(text).toContain('rarely finds it worth spending Focus');
+  });
+
+  it('branches the summary by situation when the computed policy actually differs before/after Knocked Down', () => {
+    // Two rows, same attacker: row 1 has a chance to knock the target down on a crit: whatever the
+    // true-optimal policy actually decides for the healthy vs debuffed situation, both situations
+    // should have SOME recorded data once Knocked Down becomes reachable.
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', stat: 9, pow: 8, attackerIndex: 0, attackerFocus: 4, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
+      attack({ id: '2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    const entry = result.focusStrategy[0];
+    // At minimum, the healthy situation (row 1, before any knockdown could have happened yet) has
+    // recorded data - the debuffed situation only appears in the branches where row 1 actually crit.
+    expect(entry.healthy).toBeDefined();
+    const text = summarizeFocusStrategy(entry, 'Attacker 1');
+    expect(text.length).toBeGreaterThan(0);
+  });
+});
+
 describe('sequence engine - Shield Guards and Scapegoats', () => {
   function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
     return {
@@ -2297,6 +2540,71 @@ describe('sequence engine - multiple targets', () => {
 
       const [t] = computeMultiTargetSequenceOdds([weapon], [target]);
       expect(chanceToDestroyAllTargets([weapon], [t])).toBeCloseTo(t.result.finalDestroyChance, 9);
+    });
+  });
+});
+
+describe('sequence engine - multiple targets - Attacker Focus persistence', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  function survivalMass(result: { survivalDistribution: { probability: number }[] }): number {
+    return result.survivalDistribution.reduce((sum, p) => sum + p.probability, 0);
+  }
+
+  it('is one shared pool for the whole sequence: spending it against target 1 leaves less for target 2', () => {
+    const weapon1 = attack({ id: 'w1', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1, eligibleTargetIndices: [0] });
+    const weapon2 = attack({ id: 'w2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1, eligibleTargetIndices: [1] });
+    const hardTarget: SequenceTarget = { def: 13, arm: 15, boxes: 5 };
+    const easyTarget: SequenceTarget = { def: 5, arm: 0, boxes: 1 };
+
+    // Target 2's own configuration (hardTarget) never changes - only target 1's does. If Focus
+    // reset per target, target 2's own result would be identical either way; since it's one shared
+    // pool, target 1 competing for the same point (hardTarget) leaves less available by the time
+    // target 2 is reached than target 1 not needing it at all (easyTarget).
+    const [, hardAfterHard] = computeMultiTargetSequenceOdds([weapon1, weapon2], [hardTarget, hardTarget]);
+    const [, hardAfterEasy] = computeMultiTargetSequenceOdds([weapon1, weapon2], [easyTarget, hardTarget]);
+
+    expect(hardAfterEasy.result.finalDestroyChance).toBeGreaterThan(hardAfterHard.result.finalDestroyChance);
+  });
+
+  it('probability mass is conserved per target, and chanceToDestroyAllTargets stays a valid probability, with Focus active', () => {
+    const weapon1 = attack({ id: 'w1', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, eligibleTargetIndices: [0] });
+    const weapon2 = attack({ id: 'w2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, eligibleTargetIndices: [1] });
+    const target1: SequenceTarget = { def: 13, arm: 15, boxes: 5 };
+    const target2: SequenceTarget = { def: 13, arm: 15, boxes: 5 };
+
+    const results = computeMultiTargetSequenceOdds([weapon1, weapon2], [target1, target2]);
+    for (const t of results) {
+      expect(t.result.finalDestroyChance + survivalMass(t.result)).toBeCloseTo(1, 9);
+    }
+    const chanceAll = chanceToDestroyAllTargets([weapon1, weapon2], results);
+    expect(chanceAll).toBeGreaterThanOrEqual(0);
+    expect(chanceAll).toBeLessThanOrEqual(1);
+  });
+
+  it('is a no-op for a 0-Focus attacker across multiple targets (regression safety)', () => {
+    const weapon1 = attack({ id: 'w1', stat: 6, pow: 12, eligibleTargetIndices: [0] });
+    const weapon2 = attack({ id: 'w2', stat: 6, pow: 12, eligibleTargetIndices: [1] });
+    const weapon1Explicit = { ...weapon1, attackerIndex: 0, attackerFocus: 0 };
+    const weapon2Explicit = { ...weapon2, attackerIndex: 0, attackerFocus: 0 };
+    const target1: SequenceTarget = { def: 13, arm: 15, boxes: 5 };
+    const target2: SequenceTarget = { def: 13, arm: 15, boxes: 5 };
+
+    const withoutFields = computeMultiTargetSequenceOdds([weapon1, weapon2], [target1, target2]);
+    const withZeroFocus = computeMultiTargetSequenceOdds([weapon1Explicit, weapon2Explicit], [target1, target2]);
+
+    withoutFields.forEach((t, i) => {
+      expect(withZeroFocus[i].result.finalDestroyChance).toBeCloseTo(t.result.finalDestroyChance, 9);
     });
   });
 });

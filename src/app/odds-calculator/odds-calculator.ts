@@ -12,7 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
-import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget } from '../engine/sequence';
+import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -98,7 +98,7 @@ export class OddsCalculator {
     this.attackers().forEach((attacker, attackerIndex) => {
       const name = attackerDisplayName(attacker, attackerIndex);
       for (const row of attacker.attacks()) {
-        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), targets));
+        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), attacker.focusPoints(), targets));
       }
     });
     return result;
@@ -267,6 +267,42 @@ export class OddsCalculator {
       return rows;
     })
   );
+
+  /** One short sentence per Focus-enabled attacker, describing the true-optimal Focus policy
+   *  `computeMultiTargetSequenceOdds` actually computed - see `summarizeFocusStrategy`'s own doc
+   *  comment. Merged ACROSS every target (summing each attacker's own per-situation tallies) rather
+   *  than shown per-target: Focus is one shared pool for the WHOLE sequence, not reset per target
+   *  (see sequence.ts's Attacker Focus section), so the strategy is a property of the whole fight,
+   *  not any one target's own slice of it. Empty whenever no attacker has Focus active. */
+  protected readonly focusStrategySummaries = computed<string[]>(() => {
+    type Tally = { boostAttackMass: number; boostDamageMass: number; buyMass: number };
+    const zeroTally = (): Tally => ({ boostAttackMass: 0, boostDamageMass: 0, buyMass: 0 });
+    const addInto = (into: Tally, from: Tally | undefined) => {
+      if (!from) return;
+      into.boostAttackMass += from.boostAttackMass;
+      into.boostDamageMass += from.boostDamageMass;
+      into.buyMass += from.buyMass;
+    };
+
+    const merged = new Map<number, { healthy: Tally; debuffed: Tally }>();
+    for (const t of this.sequence()) {
+      for (const entry of t.result.focusStrategy) {
+        let m = merged.get(entry.attackerIndex);
+        if (!m) {
+          m = { healthy: zeroTally(), debuffed: zeroTally() };
+          merged.set(entry.attackerIndex, m);
+        }
+        addInto(m.healthy, entry.healthy);
+        addInto(m.debuffed, entry.debuffed);
+      }
+    }
+
+    const attackers = this.attackers();
+    return [...merged.entries()].map(([attackerIndex, tallies]) => {
+      const name = attackerIndex < attackers.length ? attackerDisplayName(attackers[attackerIndex], attackerIndex) : `Attacker ${attackerIndex + 1}`;
+      return summarizeFocusStrategy({ attackerIndex, healthy: tallies.healthy, debuffed: tallies.debuffed }, name);
+    });
+  });
 
   /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part
    *  of the screen that scrolls (see odds-calculator.css), so a sequence with several attackers

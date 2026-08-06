@@ -297,6 +297,34 @@ export function buildAttackProfile(
   return { missChance, hitNonCritChance, hitCritChance, nonCritDamage, critDamage };
 }
 
+/**
+ * Just the non-crit or crit damage map (post-ARM), as if this damage roll had spent an Attacker
+ * Focus point to boost it (+1 die) - used by `resolveAttackerDamageBoostChoice` (sequence.ts) to
+ * build a boosted candidate for ONE hit flavor of an already-resolved attack roll. Mirrors
+ * `buildAttackProfile`'s own non-crit/crit damage derivation above exactly (Armor Piercing's ARM
+ * halving, Brutal Damage's extra crit dice, Decapitation's doubling), but - unlike
+ * `buildAttackProfile` - never touches the attack-roll chances, since by the time a damage-roll
+ * boost decision is made the hit/crit outcome is already fixed; recomputing the whole profile
+ * would incorrectly re-decide that too.
+ */
+export function boostedDamageMap(
+  damage: AttackInput['damage'],
+  effects: AttackEffects | undefined,
+  target: Pick<AttackInput['target'], 'arm' | 'baseArm' | 'knockedDown' | 'stationary'>,
+  variant: 'nonCrit' | 'crit'
+): Map<number, number> {
+  const boostedDamage: AttackInput['damage'] = {
+    ...damage,
+    modifiers: { ...damage.modifiers, boostDice: (damage.modifiers?.boostDice ?? 0) + 1 },
+  };
+  const arm = resolveArm(effects, target, variant);
+  const extraDice = variant === 'crit' ? effects?.brutalDamageDice ?? 0 : 0;
+  let map = damageDistFromPool(damagePoolFor(boostedDamage, effects, target, extraDice).pool, damage.pow, arm);
+  const doubles = variant === 'crit' ? appliesOnCritHit(effects?.decapitation) : appliesOnNonCritHit(effects?.decapitation);
+  if (doubles) map = doubleDamageValues(map);
+  return map;
+}
+
 /** Which direction of "away from average" a reroll-granting rule cares about: Puppet Master and
  *  Offensive Knowledge of the Damned both want to catch a BAD (below-average) roll for the
  *  attacker's own benefit; Defensive Knowledge of the Damned wants the mirror image - catching a

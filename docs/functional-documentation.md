@@ -114,9 +114,9 @@ own ordered list of attacks:
   it as the only hint that it's editable. Its **MAT / RAT / AAT** (0 to 20 each) sit inline next to
   the name, but only the ones its own attacks actually use — a melee-only attacker shows just MAT,
   a caster with a melee attack and a spell shows MAT and AAT, and so on. A blue **⚙ (cog)** icon
-  button opens the **Attacker's special rules** pop-up (currently just Puppet Master — see below);
-  a red trash icon button removes the whole attacker (disabled while it's the only one — at least
-  one attacker always remains).
+  button opens the **Attacker's special rules** pop-up (Puppet Master and Focus — see below); a red
+  trash icon button removes the whole attacker (disabled while it's the only one — at least one
+  attacker always remains).
 - One **weapon sub-card** per weapon this attacker carries, each with its own drag handle to reorder
   weapons within that attacker (a weapon can't be dragged into a different attacker), showing:
   - **# Atks** — how many times this weapon fires, guaranteed. For melee/arcane weapons, a single
@@ -163,6 +163,25 @@ achieve, since they don't know in advance which roll will turn out to be the bes
 for. Puppet Master instead follows the same simple, mechanical rule a player would apply at the
 table, watching the sequence unfold roll by roll.
 
+**Focus** (0 to 10, set via the same attacker's special rules pop-up as Puppet Master): a per-attacker
+resource, spent on any roll made by any of that attacker's own attacks, over the **whole sequence**
+(not reset when attacks spill onto a new target — the attacker keeps whatever Focus it hasn't spent
+yet). Each point can be spent, once per roll, to:
+- **Boost an attack or damage roll**: add one extra die to that roll.
+- **Buy an extra melee attack**: fired with whichever of the attacker's own melee weapons the app
+  determines is best, **after** every one of that attacker's own configured attacks have fired
+  (bought attacks stack — a second point can buy a further attack after the first bought one, and so
+  on, for as long as Focus remains).
+
+Unlike Puppet Master, Focus is spent **optimally** — the same whole-sequence lookahead already used
+for the target's own Focus/Fury (see below): the app computes, ahead of time, the spending policy
+that gives this attacker the best chance of destroying the target, rather than a fixed rule. A short
+**"Focus strategy"** summary is shown per Focus-enabled attacker in the Details pop-up, describing in
+plain language what the computed policy actually does (e.g. "boost attack rolls until the target is
+Knocked Down, then boost damage rolls", or simply "buy extra attacks whenever Focus is available" if
+that's what the policy settles on for every situation encountered) — generated directly from the
+policy the app actually computed, not a hand-written description of what Focus can do in general.
+
 Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
 - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
 - **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores the target's spell-granted DEF/ARM bonuses — see "Custom effects" below).
@@ -201,6 +220,10 @@ than one target, a row of tabs at the top of this pop-up — one per target, eac
 chance to destroy AND average damage — lets the player switch which target's breakdown is shown
 below; with a single target, this tab row is hidden entirely and the pop-up looks exactly as it
 always has:
+- **Focus strategy**: shown only when at least one attacker in the sequence has Focus active — one
+  sentence per Focus-enabled attacker, above "Step by step", summarizing the app's computed spending
+  policy for that attacker (see "Focus" above). Shared across every target's tab (Focus is one pool
+  for the whole sequence, not per-target), unlike everything else in this pop-up.
 - **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target, or — with more than one target — a shot that never gets reached because an earlier TARGET is still alive when the sequence runs out), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways. With more than one target selected in the tab row above, a weapon that isn't in THIS target's own range (see "Weapon range" above) contributes no rows at all — each target's own list only ever shows the weapons that could actually hit it.
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".
 
@@ -341,5 +364,4 @@ Some rules points were implemented using the most commonly accepted formulation 
 Rough sizing (S/M/L/XL), for prioritization purposes only - not a commitment on scope or order:
 
 - **Damage grids for warjacks** (location-based systems - Movement, arms, etc. - each with their own boxes, crippled independently, plus a "chance to cripple system X" stat) — **XL**. The biggest item here by a wide margin: today's model is one target with one box pool: this needs a genuinely new sub-model (hit-location resolution, per-system boxes and crippled state, grid degradation) that current results (single "chance to destroy") don't map onto directly.
-- **Attacker Focus/Fury with optimal buy/boost strategy** (spending points on boosted rolls or bought extra attacks, played optimally across the whole sequence) — **L/XL**. The target's defensive Focus/Fury (already implemented) only ever chooses "spend this one point now or don't" - the attacker's version has a much bigger decision space (boost which roll, of which attack, or buy a whole extra attack instead), which likely means a new backward-induction dimension layered on top of the target's existing one, with real risk of state-space blowup to manage carefully (same kind of caution Critical Shred's recursion needed).
 - **Custom reroll strategy** (reroll on a miss, reroll if not a critical, etc., instead of always the mathematically optimal policy) — **S/M**. `rerollPoolOnceIf` (`dice-pool.ts`) already takes an arbitrary "is this roll bad?" predicate - today's fixed policy is just the ONE predicate the app happens to expose. Mostly UI work (a way to pick the condition) plus a handful of new named predicates; low architectural risk since the underlying mechanism already generalizes.

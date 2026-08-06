@@ -41,6 +41,23 @@
   font-size: 0.7rem;
 }
 
+/* --- Focus strategy (only rendered when at least one attacker has Focus active) --- */
+
+.focus-strategy {
+  margin-bottom: 1.5rem;
+}
+
+.focus-strategy__line {
+  margin: 0 0 0.4rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.focus-strategy__line:last-child {
+  margin-bottom: 0;
+}
+
 /* --- Step-by-step and damage distribution --- */
 
 .steps {

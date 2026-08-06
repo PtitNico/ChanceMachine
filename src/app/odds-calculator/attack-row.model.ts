@@ -378,6 +378,7 @@ export function toSequencedAttack(
   attackerName: string,
   attackerIndex: number,
   hasPuppetMaster: boolean,
+  attackerFocus: number,
   targets: Target[]
 ): SequencedAttack {
   const eligibleTargetIds = row.eligibleTargetIds();
@@ -430,6 +431,7 @@ export function toSequencedAttack(
     sustainedAttack: triggerOf(row, 'sustainedAttack'),
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
+    attackerFocus: attackerFocus || undefined,
     eligibleTargetIndices,
   };
 }

@@ -50,10 +50,22 @@ export function computeMultiTargetSequenceOdds(
         ? eligibleForFirstRow.some((idx) => idx < targetIndex)
         : targetIndex > 0; // unset eligibleTargetIndices = eligible for every target, earlier ones included
       if (!hasEarlierRivalAtFirstRow) {
-        ownInjection = [
-          ...ownInjection.filter((inj) => !(inj.row === firstEligibleRow && inj.shotsRemaining === 0)),
-          { row: firstEligibleRow, shotsRemaining: 0, probability: 1 },
-        ];
+        // Tops the row up to a full, unconditional 1 (see above) WITHOUT discarding whatever
+        // `attackerFocusRemaining` breakdown the existing entries already carried: rescale each
+        // matching entry proportionally so they sum to 1 instead of replacing them with one bare
+        // entry - engagement probability doesn't depend on an earlier target's fate here (that's
+        // the whole reason this top-up exists), but Attacker Focus's own remaining amount very much
+        // still does (it's the attacker's own resource, spent across the whole sequence - see
+        // single-target.ts's Attacker Focus section), so it must survive this rescale. Falls back
+        // to the original bare `{probability: 1}` (implicitly config-fresh Focus) only when NOTHING
+        // was tracked at this row at all - the case the comment above actually describes.
+        const matching = ownInjection.filter((inj) => inj.row === firstEligibleRow && inj.shotsRemaining === 0);
+        const matchingMass = matching.reduce((sum, inj) => sum + inj.probability, 0);
+        const toppedUp: RowInjection[] =
+          matchingMass > 0
+            ? matching.map((inj) => ({ ...inj, probability: inj.probability / matchingMass }))
+            : [{ row: firstEligibleRow, shotsRemaining: 0, probability: 1 }];
+        ownInjection = [...ownInjection.filter((inj) => !(inj.row === firstEligibleRow && inj.shotsRemaining === 0)), ...toppedUp];
       }
     }
 
@@ -93,14 +105,21 @@ export function computeMultiTargetSequenceOdds(
 
     const nextInjection: RowInjection[] = [...passthrough];
     result.steps.forEach((step, k) => {
-      step.destroyChanceByShotsRemaining.forEach((probability, shotsRemaining) => {
+      // Iterates `destroyMassByShotsRemainingAndFocus` rather than `destroyChanceByShotsRemaining`
+      // directly - the former always covers the exact same total mass (see its own doc comment),
+      // just with the extra `attackerFocusRemaining` coordinate `RowInjection` now carries, so
+      // Attacker Focus correctly persists into the next target instead of resetting (Focus is one
+      // shared pool for the whole multi-target sequence - see single-target.ts's Attacker Focus
+      // section). A no-Focus sequence sees `attackerFocusRemaining: []` on every entry here, an
+      // exact no-op past `RowInjection`'s own "unset means start fresh" default.
+      step.destroyMassByShotsRemainingAndFocus.forEach(({ shotsRemaining, attackerFocusRemaining, probability }) => {
         if (probability <= 0) return;
         // `shotsRemaining === 0` means THIS target died on row k's own LAST shot - row k's whole
         // volley is already spent, so the next target starts fresh at row k+1, not row k again.
         // `shotsRemaining > 0` means row k's weapon still owes shots - the next target resumes
         // WITHIN that same row (a genuine mid-volley handoff, `row: k` is correct there).
-        if (shotsRemaining === 0) nextInjection.push({ row: k + 1, shotsRemaining: 0, probability });
-        else nextInjection.push({ row: k, shotsRemaining, probability });
+        if (shotsRemaining === 0) nextInjection.push({ row: k + 1, shotsRemaining: 0, probability, attackerFocusRemaining });
+        else nextInjection.push({ row: k, shotsRemaining, probability, attackerFocusRemaining });
       });
     });
     available = nextInjection;

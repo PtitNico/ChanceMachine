@@ -39,6 +39,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Added Attacker Focus: a per-attacker Focus counter (0-10), spent optimally (full-sequence lookahead, same principle as the target\'s own Focus/Fury) to boost an attack or damage roll (+1 die) or buy an extra melee attack fired after the attacker\'s own configured attacks. Shared across the whole sequence rather than reset per target. The Details pop-up now shows a "Focus strategy" summary per attacker explaining the computed policy in plain language.',
+    ],
+  },
+  {
     date: '2026-08-05',
     items: [
       'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown, plus a "Chance to destroy all targets" figure.',

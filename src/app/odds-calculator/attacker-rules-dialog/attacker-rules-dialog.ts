@@ -1,13 +1,14 @@
 import { ChangeDetectionStrategy, Component, ViewChild, computed, signal } from '@angular/core';
-import { Attacker, attackerDisplayName } from '../attacker.model';
+import { ATTACKER_FOCUS_OPTIONS, Attacker, attackerDisplayName } from '../attacker.model';
 import { DialogShell } from '../dialog-shell/dialog-shell';
+import { ToggleSelect } from '../toggle-select/toggle-select';
 
-/** Attacker-level capabilities pop-up (currently just Puppet Master) - one shared instance reused
- *  for every attacker, same shape as `AttackEditDialog`'s single reused instance per attack. */
+/** Attacker-level capabilities pop-up (Puppet Master, Focus) - one shared instance reused for
+ *  every attacker, same shape as `AttackEditDialog`'s single reused instance per attack. */
 @Component({
   selector: 'app-attacker-rules-dialog',
   standalone: true,
-  imports: [DialogShell],
+  imports: [DialogShell, ToggleSelect],
   templateUrl: './attacker-rules-dialog.html',
   styleUrls: ['../shared/dialog-sections.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -15,6 +16,7 @@ import { DialogShell } from '../dialog-shell/dialog-shell';
 export class AttackerRulesDialog {
   @ViewChild('shell') private shell?: DialogShell;
 
+  protected readonly focusOptions = ATTACKER_FOCUS_OPTIONS;
   protected readonly attacker = signal<Attacker | null>(null);
   private readonly index = signal(0);
 
