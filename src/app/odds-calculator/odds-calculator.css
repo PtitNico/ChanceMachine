@@ -89,15 +89,12 @@
   flex: 1 1 auto;
   /* A floor, not 0: plain flexbox shrink is weighted by content size, so with e.g. many targets
      and only one attacker, an unbounded 0 floor could squeeze that one attacker card down to a
-     sliver even though it isn't the side asking for all the space - see .console--targets below
-     for the matching floor on that side. Roughly "20% of the space between the header and
-     Results" - a real percentage of that exact region isn't expressible in plain CSS (it'd need
-     to subtract two OTHER siblings' own rendered heights, one of which - Results - varies with
-     target count), so `dvh` (dynamic viewport height, same unit `.page` already uses for
-     mobile-chrome-aware sizing - see app.css) is used as a close, robust approximation instead:
-     header and Results are both small relative to the whole screen, so 20dvh lands close to the
-     intended "about a fifth of the Targets/Attackers area" without hardcoding brittle exact pixel
-     math that would silently drift out of sync the next time either sibling's own size changes.
+     sliver even though it isn't the side asking for all the space. Unlike Targets (see
+     .console--targets below - deliberately NOT given a floor), Attack sequence is the primary
+     workspace, so it keeps a guaranteed minimum even under a genuine squeeze. Expressed in `dvh`
+     (dynamic viewport height, same unit `.page` already uses for mobile-chrome-aware sizing - see
+     app.css) rather than a fixed rem value so it scales with the device rather than being a
+     constant number of pixels regardless of screen size.
      Deliberately set HERE, on the flex item `.panel__body` itself shrinks (not on `.attacker-list`
      one level down) - a min-height on the inner list doesn't stop `.panel__body` from shrinking
      THIS section below that floor, it just makes the list overflow ITS OWN section instead, which
@@ -147,20 +144,39 @@
 }
 
 /* --- Targets ---
-   Same shape as .console--attacks above, and for the same reason: with several targets
-   configured (Tough/spell bonuses etc. push a card past one line), an unbounded Targets section
-   used to have `flex-shrink: 0` (via the shared .console rule) and no internal scroll, so it could
-   squeeze Attack sequence down to nothing with no way for the player to get it back short of
-   removing targets. Making both sections equally flexible (`flex: 1 1 auto`, a matching 20dvh
-   floor - see .console--attacks's own doc comment for why it lives here and not one level down)
-   lets the browser's own flexbox shrink algorithm split whatever space is actually short between
-   them, weighted by how much content each one has - not a rigid 50/50 (which would waste space
-   forcing an even split when one side barely has any content), but neither section can force the
-   other below its own floor anymore, either. */
+   Scrolls internally under a squeeze exactly like .console--attacks above, and for the same reason:
+   with several targets configured (Tough/spell bonuses etc. push a card past one line), an unbounded
+   Targets section used to have `flex-shrink: 0` (via the shared .console rule) and no internal
+   scroll, so it could squeeze Attack sequence down to nothing with no way for the player to get it
+   back short of removing targets.
+
+   UNLIKE .console--attacks, this section never STRETCHES bigger than its own content: `flex: 0 1
+   auto` (grow-DISABLED). Attack sequence is deliberately the one section that stretches to fill
+   genuinely leftover space (it's the primary workspace - see its own comment above); Targets does
+   not - it never grows past its own content just because the viewport happens to be tall enough to
+   allow it (`flex-grow: 1` here would leave "+ Add target" floating with a gap below the last target
+   card instead of sitting right under it, whenever there's more room than Targets actually needs).
+
+   The min-height below is a SEPARATE, deliberately small exception to that, for the opposite problem:
+   with very little room (one attacker card carrying several weapons can alone fill a phone screen),
+   Targets could shrink to showing a target row cut off mid-render, with no way to tell it's even
+   there. This floor guarantees at least one full target row + the "+ Add target" button stay
+   genuinely visible no matter how squeezed Attack sequence's own content gets - "no cut-off row" wins
+   over "zero gap below the button", which is the one case this can now show a small (a few tens of
+   px) gap: whenever a single target's own content is naturally SHORTER than this floor, the floor
+   still wins, same as any CSS min-height would. Deliberately NOT `dvh` like .console--attacks's own
+   floor - that one is "give the primary workspace a fair fraction of the SCREEN", which should scale
+   with device size; this one is "always keep at least one target row on screen", a fixed, real,
+   roughly device-independent quantity (a tablet doesn't need a taller minimum here just because it's
+   a tablet) - measured directly against the actual rendered card/button (a single default target
+   card is ~57px, the button ~30px, plus section padding/list margin - see
+   .target-card/.add-target-btn), rounded up for headroom (a longer name, a wrapped DEF/ARM/Boxes
+   row, or - once there's more than one target - a card's own effect tags underneath it can all make
+   a real card taller than the bare-minimum default one). */
 
 .console--targets {
-  flex: 1 1 auto;
-  min-height: 20dvh;
+  flex: 0 1 auto;
+  min-height: 8rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
