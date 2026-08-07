@@ -47,15 +47,38 @@
   margin-bottom: 1.5rem;
 }
 
-.focus-strategy__line {
-  margin: 0 0 0.4rem;
+.focus-strategy__block {
+  margin-bottom: 0.7rem;
+}
+
+.focus-strategy__block:last-child {
+  margin-bottom: 0;
+}
+
+.focus-strategy__attacker {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.focus-strategy__bullets {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.focus-strategy__bullet {
   font-family: 'Inter', sans-serif;
   font-size: 0.82rem;
   color: var(--text);
 }
 
-.focus-strategy__line:last-child {
-  margin-bottom: 0;
+.focus-strategy__bullet:not(:last-child) {
+  margin-bottom: 0.15rem;
 }
 
 /* --- Step-by-step and damage distribution --- */

@@ -252,6 +252,9 @@ export interface SequenceResult {
  *  not per weapon or situation). */
 export interface FocusWeaponTally {
   weaponLabel: string;
+  /** The weapon's own `AttackType` - lets the summary name the weapon's type emoji alongside its
+   *  label (see `TYPE_EMOJI` in `attack-model.ts`). */
+  weaponType: AttackType;
   boostAttackMass: number;
   boostDamageMass: number;
   buyMass: number;

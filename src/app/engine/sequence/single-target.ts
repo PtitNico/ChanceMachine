@@ -1,6 +1,8 @@
 import {
   AppliedOutcome,
   AttackProfile,
+  AttackType,
+  TYPE_EMOJI,
   applyProfile,
   boostedDamageMap,
   buildAttackProfile,
@@ -136,6 +138,7 @@ interface SequenceContext {
  *  applies to (see `FocusWeaponTally`) - `hold` means Focus was available but nothing was spent on
  *  that particular decision point (a genuine, common outcome - not every roll is worth boosting). */
 interface FocusPolicyTally {
+  weaponType: AttackType;
   boostAttackMass: number;
   boostDamageMass: number;
   buyMass: number;
@@ -156,14 +159,17 @@ function situationOf(debuffState: DebuffState): 'healthy' | 'debuffed' {
 
 /** `weaponLabel` is the display label of the weapon this recording applies to - the row whose OWN
  *  roll is being decided for `boostAttackMass`/`boostDamageMass`, or the weapon actually fired for
- *  `buyMass` (see `FocusWeaponTally`'s own doc comment for why those can differ). */
+ *  `buyMass` (see `FocusWeaponTally`'s own doc comment for why those can differ). `weaponType` is
+ *  that same weapon's own `AttackType`, recorded once per weapon (redundant on repeat calls for the
+ *  same weapon, but harmless - a weapon's type never changes mid-sequence). */
 function recordFocusPolicy(
   ctx: SequenceContext,
   attackerIndex: number,
   debuffState: DebuffState,
-  action: keyof FocusPolicyTally,
+  action: keyof Omit<FocusPolicyTally, 'weaponType'>,
   mass: number,
-  weaponLabel: string
+  weaponLabel: string,
+  weaponType: AttackType
 ): void {
   if (!ctx.focusPolicyLog || mass <= 0) return;
   const situation = situationOf(debuffState);
@@ -177,7 +183,7 @@ function recordFocusPolicy(
     byWeapon = new Map();
     byAttacker.set(situation, byWeapon);
   }
-  const tally = byWeapon.get(weaponLabel) ?? { boostAttackMass: 0, boostDamageMass: 0, buyMass: 0 };
+  const tally = byWeapon.get(weaponLabel) ?? { weaponType, boostAttackMass: 0, boostDamageMass: 0, buyMass: 0 };
   tally[action] += mass;
   byWeapon.set(weaponLabel, tally);
 }
@@ -1268,7 +1274,7 @@ function resolveAttackChainForward(
       // the boosted candidate - a cheap, reliable way to tell which one won without widening its
       // own return type just for this.
       if (postBoostFocusLeft !== state.attackerFocusLeft) {
-        recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostAttackMass', p0, atk.label);
+        recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostAttackMass', p0, atk.label, atk.type);
       }
       for (const { profile: pmProfile, resultingMask } of resolvePmSplit(ctx, k, atk, state.debuffState, state.pmMask, trueOriginal, state.sustained)) {
         for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
@@ -1288,7 +1294,7 @@ function resolveAttackChainForward(
           )) {
             if (resultingAttackerFocusLeft !== postBoostFocusLeft) {
               const populationMass = boostedFinalProfile.missChance + boostedFinalProfile.hitNonCritChance + boostedFinalProfile.hitCritChance;
-              recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostDamageMass', p0 * populationMass, atk.label);
+              recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostDamageMass', p0 * populationMass, atk.label, atk.type);
             }
             for (const outcome of applyProfile(boostedFinalProfile)) {
               const p = p0 * outcome.probability;
@@ -2002,7 +2008,7 @@ export function computeSequenceOdds(
           continue;
         }
 
-        recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buyMass', p0, attacks[bestWeapon].label);
+        recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buyMass', p0, attacks[bestWeapon].label, attacks[bestWeapon].type);
 
         const spentFocusLeft = state.attackerFocusLeft.slice();
         spentFocusLeft[slot] -= 1;
@@ -2236,20 +2242,27 @@ function joinPhrases(phrases: string[]): string {
   return `${nonEmpty.slice(0, -1).join(', ')}, and ${nonEmpty.at(-1)}`;
 }
 
-/** One weapon's own phrase fragment, e.g. "boost Melee1's attack and damage rolls" or "buy extra
- *  attacks with Melee1" (or both, joined, if the same weapon does both). */
-function phraseForWeapon(weaponLabel: string, actions: FocusAction[]): string {
+/** One weapon's own phrase fragment, e.g. "boost 🗡️ Melee1's attack and damage rolls" or "buy
+ *  attacks with 🗡️ Melee1" (or both, joined, if the same weapon does both) - `weaponType`'s emoji
+ *  (see `TYPE_EMOJI`) is prefixed onto the weapon's own label everywhere it's named, so a bullet
+ *  reads correctly even out of context (e.g. after a "vs Target" prefix has already used up the
+ *  sentence's own capitalized start). No separate static "weapon" word is needed alongside it - an
+ *  unnamed weapon's own label is already "Weapon N" (see `toSequencedAttack` in
+ *  `attack-row.model.ts`), so the emoji+label pair alone already reads as "buy attacks with 🗡️
+ *  Weapon 1" without repeating the word. */
+function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: FocusAction[]): string {
+  const namedWeapon = `${TYPE_EMOJI[weaponType]} ${weaponLabel}`;
   const boostedRolls: string[] = [];
   if (actions.includes('boostAttack')) boostedRolls.push('attack');
   if (actions.includes('boostDamage')) boostedRolls.push('damage');
   const clauses: string[] = [];
-  if (boostedRolls.length > 0) clauses.push(`boost ${weaponLabel}'s ${boostedRolls.join(' and ')} rolls`);
-  if (actions.includes('buy')) clauses.push(`buy extra attacks with ${weaponLabel}`);
+  if (boostedRolls.length > 0) clauses.push(`boost ${namedWeapon}'s ${boostedRolls.join(' and ')} rolls`);
+  if (actions.includes('buy')) clauses.push(`buy attacks with ${namedWeapon}`);
   return joinPhrases(clauses);
 }
 
-/** Turns one situation's own per-weapon tallies into a single sentence fragment, e.g. "boost
- *  Ranged's attack rolls, boost Melee1's attack and damage rolls, and buy extra attacks with
+/** Turns one situation's own per-weapon tallies into a single sentence fragment, e.g. "boost 🏹
+ *  Ranged's attack rolls, boost 🗡️ Melee1's attack and damage rolls, and buy attacks with 🗡️
  *  Melee1" - empty when nothing in this situation clears `SIGNIFICANT_ACTION_RATIO`. */
 function summarizeSituation(weaponTallies: FocusWeaponTally[] | undefined): string {
   if (!weaponTallies || weaponTallies.length === 0) return '';
@@ -2261,36 +2274,43 @@ function summarizeSituation(weaponTallies: FocusWeaponTally[] | undefined): stri
     if (t.boostAttackMass >= threshold) actions.push('boostAttack');
     if (t.boostDamageMass >= threshold) actions.push('boostDamage');
     if (t.buyMass >= threshold) actions.push('buy');
-    return actions.length > 0 ? phraseForWeapon(t.weaponLabel, actions) : '';
+    return actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions) : '';
   });
   return joinPhrases(weaponPhrases);
 }
 
+function capitalize(s: string): string {
+  return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 /**
  * Turns one attacker's own `FocusStrategyEntry` (raw, probability-weighted tallies recorded during
- * the forward replay - see `recordFocusPolicy`) into a short, player-facing sentence describing the
+ * the forward replay - see `recordFocusPolicy`) into a short, player-facing bullet describing the
  * true-optimal Focus policy actually computed - branching by target condition when the computed
- * policy itself branches, and naming which weapon each boost/buy applies to (mirrors the kind of
- * advice a player would expect: "boost Ranged's attack rolls until Vassal is Knocked Down, then
- * buy extra attacks with Melee1"), never a hand-authored heuristic or raw numbers. `attackerName`
- * resolves a display name for `entry.attackerIndex` - the engine itself has no notion of attacker
- * (or target) names, only the UI layer does; a caller reporting on more than one target should
- * fold the target's own name into `attackerName` itself (e.g. `"Attacker 1 vs Cyrenia"`), since
- * ONE `FocusStrategyEntry` is already scoped to a single target's own `computeSequenceOdds` result
- * (see `SequenceResult.focusStrategy`). Data-driven, not template-hardcoded advice: which action(s)
- * dominate on which weapon (and whether the policy branches by situation at all) is read directly
- * off whatever `computeSequenceOdds` actually decided for THIS specific attacker/target
- * combination, so two different setups can legitimately produce different summaries.
+ * policy itself branches, and naming which weapon (with its type emoji, see `TYPE_EMOJI`) each
+ * boost/buy applies to (mirrors the kind of advice a player would expect: "Boost 🏹 Ranged's attack
+ * rolls until the target is Knocked Down, then buy attacks with 🗡️ Melee1"), never a hand-authored
+ * heuristic or raw numbers. The caller is expected to show the attacker's own name as
+ * a heading ABOVE one or more of these bullets (one per target the attacker's Focus reaches, since
+ * it's one pool spent across the whole sequence - see the module doc comment's Attacker Focus
+ * section) rather than repeating it inside the text itself - `targetLabel`, when given (a
+ * multi-target sequence), is folded in as a "vs {targetLabel}: " prefix so each bullet still reads
+ * standalone; omit it for a single-target sequence, where the bullet needs no target reference at
+ * all. Data-driven, not template-hardcoded advice: which action(s) dominate on which weapon (and
+ * whether the policy branches by situation at all) is read directly off whatever
+ * `computeSequenceOdds` actually decided for THIS specific attacker/target combination, so two
+ * different setups can legitimately produce different summaries.
  */
-export function summarizeFocusStrategy(entry: FocusStrategyEntry, attackerName: string): string {
+export function summarizeFocusStrategy(entry: FocusStrategyEntry, targetLabel?: string): string {
   const healthyPhrase = summarizeSituation(entry.healthy);
   const debuffedPhrase = summarizeSituation(entry.debuffed);
+  const prefix = targetLabel ? `vs ${targetLabel}: ` : '';
 
   if (!healthyPhrase && !debuffedPhrase) {
-    return `${attackerName} rarely finds it worth spending Focus here.`;
+    return `${prefix}${capitalize('rarely worth spending Focus here.')}`;
   }
   if (healthyPhrase && debuffedPhrase && healthyPhrase !== debuffedPhrase) {
-    return `${attackerName}: ${healthyPhrase} until the target is Knocked Down, then ${debuffedPhrase}.`;
+    return `${prefix}${capitalize(`${healthyPhrase} until the target is Knocked Down, then ${debuffedPhrase}.`)}`;
   }
-  return `${attackerName}: ${healthyPhrase || debuffedPhrase} whenever Focus is available.`;
+  return `${prefix}${capitalize(`${healthyPhrase || debuffedPhrase}.`)}`;
 }

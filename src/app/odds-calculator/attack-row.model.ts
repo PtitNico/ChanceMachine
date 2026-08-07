@@ -1,5 +1,5 @@
 import { WritableSignal, signal } from '@angular/core';
-import { AttackType, EffectTrigger } from '../engine/attack-model';
+import { AttackType, EffectTrigger, TYPE_EMOJI } from '../engine/attack-model';
 import { RofValue, SequencedAttack, StatEffect, StatEffectType } from '../engine/sequence';
 import { range } from './range.util';
 import { Target, targetDisplayName } from './target-panel/target-panel.model';
@@ -35,8 +35,10 @@ export const ROF_OPTIONS: RofValue[] = ['-', 'd3', '2d3'];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 /** Shown next to Type everywhere it appears - the attack sub-card's own type indicator and the
- *  attack-edit pop-up's Type select options alike. */
-export const TYPE_EMOJI: Record<AttackType, string> = { melee: '🗡️', ranged: '🏹', arcane: '🪄' };
+ *  attack-edit pop-up's Type select options alike. Re-exported for existing importers - canonical
+ *  definition now lives in `attack-model.ts` (the engine also needs it, for the Attacker Focus
+ *  strategy summary). */
+export { TYPE_EMOJI };
 
 /** 'armPenalty' is deliberately excluded here - unlike every other entry, it has a genuinely
  *  user-editable amount, so it's modeled as its own pair of fields on `AttackRow`
@@ -397,7 +399,7 @@ export function toSequencedAttack(
   return {
     id: row.id,
     attackerName,
-    label: `Attack ${index + 1}`,
+    label: `Weapon ${index + 1}`,
     type: row.type(),
     stat,
     attackCount: row.attackCount(),

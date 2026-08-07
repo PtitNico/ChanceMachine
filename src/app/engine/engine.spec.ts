@@ -2069,8 +2069,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const totalHealthyMass = sumBoostAttack(entry.healthy) + sumBoostDamage(entry.healthy) + sumBuy(entry.healthy);
     expect(totalHealthyMass).toBeGreaterThan(0);
 
-    const text = summarizeFocusStrategy(entry, 'Attacker 1');
-    expect(text).toContain('Attacker 1');
+    const text = summarizeFocusStrategy(entry);
     expect(text.length).toBeGreaterThan(0);
   });
 
@@ -2080,8 +2079,8 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const certainKill = attack({ forceAutoHit: true, pow: 100, attackerIndex: 0, attackerFocus: 3 });
     const result = computeSequenceOdds([certainKill], { def: 13, arm: 0, boxes: 1 });
     const entry = result.focusStrategy[0];
-    const text = summarizeFocusStrategy(entry, 'Attacker 1');
-    expect(text).toContain('rarely finds it worth spending Focus');
+    const text = summarizeFocusStrategy(entry);
+    expect(text).toContain('Rarely worth spending Focus');
   });
 
   it('branches the summary by situation when the computed policy actually differs before/after Knocked Down', () => {
@@ -2097,7 +2096,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     // At minimum, the healthy situation (row 1, before any knockdown could have happened yet) has
     // recorded data - the debuffed situation only appears in the branches where row 1 actually crit.
     expect(entry.healthy).toBeDefined();
-    const text = summarizeFocusStrategy(entry, 'Attacker 1');
+    const text = summarizeFocusStrategy(entry);
     expect(text.length).toBeGreaterThan(0);
   });
 
@@ -2140,8 +2139,8 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(entry.healthy).toBeUndefined();
     expect(sumBoostAttack(entry.debuffed)).toBeCloseTo(0, 9);
     expect(sumBoostDamage(entry.debuffed)).toBeGreaterThan(0);
-    const text = summarizeFocusStrategy(entry, 'Attacker 1');
-    expect(text).toContain("Attack's damage rolls");
+    const text = summarizeFocusStrategy(entry);
+    expect(text).toContain("🗡️ Attack's damage rolls");
     expect(text).not.toContain('attack rolls');
   });
 
@@ -2160,7 +2159,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const entry = result.focusStrategy[0];
     expect(sumBoostAttack(entry.healthy)).toBeGreaterThan(0);
     expect(sumBoostDamage(entry.healthy)).toBeGreaterThan(0);
-    expect(summarizeFocusStrategy(entry, 'Attacker 1')).toBe("Attacker 1: boost Attack's attack and damage rolls whenever Focus is available.");
+    expect(summarizeFocusStrategy(entry)).toBe("Boost 🏹 Attack's attack and damage rolls.");
   });
 
   it('an attacker with leftover Focus can keep buying attacks against a second target once the first dies', () => {
@@ -2243,7 +2242,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     // whichever melee weapon fires next also still has Vassal as its own current target. What
     // matters is that Ranged - the weapon actually scoped to Vassal - is the dominant one reported.
     expect(vassalWeapons).toContain('Ranged');
-    expect(summarizeFocusStrategy(vassalEntry, 'Attacker 1')).toContain("Ranged's attack rolls");
+    expect(summarizeFocusStrategy(vassalEntry, 'Vassal')).toContain("🏹 Ranged's attack rolls");
 
     const cyreniaEntry = results[1].result.focusStrategy[0];
     const cyreniaWeapons = new Set((cyreniaEntry.healthy ?? []).concat(cyreniaEntry.debuffed ?? []).map((t) => t.weaponLabel));

@@ -30,6 +30,11 @@ import {
 
 export type AttackType = 'melee' | 'ranged' | 'arcane';
 
+/** Display emoji per `AttackType` - shared by the UI (weapon type picker, Details "Step by step"
+ *  group headers) and the engine's own Attacker Focus strategy summary (`summarizeFocusStrategy`
+ *  in `sequence/single-target.ts`), which needs it to name which weapon a boost/buy applies to. */
+export const TYPE_EMOJI: Record<AttackType, string> = { melee: '🗡️', ranged: '🏹', arcane: '🪄' };
+
 /** Whether a one-off effect triggers on any hit, or only on a critical hit. */
 export type EffectTrigger = 'hit' | 'crit';
 

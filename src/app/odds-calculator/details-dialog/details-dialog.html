@@ -16,11 +16,18 @@
     </div>
   }
 
-  @if (focusStrategySummaries().length > 0) {
+  @if (focusStrategyBlocks().length > 0) {
     <div class="focus-strategy">
       <h3 class="distribution__title">Focus strategy</h3>
-      @for (summary of focusStrategySummaries(); track summary) {
-        <p class="focus-strategy__line">{{ summary }}</p>
+      @for (block of focusStrategyBlocks(); track block.attackerName) {
+        <div class="focus-strategy__block">
+          <span class="focus-strategy__attacker">{{ block.attackerName }}</span>
+          <ul class="focus-strategy__bullets">
+            @for (bullet of block.bullets; track bullet) {
+              <li class="focus-strategy__bullet">{{ bullet }}</li>
+            }
+          </ul>
+        </div>
       }
     </div>
   }
