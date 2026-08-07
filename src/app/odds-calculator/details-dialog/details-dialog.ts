@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, ViewChild, input, signal } from '@angular/core';
 import { DialogShell } from '../dialog-shell/dialog-shell';
 import { pct } from '../format.util';
-import { DamagePoint, ShotRow } from './details-dialog.model';
+import { DamagePoint, FocusStrategyBlock, ShotRow } from './details-dialog.model';
 
 /** Step-by-step breakdown + damage distribution, scoped to one target at a time. With a single
  *  target this looks exactly as it always has (no tab strip at all); with more than one, a tab
@@ -25,6 +25,10 @@ export class DetailsDialog {
   readonly maxDamageProbabilityByTarget = input.required<number[]>();
   readonly destroyChanceByTarget = input.required<number[]>();
   readonly averageDamageByTarget = input.required<number[]>();
+  /** One block per Focus-enabled attacker, shared across every target (Focus is one pool for the
+   *  whole sequence - see odds-calculator.ts's own doc comment) rather than per-target like
+   *  everything else in this dialog. Empty whenever no attacker has Focus active. */
+  readonly focusStrategyBlocks = input.required<FocusStrategyBlock[]>();
 
   protected readonly pct = pct;
   protected readonly selectedIndex = signal(0);

@@ -1,8 +1,14 @@
 import { WritableSignal, signal } from '@angular/core';
 import { AttackType } from '../engine/attack-model';
 import { AttackRow, cloneAttackRow, createAttackRow } from './attack-row.model';
+import { range } from './range.util';
 
 let nextAttackerId = 0;
+
+/** 0-10, matching the tabletop's own realistic Focus/Fury stat range - see `constants.ts`'s
+ *  `MAX_RESOURCE_POINTS` on the engine side, which this stays consistent with (unlike the target
+ *  profile's own Focus/Fury dropdown, which goes up to 14 for a target's higher realistic ceiling). */
+export const ATTACKER_FOCUS_OPTIONS = range(0, 10);
 
 /**
  * One attacker in the sequence, owning the MAT/RAT/AAT its own attacks share (a model with a
@@ -22,17 +28,28 @@ export interface Attacker {
    *  is left to miss, see `sequence.ts`'s Puppet Master section for the exact fixed rule. Edited via
    *  the attacker's "special rules" pop-up, not inline on the card. */
   readonly puppetMaster: WritableSignal<boolean>;
+  /** Focus points (0-10) this attacker can spend, once per computation across the WHOLE sequence
+   *  (every target, not reset per target - the attacker's own resource, not the target's): boost
+   *  an attack or damage roll (+1 die, once per roll), or buy an extra melee attack fired after
+   *  every one of this attacker's own configured attacks - spent optimally via full lookahead,
+   *  exactly like the target's own Focus/Fury. Edited inline on the card, next to MAT/RAT/AAT (see
+   *  `AttackerCard`), not via the "special rules" pop-up. See `sequence.ts`'s Attacker Focus
+   *  section for the exact policy. */
+  readonly focusPoints: WritableSignal<number>;
 }
 
 /** Short "label" summary tag for an active attacker-level special rule, shown under the attacker
- *  card - the attacker-level equivalent of `EffectSummaryTag`/`effectsSummary` for an attack row. */
+ *  card - the attacker-level equivalent of `EffectSummaryTag`/`effectsSummary` for an attack row.
+ *  Focus has no tag of its own - it's always directly visible/editable inline on the card (see
+ *  `AttackerCard`), the same reason MAT/RAT/AAT never get one either. */
 export interface AttackerRuleSummaryTag {
   readonly key: 'puppetMaster';
   readonly label: string;
 }
 
 /** Currently just Puppet Master - more attacker-level toggles land here as they're added, the same
- *  way `effectsSummary` grows with new attack effects. */
+ *  way `effectsSummary` grows with new attack effects (as long as they stay dialog-only, not
+ *  inline like Focus). */
 export function attackerRulesSummary(attacker: Attacker): AttackerRuleSummaryTag[] {
   const tags: AttackerRuleSummaryTag[] = [];
   if (attacker.puppetMaster()) {
@@ -50,6 +67,7 @@ export function createAttacker(): Attacker {
     aat: signal(6),
     attacks: signal([createAttackRow()]),
     puppetMaster: signal(false),
+    focusPoints: signal(0),
   };
 }
 

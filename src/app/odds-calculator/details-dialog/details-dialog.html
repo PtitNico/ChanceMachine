@@ -16,6 +16,22 @@
     </div>
   }
 
+  @if (focusStrategyBlocks().length > 0) {
+    <div class="focus-strategy">
+      <h3 class="distribution__title">Focus strategy</h3>
+      @for (block of focusStrategyBlocks(); track block.attackerName) {
+        <div class="focus-strategy__block">
+          <span class="focus-strategy__attacker">{{ block.attackerName }}</span>
+          <ul class="focus-strategy__bullets">
+            @for (bullet of block.bullets; track bullet) {
+              <li class="focus-strategy__bullet">{{ bullet }}</li>
+            }
+          </ul>
+        </div>
+      }
+    </div>
+  }
+
   <div class="steps">
     <h3 class="distribution__title">Step by step</h3>
     @for (row of shotRowsByTarget()[selectedIndex()]; track row.key) {

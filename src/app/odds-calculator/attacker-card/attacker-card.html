@@ -12,6 +12,8 @@
       />
     </div>
 
+    <app-mini-field-select label="Focus" [signal]="attacker().focusPoints" [options]="focusOptions" [parse]="toNumber" />
+
     @if (presentTypes().has('melee')) {
       <app-mini-field-select label="MAT" [signal]="attacker().mat" [options]="statOptions" [parse]="toNumber" />
     }

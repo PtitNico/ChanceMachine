@@ -14,7 +14,7 @@ import {
 import { AttackType } from '../../engine/attack-model';
 import { AttackRow, STAT_OPTIONS } from '../attack-row.model';
 import { AttackSubCard } from '../attack-sub-card/attack-sub-card';
-import { Attacker, attackerRulesSummary } from '../attacker.model';
+import { ATTACKER_FOCUS_OPTIONS, Attacker, attackerRulesSummary } from '../attacker.model';
 import { EditableName } from '../editable-name/editable-name';
 import { EffectTags } from '../effect-tags/effect-tags';
 import { MiniFieldSelect } from '../mini-field-select/mini-field-select';
@@ -22,10 +22,10 @@ import { toNumber } from '../select.util';
 import { Target } from '../target-panel/target-panel.model';
 
 /** One attacker in the sequence: a card showing its name (an `EditableName` - click/tap the text
- *  directly to rename, no separate input/button pair) and MAT/RAT/AAT, holding its own attacks as
- *  `AttackSubCard`s. Name and stats stay inline (no pop-up needed for those); a gear button opens
- *  `AttackerRulesDialog` for attacker-level capabilities that DO need one (currently just Puppet
- *  Master). */
+ *  directly to rename, no separate input/button pair), Focus, and MAT/RAT/AAT, holding its own
+ *  attacks as `AttackSubCard`s. Name/Focus/stats stay inline (no pop-up needed for those); a gear
+ *  button opens `AttackerRulesDialog` for attacker-level capabilities that DO need one (currently
+ *  just Puppet Master). */
 @Component({
   selector: 'app-attacker-card',
   standalone: true,
@@ -51,6 +51,7 @@ export class AttackerCard {
   readonly removeAttack = output<string>();
 
   protected readonly statOptions = STAT_OPTIONS;
+  protected readonly focusOptions = ATTACKER_FOCUS_OPTIONS;
   protected readonly toNumber = toNumber;
   protected readonly attackerRulesSummary = attackerRulesSummary;
 

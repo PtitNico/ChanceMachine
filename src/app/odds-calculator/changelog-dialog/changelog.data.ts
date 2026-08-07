@@ -39,6 +39,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'ChanceMachine now supports attacker Focus! Focus is spent optimally to boost attack or damage rolls, or buy additional melee attacks. Check the Details view to see the optimal Focus spending strategy: buy or boost? Reload and automatic boost (charge, cavalry charge, etc) coming soon!',
+    ],
+  },
+  {
     date: '2026-08-05',
     items: [
       'Added support for multiple targets, each with its own independent profile: attacks go against the first target until it\'s destroyed, then spill onto the next. Weapons can be scoped to specific targets ("In range of" in the Effects pop-up, at least one required) and always fire at their own first eligible target regardless of what happens to others. Results and Details show a per-target breakdown, plus a "Chance to destroy all targets" figure.',
@@ -47,7 +53,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-08-04',
     items: [
-      "Fixed a bug where picking \"1\" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking \"2\".",
+      'Fixed a bug where picking "1" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking "2".',
     ],
   },
   {

@@ -309,6 +309,60 @@
  * (`tableKey`, `ExtendedValueLookup`, `FwdState`/`fwdKey`) - `bestAction`/`ValueTable`/`ValueLookup`
  * stay entirely unaware either exists, for the same reason they stay unaware of `pmMask`.
  *
+ * Attacker Focus (`SequencedAttack.attackerFocus`, one 0-10 counter per DISTINCT `attackerIndex`
+ * with it set - see `focusIndexOf`/`MAX_FOCUS_ATTACKERS` below) is the OFFENSIVE mirror of the
+ * target's own Focus/Fury: a resource the ATTACKER spends, chosen true-optimally via the exact same
+ * backward-induction machinery (not a fixed rule like Puppet Master). On any of its own rolls, an
+ * attacker can spend one point to boost the attack roll OR the damage roll (+1 die, `RollModifiers
+ * .boostDice`, once per roll each) - or, only at the boundary right after its own last CONFIGURED
+ * attack (`isLastAttackOfAttackerForFocus`), spend one point to fire an extra melee attack with
+ * whichever of its own weapons scores best (`buildBoughtAttacksValue`). Attacker Focus is one shared
+ * pool for the WHOLE sequence (every target in a multi-target fight, not reset per target - unlike
+ * every target-side resource, and unlike Puppet Master's own per-target reset) - `RowInjection.
+ * attackerFocusRemaining` carries it across `computeMultiTargetSequenceOdds`'s own target-to-target
+ * handoff (see multi-target.ts).
+ *
+ * Three genuinely new architectural pieces, in the order they compose:
+ *   1. Boost-attack-roll (`resolveAttackerAttackBoostChoice`/`chooseAttackerAttackBoost`) is the
+ *      OUTERMOST decision in the whole per-roll pipeline, unlike every other stage here - it changes
+ *      what `trueOriginal` itself IS (see the "two profiles" principle above), and every downstream
+ *      reroll stage redraws from `trueOriginal`, so it can't be inserted as a middle stage the way
+ *      Defensive Knowledge of the Damned is. `attackChainValue` is now a thin memoizing wrapper
+ *      around it; `pipelineScore` (extracted from `attackChainValue`'s old loop body) runs the
+ *      REST of the pipeline once per boost candidate so the two can be compared.
+ *   2. Boost-damage-roll (`resolveAttackerDamageBoostChoice`) sits between Offensive and Defensive
+ *      Knowledge of the Damned's own stages, as a per-HIT-FLAVOR population split (like Puppet
+ *      Master's own `resolvePmSplit`) rather than a single whole-profile candidate - by this point
+ *      the attacker already knows crit-vs-non-crit, and each flavor can rationally decide
+ *      differently. Deliberate scope cut: Defensive Knowledge of the Damned's own candidate scoring
+ *      does not look ahead through this stage (folding it in would make `profileScore` call itself
+ *      recursively on ever-smaller slices) - a narrow, rare-in-practice gap only when both effects
+ *      are active on the very same roll.
+ *   3. Buy-an-extra-attack (`buildBoughtAttacksValue`/`resolveBoughtAttacksForward`) is a value
+ *      ladder over "this one attacker's own remaining Focus" shaped exactly like `buildShotsValue`'s
+ *      own ROF ladder, hooked into the backward loop only at the boundary row - choosing the best of
+ *      the attacker's own melee weapons (or stopping) via a plain scalar comparison, not
+ *      `isBetterScore`'s lexicographic triple (these are whole downstream expected-values, not
+ *      single-outcome branches). Deliberate scope cut: a bought attack reuses its weapon's own row
+ *      index for Puppet Master/Offensive Knowledge of the Damned eligibility - exactly right for
+ *      Puppet Master (a pure mask check) but can slightly mis-estimate Offensive Knowledge of the
+ *      Damned's own "reserve" heuristic. `attackIndicesByAttacker` (unconditional on Puppet Master,
+ *      unlike `pmAttackIndicesByAttacker`, and filtered by `rowActive` - a row inactive for THIS
+ *      target because it belongs to a differently-scoped weapon must never be mistaken for "this
+ *      attacker's own last row") is what makes the boundary detection correct per target.
+ *
+ * `attackerFocusLeft: number[]` (one slot per focus-enabled attacker, via `focusIndexOf`) threads
+ * through the exact same grid `pmMask`/`kotdOffLeft`/`kotdDefLeft` already occupy (`tableKey`,
+ * `ExtendedValueLookup`, `FwdState`/`fwdKey`) - Map-key-folded, never a dense `ValueTable` axis, for
+ * the same reachability-pruning reason those three already are.
+ *
+ * The Focus strategy advice text (`summarizeFocusStrategy`) is read off data actually recorded
+ * during the forward replay (`recordFocusPolicy`/`FocusPolicyLog`, on `SequenceContext` - the mutable
+ * counterpart to `profileCache`), never a separate heuristic: each spend decision is tagged by a
+ * coarse target "situation" (`situationOf` - healthy vs Knocked-Down-or-Stationary) and accumulated
+ * per attacker, so the resulting sentence can branch by situation exactly when the computed
+ * true-optimal policy itself does.
+ *
  * Performance note: we do NOT branch into one probability tree per attack
  * (that would blow up combinatorially). Instead we track a small probability
  * distribution over the target's *state* (boxes remaining, debuffs, focus/fury
@@ -338,9 +392,10 @@ export type {
   SequenceShotResult,
   SequenceStepResult,
   SequenceResult,
+  FocusStrategyEntry,
   RowInjection,
   SequenceOptions,
   TargetSequenceResult,
 } from './types';
-export { computeSequenceOdds } from './single-target';
+export { computeSequenceOdds, summarizeFocusStrategy } from './single-target';
 export { computeMultiTargetSequenceOdds, chanceToDestroyAllTargets } from './multi-target';

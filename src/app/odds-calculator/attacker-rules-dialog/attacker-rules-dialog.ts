@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, ViewChild, computed, signal } from 
 import { Attacker, attackerDisplayName } from '../attacker.model';
 import { DialogShell } from '../dialog-shell/dialog-shell';
 
-/** Attacker-level capabilities pop-up (currently just Puppet Master) - one shared instance reused
- *  for every attacker, same shape as `AttackEditDialog`'s single reused instance per attack. */
+/** Attacker-level capabilities pop-up (currently just Puppet Master - Focus lives inline on the
+ *  card now, see `AttackerCard`) - one shared instance reused for every attacker, same shape as
+ *  `AttackEditDialog`'s single reused instance per attack. */
 @Component({
   selector: 'app-attacker-rules-dialog',
   standalone: true,

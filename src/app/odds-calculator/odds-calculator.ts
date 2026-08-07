@@ -12,7 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
-import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget } from '../engine/sequence';
+import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -21,7 +21,7 @@ import { AttackerCard } from './attacker-card/attacker-card';
 import { AttackerRulesDialog } from './attacker-rules-dialog/attacker-rules-dialog';
 import { Attacker, addAttackTo, attackerDisplayName, createAttacker, removeAttackFrom, statFor } from './attacker.model';
 import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
-import { DamagePoint, ShotRow } from './details-dialog/details-dialog.model';
+import { DamagePoint, FocusStrategyBlock, ShotRow } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
 import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
@@ -98,7 +98,7 @@ export class OddsCalculator {
     this.attackers().forEach((attacker, attackerIndex) => {
       const name = attackerDisplayName(attacker, attackerIndex);
       for (const row of attacker.attacks()) {
-        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), targets));
+        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), attacker.focusPoints(), targets));
       }
     });
     return result;
@@ -267,6 +267,47 @@ export class OddsCalculator {
       return rows;
     })
   );
+
+  /** One block per Focus-enabled attacker, its own name as a heading, holding one bullet per
+   *  target that attacker's Focus actually reaches - see `summarizeFocusStrategy`'s own doc
+   *  comment. Bullets stay separate per target (with a "vs TargetName:" prefix once there's more
+   *  than one) rather than merged into one sentence: Focus IS one shared pool across targets (see
+   *  sequence.ts's Attacker Focus section), but a merged sentence would blur together decisions the
+   *  policy made under very different circumstances (e.g. "always boost the ranged attack against a
+   *  1-box solo" and "mix boosting/buying against an 18-box heavy") into one misleadingly generic
+   *  line - each target's own `result.focusStrategy` entry already carries exactly the slice of the
+   *  story that happened while fighting IT, so there's nothing to merge, just group under one
+   *  heading. Skips a (attacker, target) pair entirely when none of that attacker's own rows are
+   *  even eligible for that target (see `reachesTarget`) - `focusStrategy` is seeded from EVERY
+   *  Focus-enabled attacker regardless of eligibility (see single-target.ts), so without this check
+   *  an attacker with no weapon in range of some target would still print a misleading "rarely
+   *  worth spending Focus here" bullet for a target it could never even reach. Empty whenever no
+   *  attacker has Focus active. */
+  protected readonly focusStrategyBlocks = computed<FocusStrategyBlock[]>(() => {
+    const results = this.sequence();
+    const attackers = this.attackers();
+    const targetNames = this.targetNames();
+    const attacks = this.sequencedAttacks();
+    const multipleTargets = results.length > 1;
+
+    const reachesTarget = (attackerIndex: number, targetIndex: number): boolean =>
+      attacks.some((a) => a.attackerIndex === attackerIndex && (!a.eligibleTargetIndices || a.eligibleTargetIndices.includes(targetIndex)));
+
+    const bulletsByAttacker = new Map<number, string[]>();
+    results.forEach((t, targetIndex) => {
+      for (const entry of t.result.focusStrategy) {
+        if (!reachesTarget(entry.attackerIndex, targetIndex)) continue;
+        const bullets = bulletsByAttacker.get(entry.attackerIndex) ?? [];
+        bulletsByAttacker.set(entry.attackerIndex, bullets);
+        bullets.push(summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
+      }
+    });
+
+    return [...bulletsByAttacker.entries()].map(([attackerIndex, bullets]) => ({
+      attackerName: attackerIndex < attackers.length ? attackerDisplayName(attackers[attackerIndex], attackerIndex) : `Attacker ${attackerIndex + 1}`,
+      bullets,
+    }));
+  });
 
   /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part
    *  of the screen that scrolls (see odds-calculator.css), so a sequence with several attackers

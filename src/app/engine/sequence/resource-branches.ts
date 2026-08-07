@@ -44,6 +44,7 @@ export type ExtendedValueLookup = (
   pmMask: number,
   kotdOffLeft: number,
   kotdDefLeft: number,
+  attackerFocusLeft: number[],
   sustained: boolean
 ) => number;
 
@@ -205,6 +206,20 @@ export function isBetterScore(a: [number, number, number], b: [number, number, n
     if (a[i] < b[i] - SCORE_EPSILON) return false;
   }
   return false;
+}
+
+/**
+ * The attacker's own mirror of `isBetterScore`: an attacker spending Focus wants exactly the
+ * OPPOSITE of what the target's own resources optimize for - the target's survival value/
+ * probability/expected-boxes triple to be as LOW as possible, not high. Every comparison direction
+ * simply flips (this is not "prefer lower boxes for its own sake", it's "prefer whatever is worse
+ * for the target"). Used by the Attacker Focus boost-roll/damage-roll choices (see
+ * `resolveAttackerAttackBoostChoice`/`resolveAttackerDamageBoostChoice` in single-target.ts) -
+ * NOT by the bought-attacks weapon-selection ladder, which compares plain scalars directly instead
+ * (see `buildBoughtAttacksValue`'s own doc comment for why that's a different comparison shape).
+ */
+export function isBetterForAttacker(a: [number, number, number], b: [number, number, number]): boolean {
+  return isBetterScore(b, a);
 }
 
 /**

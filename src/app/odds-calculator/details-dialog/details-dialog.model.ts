@@ -4,6 +4,17 @@ export interface DamagePoint {
   readonly probability: number;
 }
 
+/** One Focus-enabled attacker's own strategy block - the attacker's name as a heading, then one
+ *  bullet per target its Focus actually reaches (Focus is one pool spent across the whole
+ *  sequence, so a single attacker can have bullets for several targets - see
+ *  `summarizeFocusStrategy` in `sequence.ts`). `bullets` is already fully formatted text (a "vs
+ *  {target}: " prefix baked in whenever there's more than one target); the template just lists
+ *  them. */
+export interface FocusStrategyBlock {
+  readonly attackerName: string;
+  readonly bullets: string[];
+}
+
 /** One row in the "Step by step" list - one per actual ATTACK (shot), not per weapon, restoring
  *  continuous numbering across the whole sequence the way it read before weapons could fire more
  *  than once. See `SequenceShotResult` in `sequence.ts` for where `occursChance`/`hitChance`/

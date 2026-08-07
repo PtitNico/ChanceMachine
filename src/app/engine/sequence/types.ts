@@ -75,6 +75,11 @@ export interface SequencedAttack {
   /** True on every attack belonging to an attacker with Puppet Master active - see the module doc
    *  comment's Puppet Master section and `resolvePmSplit`. */
   hasPuppetMaster?: boolean;
+  /** Focus points (0-10) this attack's own attacker can spend - uniform across every attack
+   *  belonging to the same attacker, same convention as `hasPuppetMaster`. Unset/0 means this
+   *  attacker has no Focus and every Focus code path is a no-op for it. See the Attacker Focus
+   *  section in single-target.ts. */
+  attackerFocus?: number;
   /** Which targets (by index into `computeMultiTargetSequenceOdds`'s own `targets` array) this
    *  weapon is in range of - unset means every target (the default - see the module doc comment's
    *  "Multiple targets" section). Index-based for the same reason `attackerIndex` is: a display
@@ -205,6 +210,14 @@ export interface SequenceStepResult {
    *  targets" section. Sums to `destroyChanceAtThisStep`. Length equals this row's own maximum
    *  possible shot count. */
   destroyChanceByShotsRemaining: number[];
+  /** Same total mass as `destroyChanceByShotsRemaining`, further broken down by each focus-enabled
+   *  attacker's own remaining Attacker Focus at the moment of death - `computeMultiTargetSequenceOdds`
+   *  needs this extra coordinate to correctly hand Focus forward to the next target, since Focus is
+   *  one shared pool for the whole multi-target sequence, not reset per target (see single-target.ts's
+   *  Attacker Focus section). Always covers the FULL mass (every entry here sums to
+   *  `destroyChanceByShotsRemaining`'s own total) - `attackerFocusRemaining` is simply `[]` on every
+   *  entry when no attacker has Focus active (the common case), never an empty array of entries. */
+  destroyMassByShotsRemainingAndFocus: { shotsRemaining: number; attackerFocusRemaining: number[]; probability: number }[];
 }
 
 export interface SequenceResult {
@@ -212,6 +225,48 @@ export interface SequenceResult {
   finalDestroyChance: number;
   /** Remaining-boxes distribution conditional on the target surviving the whole sequence. */
   survivalDistribution: { boxes: number; probability: number }[];
+  /** True-optimal Attacker Focus policy's own actual decisions, recorded during the forward replay
+   *  and aggregated per attacker/situation - the raw data `summarizeFocusStrategy` (single-target.ts)
+   *  turns into player-facing advice text. Empty whenever no attacker has Focus active. */
+  focusStrategy: FocusStrategyEntry[];
+  /** Destroy mass arising from Attacker Focus buying MORE attacks after every configured row had
+   *  already resolved - i.e. mass that arrived via a multi-target `RowInjection` at
+   *  `row: attacks.length` (an attacker who'd already exhausted every configured row against an
+   *  EARLIER target, but still had Focus left over - see single-target.ts's Attacker Focus section
+   *  and `computeMultiTargetSequenceOdds`'s own handling of such entries). Not tied to any
+   *  particular `SequenceStepResult` - there's no configured row for it to belong to.
+   *  `computeMultiTargetSequenceOdds` reads this directly, alongside every step's own
+   *  `destroyMassByShotsRemainingAndFocus`, to keep handing leftover Focus forward correctly to a
+   *  THIRD target if this one also doesn't consume all of it. Always empty for a plain single-target
+   *  call (no `RowInjection` ever lands on `row: n` there). */
+  postSequenceBuyingDestroyMass: { attackerFocusRemaining: number[]; probability: number }[];
+}
+
+/** One weapon's own recorded Focus-spending tally within one attacker/situation bucket - see
+ *  `FocusStrategyEntry`. `weaponLabel` is the display label of the weapon this mass applies to:
+ *  for `boostAttackMass`/`boostDamageMass`, the weapon whose OWN roll is being decided; for
+ *  `buyMass`, the weapon actually fired as the bought attack - which can be a DIFFERENT weapon
+ *  than whichever row's own boundary triggered the buy decision (buying always happens at the
+ *  attacker's own LAST configured row, but picks whichever melee weapon scores best). All three
+ *  mass figures are probability-weighted (summing to at most 1 across the whole per-attacker log,
+ *  not per weapon or situation). */
+export interface FocusWeaponTally {
+  weaponLabel: string;
+  /** The weapon's own `AttackType` - lets the summary name the weapon's type emoji alongside its
+   *  label (see `TYPE_EMOJI` in `attack-model.ts`). */
+  weaponType: AttackType;
+  boostAttackMass: number;
+  boostDamageMass: number;
+  buyMass: number;
+}
+
+/** One attacker's own recorded Focus-spending tallies, split by target "situation" (healthy vs
+ *  debuffed - see single-target.ts's `situationOf`) and, within each situation, by weapon -
+ *  `undefined` for a situation this attacker never actually reached during the forward replay. */
+export interface FocusStrategyEntry {
+  attackerIndex: number;
+  healthy?: FocusWeaponTally[];
+  debuffed?: FocusWeaponTally[];
 }
 
 /** Where a target's probability mass enters the fight, instead of the default "100% before row
@@ -225,6 +280,12 @@ export interface RowInjection {
   row: number;
   shotsRemaining: number;
   probability: number;
+  /** Attacker Focus remaining per focus-enabled attacker, carried forward from an earlier target in
+   *  a multi-target sequence - Focus is one shared pool for the whole sequence, not reset per
+   *  target (see single-target.ts's Attacker Focus section). Unset means "start fresh from each
+   *  attacker's own configured attackerFocus" - the only behavior a single-target computation, or
+   *  target 0 of a multi-target one, ever needs. */
+  attackerFocusRemaining?: number[];
 }
 
 export interface SequenceOptions {
@@ -236,6 +297,20 @@ export interface SequenceOptions {
   /** Defaults to `[{ row: 0, shotsRemaining: 0, probability: 1 }]` - today's exact single-target
    *  behavior (100% of the mass starts fresh before row 0). See `RowInjection`. */
   injection?: RowInjection[];
+  /** "Expected destroy chance of every LATER target in a multi-target sequence, given the
+   *  attacker enters this target at this exact `(row, shotsRemaining)` position (see
+   *  `RowInjection` for what that pair means) with this much leftover Attacker Focus" - lets this
+   *  target's own Attacker-Focus decisions weigh preserving Focus for later targets against
+   *  spending it here now, instead of only ever optimizing this target's own destroy chance.
+   *  `row`/`shotsRemaining` matter, not just the Focus amount: a later target's own real odds
+   *  depend heavily on how much of THIS attacker's weaponry is already spent by the time it's
+   *  reached (e.g. entering at the very first row with everything still fresh reads nothing like
+   *  entering after every configured row is already used up) - collapsing that away and always
+   *  assuming a fresh start at row 0 was an earlier, materially wrong approximation. Built by
+   *  `computeMultiTargetSequenceOdds`'s own reverse pass over targets; unset (the only behavior a
+   *  single-target call, or the LAST target of a multi-target one, ever needs) means every
+   *  Attacker-Focus decision stays exactly as locally-optimal as before this existed. */
+  attackerFocusDownstreamValue?: (row: number, shotsRemaining: number, attackerFocusLeft: number[]) => number;
 }
 
 /** One target's own result from `computeMultiTargetSequenceOdds`. */
