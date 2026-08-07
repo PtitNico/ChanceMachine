@@ -853,7 +853,7 @@ function resolveOneOutcome(
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean; outcomeSustained: boolean } {
-  const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
+  const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isHit, outcome.isCrit);
   const rawContinuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
   const outcomeSustained =
     sustained || (atk.sustainedAttack === 'hit' && outcome.isHit) || (atk.sustainedAttack === 'crit' && outcome.isCrit);

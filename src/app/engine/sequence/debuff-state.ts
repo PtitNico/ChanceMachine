@@ -87,9 +87,13 @@ function applyStatEffect(s: DebuffState, effect: StatEffect): DebuffState {
   }
 }
 
-/** Applies every statEffect that fires for this outcome ("hit" effects fire on any hit, including crits; "crit" effects only on crits). */
-export function applyStatEffectsForOutcome(s: DebuffState, statEffects: StatEffect[] | undefined, isCrit: boolean): DebuffState {
-  if (!statEffects || statEffects.length === 0) return s;
+/** Applies every statEffect that fires for this outcome ("hit" effects fire on any hit, including
+ *  crits; "crit" effects only on crits) - a MISS never applies anything, regardless of an
+ *  effect's own trigger. `isHit` is required (not inferred from `isCrit`): a miss and a plain
+ *  non-crit hit both have `isCrit === false`, so `isCrit` alone can't tell them apart - checking
+ *  only `isCrit` here was a real bug (an "on hit" effect firing on a miss). */
+export function applyStatEffectsForOutcome(s: DebuffState, statEffects: StatEffect[] | undefined, isHit: boolean, isCrit: boolean): DebuffState {
+  if (!statEffects || statEffects.length === 0 || !isHit) return s;
   let next = s;
   for (const effect of statEffects) {
     const applies = effect.trigger === 'hit' || (effect.trigger === 'crit' && isCrit);

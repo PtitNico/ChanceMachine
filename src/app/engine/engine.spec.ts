@@ -439,6 +439,31 @@ describe('sequence engine', () => {
     expect(result.steps[1].shots[0].hitChance).toBeCloseTo(0, 6);
   });
 
+  it('a MISSED on-hit statEffect does not carry over (regression: applyStatEffectsForOutcome used to check only isCrit - a miss ALSO has isCrit=false, so a \'hit\'-triggered effect like Knockdown was wrongly applied on a genuine miss too, in both the backward and forward pass)', () => {
+    // Attack 1 keeps a normal, realistic chance to MISS (DEF 13) with Knockdown on 'hit' (fires
+    // on a plain hit too, not just a crit - unlike the 'crit'-triggered tests above, this is the
+    // exact trigger value the bug affected) - `pow: -9999` (matching how the UI encodes a '-'
+    // POW) means it can NEVER deal damage, so every branch (hit or miss) survives to reach attack
+    // 2, keeping this test's own arithmetic clean. Attack 2 has an absurdly low stat AND a single
+    // die (exempt from the "natural 6s always hit" rule - see attack-model.ts), so its OWN
+    // baseline hit chance is genuinely 0 - the ONLY way it can ever hit is a real Knockdown
+    // carrying over from attack 1 actually landing, never from attack 1 merely NOT critting
+    // (which is what a miss and a plain hit both look like to a check that only inspects isCrit).
+    const singleDieMods = { discard: { lowest: 1 } };
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', pow: -9999, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+      attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    // Attack 2 auto-hits (100%) whenever - and only whenever - Knockdown actually applied, i.e.
+    // exactly when attack 1 itself hit (crit or not, since 'hit' fires on either) - so attack 2's
+    // own overall hit chance must equal attack 1's own hit chance exactly, not attack 1's crit
+    // chance and not 100%.
+    expect(result.steps[1].shots[0].hitChance).toBeCloseTo(result.steps[0].shots[0].hitChance, 9);
+    expect(result.steps[1].shots[0].hitChance).toBeLessThan(1);
+    expect(result.steps[1].shots[0].hitChance).toBeGreaterThan(0);
+  });
+
   it('attack order matters: a high-crit-chance Knockdown attack helps more when it goes first', () => {
     const knockdownFirst: SequencedAttack[] = [
       attack({ id: '1', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
