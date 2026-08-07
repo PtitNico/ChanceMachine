@@ -32,27 +32,28 @@ export interface Attacker {
    *  (every target, not reset per target - the attacker's own resource, not the target's): boost
    *  an attack or damage roll (+1 die, once per roll), or buy an extra melee attack fired after
    *  every one of this attacker's own configured attacks - spent optimally via full lookahead,
-   *  exactly like the target's own Focus/Fury. Edited via the attacker's "special rules" pop-up,
-   *  same as Puppet Master. See `sequence.ts`'s Attacker Focus section for the exact policy. */
+   *  exactly like the target's own Focus/Fury. Edited inline on the card, next to MAT/RAT/AAT (see
+   *  `AttackerCard`), not via the "special rules" pop-up. See `sequence.ts`'s Attacker Focus
+   *  section for the exact policy. */
   readonly focusPoints: WritableSignal<number>;
 }
 
 /** Short "label" summary tag for an active attacker-level special rule, shown under the attacker
- *  card - the attacker-level equivalent of `EffectSummaryTag`/`effectsSummary` for an attack row. */
+ *  card - the attacker-level equivalent of `EffectSummaryTag`/`effectsSummary` for an attack row.
+ *  Focus has no tag of its own - it's always directly visible/editable inline on the card (see
+ *  `AttackerCard`), the same reason MAT/RAT/AAT never get one either. */
 export interface AttackerRuleSummaryTag {
-  readonly key: 'puppetMaster' | 'focusPoints';
+  readonly key: 'puppetMaster';
   readonly label: string;
 }
 
-/** Currently Puppet Master and Focus - more attacker-level toggles land here as they're added, the
- *  same way `effectsSummary` grows with new attack effects. */
+/** Currently just Puppet Master - more attacker-level toggles land here as they're added, the same
+ *  way `effectsSummary` grows with new attack effects (as long as they stay dialog-only, not
+ *  inline like Focus). */
 export function attackerRulesSummary(attacker: Attacker): AttackerRuleSummaryTag[] {
   const tags: AttackerRuleSummaryTag[] = [];
   if (attacker.puppetMaster()) {
     tags.push({ key: 'puppetMaster', label: 'Puppet Master' });
-  }
-  if (attacker.focusPoints() > 0) {
-    tags.push({ key: 'focusPoints', label: `Focus: ${attacker.focusPoints()}` });
   }
   return tags;
 }
