@@ -39,6 +39,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Attacker Focus can now buy extra attacks with a ranged weapon too, not just melee: set Reload in that weapon\'s Effects pop-up (1, 2, or ∞ extra shots) to make it eligible, still spending from the same shared Focus pool.',
+    ],
+  },
+  {
     date: '2026-08-07',
     items: [
       'ChanceMachine now supports attacker Focus! Focus is spent optimally to boost attack or damage rolls, or buy additional melee attacks. Check the Details view to see the optimal Focus spending strategy: buy or boost? Reload and automatic boost (charge, cavalry charge, etc) coming soon!',

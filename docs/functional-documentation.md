@@ -168,10 +168,10 @@ resource, spent on any roll made by any of that attacker's own attacks, over the
 (not reset when attacks spill onto a new target — the attacker keeps whatever Focus it hasn't spent
 yet). Each point can be spent, once per roll, to:
 - **Boost an attack or damage roll**: add one extra die to that roll.
-- **Buy an extra melee attack**: fired with whichever of the attacker's own melee weapons the app
-  determines is best, **after** every one of that attacker's own configured attacks have fired
-  (bought attacks stack — a second point can buy a further attack after the first bought one, and so
-  on, for as long as Focus remains).
+- **Buy an extra attack**: fired with whichever of the attacker's own melee weapons — or ranged
+  weapons with **Reload** active (see below) — the app determines is best, **after** every one of
+  that attacker's own configured attacks have fired (bought attacks stack — a second point can buy
+  a further attack after the first bought one, and so on, for as long as Focus remains).
 
 Unlike Puppet Master, Focus is spent **optimally** — the same whole-sequence lookahead already used
 for the target's own Focus/Fury (see below): the app computes, ahead of time, the spending policy
@@ -189,7 +189,7 @@ across the whole sequence.
 
 Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
 - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
-- **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores the target's spell-granted DEF/ARM bonuses — see "Custom effects" below).
+- **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores the target's spell-granted DEF/ARM bonuses — see "Custom effects" below). For a **Ranged** weapon only, a **Reload** selector also appears here: 0 (off, the default — this weapon can't be bought with Focus at all), 1 or 2 (this weapon can be bought that many times total, shared across the whole sequence, exactly like Focus itself), or ∞ (unlimited buys, exactly like a melee weapon — see "Buy an extra attack" above).
 - **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
 - **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
 - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Sustained Attack, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each, under the same name. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). **Sustained Attack**: once one shot from this weapon's own volley — its # Atks and/or ROF shots — hits (if activated under "On hit") or specifically crits (if activated under "On crit"), every later shot in that same volley automatically hits too; doesn't reach a different weapon row, even one representing the same physical weapon. Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.

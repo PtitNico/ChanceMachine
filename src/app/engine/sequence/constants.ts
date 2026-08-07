@@ -17,6 +17,14 @@ export const MAX_PM_ATTACKERS = 8;
 // case of 2^8 = 256. See the module doc comment's Attacker Focus section.
 export const MAX_FOCUS_ATTACKERS = 2;
 
+// Caps how many DISTINCT ranged weapons can have a finite Reload value (1 or 2) active at once -
+// same guard-rail spirit as MAX_FOCUS_ATTACKERS above (Reload's own slots share the SAME
+// attackerFocusLeft vector, see single-target.ts's SequenceContext.reloadIndexOf). Each slot only
+// ranges over 0-2 (not 0-10), so this could tolerate a looser cap than Focus's own, but is kept at
+// 2 anyway for simplicity - more than 2 reload-capped weapons in one sequence isn't a realistic
+// tabletop scenario.
+export const MAX_RELOAD_WEAPONS = 2;
+
 // Bounds how many extra instances a Critical Shred chain can recurse through. Each further
 // instance requires another crit, so the untruncated tail's probability is critChance^depth -
 // for any realistic crit chance this is astronomically small well before depth 10 (e.g. 0.3^10 is

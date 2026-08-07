@@ -48,6 +48,15 @@ export interface SequencedAttack {
    *  thrown (see the module doc comment's "Rate of Fire" section) - total shots fired = `attackCount`
    *  + this roll's result. Ignored for melee/arcane attacks. Unset/'-' means no extra shots. */
   rof?: RofValue;
+  /** Ranged-only: caps how many additional shots with THIS weapon the attacker can buy using
+   *  Attacker Focus, on top of `attackCount`/`rof` - 0 (or unset) means this weapon isn't buyable
+   *  at all (today's default, matching melee-only buying before this existed). `Infinity` means
+   *  unlimited, exactly like a melee weapon's own unrestricted buying. A finite value (1 or 2) is
+   *  tracked as a separate per-weapon "uses remaining" cap layered on top of the SAME shared Focus
+   *  spend a melee buy already costs - see `SequenceContext.reloadIndexOf`'s own doc comment in
+   *  single-target.ts for exactly how that's folded into the existing `attackerFocusLeft` vector.
+   *  Ignored entirely for melee/arcane rows. */
+  reload?: number;
   /** Effects scoped to this attack alone (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter). */
   effects?: AttackEffects;
   /** Effects that persist on the target for the rest of the sequence once triggered. */
@@ -284,7 +293,9 @@ export interface RowInjection {
    *  a multi-target sequence - Focus is one shared pool for the whole sequence, not reset per
    *  target (see single-target.ts's Attacker Focus section). Unset means "start fresh from each
    *  attacker's own configured attackerFocus" - the only behavior a single-target computation, or
-   *  target 0 of a multi-target one, ever needs. */
+   *  target 0 of a multi-target one, ever needs. Also carries each Reload-capped weapon's own
+   *  remaining uses, appended as extra slots right after the Focus ones - see
+   *  `SequenceContext.reloadIndexOf` in single-target.ts for the exact slot layout. */
   attackerFocusRemaining?: number[];
 }
 
@@ -309,7 +320,9 @@ export interface SequenceOptions {
    *  assuming a fresh start at row 0 was an earlier, materially wrong approximation. Built by
    *  `computeMultiTargetSequenceOdds`'s own reverse pass over targets; unset (the only behavior a
    *  single-target call, or the LAST target of a multi-target one, ever needs) means every
-   *  Attacker-Focus decision stays exactly as locally-optimal as before this existed. */
+   *  Attacker-Focus decision stays exactly as locally-optimal as before this existed.
+   *  `attackerFocusLeft` here is the same combined vector `RowInjection.attackerFocusRemaining`
+   *  carries - Focus slots then Reload slots, see `SequenceContext.reloadIndexOf`. */
   attackerFocusDownstreamValue?: (row: number, shotsRemaining: number, attackerFocusLeft: number[]) => number;
 }
 

@@ -32,6 +32,8 @@ export const ATTACK_COUNT_OPTIONS = range(1, 10);
 export const RANGED_ATTACK_COUNT_OPTIONS = range(0, 10);
 /** Ranged-only "extra shots on top of # Atks" field - see `SequencedAttack.rof`'s doc comment. */
 export const ROF_OPTIONS: RofValue[] = ['-', 'd3', '2d3'];
+/** Ranged-only Reload cap - see `SequencedAttack.reload`'s doc comment. 0 = off. */
+export const RELOAD_OPTIONS: number[] = [0, 1, 2, Infinity];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 /** Shown next to Type everywhere it appears - the attack sub-card's own type indicator and the
@@ -228,6 +230,11 @@ export interface AttackRow {
    *  rows regardless of this value, so switching Type away from Ranged and back doesn't need to
    *  reset it. */
   readonly rof: WritableSignal<RofValue>;
+  /** Ranged-only "buy additional attacks with this weapon, using Focus, up to this many" cap - see
+   *  `SequencedAttack.reload`'s doc comment. 0 = off (the default). Ignored by the engine for
+   *  melee/arcane rows regardless of this value, same "irrelevant off-type value, no reset-on-Type-
+   *  change needed" reasoning as `rof`. */
+  readonly reload: WritableSignal<number>;
 
   /** "-X ARM" (generic persistent ARM debuff): two independent 0-10 counters (0 = off), one per
    *  trigger timing, each its own `<app-toggle-select>` in the Effects pop-up's "On hit"/"Critical"
@@ -261,6 +268,7 @@ export function createAttackRow(): AttackRow {
     damageDiceCount: signal(2),
     attackCount: signal(1),
     rof: signal<RofValue>('-'),
+    reload: signal(0),
     armPenaltyHitAmount: signal(0),
     armPenaltyCritAmount: signal(0),
     triggerEffects: createTriggerEffects(),
@@ -278,6 +286,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     damageDiceCount: signal(source.damageDiceCount()),
     attackCount: signal(source.attackCount()),
     rof: signal(source.rof()),
+    reload: signal(source.reload()),
     armPenaltyHitAmount: signal(source.armPenaltyHitAmount()),
     armPenaltyCritAmount: signal(source.armPenaltyCritAmount()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
@@ -291,6 +300,7 @@ export function resetEffects(row: AttackRow): void {
   }
   row.armPenaltyHitAmount.set(0);
   row.armPenaltyCritAmount.set(0);
+  row.reload.set(0);
 }
 
 /** Short "label (trigger)" summary strings for every active effect on a row, shown under the attack row. */
@@ -404,6 +414,7 @@ export function toSequencedAttack(
     stat,
     attackCount: row.attackCount(),
     rof: row.rof(),
+    reload: row.reload(),
     modifiers: {
       boostDice: toBoostDice(row.diceCount()),
       discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),

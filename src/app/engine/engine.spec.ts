@@ -2033,6 +2033,87 @@ describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
   });
 });
 
+describe('sequence engine - Attacker Focus (Reload: per-weapon cap on buying a ranged weapon)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when reload is absent or 0 - a ranged weapon stays un-buyable (regression safety)', () => {
+    const withoutField = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], target);
+    const withZero = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2, reload: 0 })], target);
+    expect(withZero.finalDestroyChance).toBeCloseTo(withoutField.finalDestroyChance, 9);
+  });
+
+  it('lets a ranged weapon with a Reload value be bought, unlike one without', () => {
+    const withoutReload = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], target);
+    const withReload = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2, reload: 2 })], target);
+    expect(withReload.finalDestroyChance).toBeGreaterThan(withoutReload.finalDestroyChance);
+  });
+
+  it('caps buying at the Reload value even when more Focus remains, distinct from the Focus pool itself', () => {
+    const bigTarget = { def: 13, arm: 15, boxes: 20 };
+    const capped = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5, reload: 1 })], bigTarget);
+    const uncapped = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5, reload: Infinity })], bigTarget);
+    expect(uncapped.finalDestroyChance).toBeGreaterThan(capped.finalDestroyChance);
+  });
+
+  it('Reload: Infinity behaves exactly like an unrestricted melee weapon', () => {
+    const melee = computeSequenceOdds([attack({ type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], target);
+    const rangedInfinite = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, reload: Infinity })], target);
+    expect(rangedInfinite.finalDestroyChance).toBeCloseTo(melee.finalDestroyChance, 9);
+  });
+
+  it('probability mass is conserved when buying a Reload-capped ranged weapon', () => {
+    const result = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, reload: 2 })], target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('throws when Reload is active on more weapons than the cap allows', () => {
+    const attacks = [0, 1, 2].map((i) =>
+      attack({ id: `${i}`, type: 'ranged', attackerIndex: 0, attackerFocus: 1, reload: 1 })
+    );
+    expect(() => computeSequenceOdds(attacks, target)).toThrow();
+  });
+});
+
+describe('sequence engine - multiple targets - Reload persistence and downstream value awareness', () => {
+  it('is cross-target value-aware for a Reload-capped weapon, not just locally optimal (mirrors the melee Attacker Focus case)', () => {
+    // Same shape as "prefers buying an extra attack against a later target over a marginal boost
+    // against this one" above, but with a Reload-capped RANGED weapon instead of an unrestricted
+    // melee one - proves both that Reload state carries across targets (the SAME weapon row's one
+    // charge is still available at target 2) and that the optimizer doesn't waste it boosting a
+    // marginal roll against target 1 when preserving it for target 2 is worth far more.
+    const weapon: SequencedAttack = {
+      id: 'w', attackerName: 'A', label: 'Weapon', type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1, reload: 1,
+    };
+    const target: SequenceTarget = { def: 'KD', arm: 14, boxes: 1 };
+
+    const results = computeMultiTargetSequenceOdds([weapon], [target, target]);
+    const chanceAll = chanceToDestroyAllTargets([weapon], results);
+
+    // A slightly lower bar than the melee analog test (~0.945): a ranged weapon doesn't get
+    // melee's own auto-hit-on-Knocked-Down bonus, so its odds are naturally a bit lower even with
+    // Reload/Focus spent identically well - this is a real mechanical difference, not slack in the
+    // Reload feature itself (the buyMass check right below is the real proof of value-awareness).
+    expect(chanceAll).toBeGreaterThan(0.85);
+
+    const target2Tally = results[1].result.focusStrategy[0];
+    const buyMass = (target2Tally.healthy ?? []).reduce((sum, t) => sum + t.buyMass, 0) + (target2Tally.debuffed ?? []).reduce((sum, t) => sum + t.buyMass, 0);
+    expect(buyMass).toBeGreaterThan(0.9);
+  });
+});
+
 describe('sequence engine - Attacker Focus strategy summary', () => {
   const target = { def: 13, arm: 15, boxes: 5 };
 
