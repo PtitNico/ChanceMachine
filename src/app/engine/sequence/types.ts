@@ -294,6 +294,14 @@ export interface SequenceOptions {
   /** Defaults to `[{ row: 0, shotsRemaining: 0, probability: 1 }]` - today's exact single-target
    *  behavior (100% of the mass starts fresh before row 0). See `RowInjection`. */
   injection?: RowInjection[];
+  /** "Expected destroy chance of every LATER target in a multi-target sequence, given the
+   *  attacker enters this target fresh with this much leftover Attacker Focus" - lets this
+   *  target's own Attacker-Focus decisions weigh preserving Focus for later targets against
+   *  spending it here now, instead of only ever optimizing this target's own destroy chance.
+   *  Built by `computeMultiTargetSequenceOdds`'s own reverse pass over targets; unset (the only
+   *  behavior a single-target call, or the LAST target of a multi-target one, ever needs) means
+   *  every Attacker-Focus decision stays exactly as locally-optimal as before this existed. */
+  attackerFocusDownstreamValue?: (attackerFocusLeft: number[]) => number;
 }
 
 /** One target's own result from `computeMultiTargetSequenceOdds`. */

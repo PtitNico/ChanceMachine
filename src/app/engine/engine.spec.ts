@@ -2688,7 +2688,7 @@ describe('sequence engine - multiple targets', () => {
       // Component {0}: t1 alone, always destroyed. Component {1,2}: t3 (last-ranked) already
       // carries the joint "both 1 and 2 destroyed" probability - see the dedicated chain test above.
       expect(t1.result.finalDestroyChance).toBeCloseTo(1, 9);
-      expect(chanceAll).toBeCloseTo(1 * t3.result.finalDestroyChance, 9);
+      expect(chanceAll).toBeCloseTo(t3.result.finalDestroyChance, 9);
     });
 
     it('is exactly finalDestroyChance with a single target (regression safety)', () => {
@@ -2766,6 +2766,47 @@ describe('sequence engine - multiple targets - Attacker Focus persistence', () =
   });
 });
 
+describe('sequence engine - Attacker Focus is cross-target value-aware, not just locally optimal', () => {
+  // User-reported bug: 2 KD targets, ARM 14, 1 box each, 1 attacker with 1 Focus and a single POW
+  // 12 melee weapon in range of both. The engine used to spend the 1 Focus point boosting the
+  // damage roll against target 1 (a marginal local improvement), leaving target 2 with nothing to
+  // fire at it at all once target 1's single configured attack was spent - "Chance to destroy all
+  // targets: 0%". Manually forcing "0 focus, 2 attacks with this weapon" (i.e. buying instead of
+  // boosting) gives ~94.5%. The fix gives each target's own Attacker-Focus decision a downstream
+  // value function so it can see that preserving the point to buy an attack against target 2 is
+  // worth far more than the marginal boost against target 1.
+  it('prefers buying an extra attack against a later target over a marginal boost against this one', () => {
+    const weapon: SequencedAttack = {
+      id: 'w', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1,
+    };
+    const target: SequenceTarget = { def: 'KD', arm: 14, boxes: 1 };
+
+    const results = computeMultiTargetSequenceOdds([weapon], [target, target]);
+    const chanceAll = chanceToDestroyAllTargets([weapon], results);
+
+    expect(chanceAll).toBeGreaterThan(0.9);
+
+    // Target 2 only ever gets a shot at all via a bought attack (its own configured row was
+    // already spent against target 1) - so any mass reaching it at all confirms the point was
+    // preserved rather than spent boosting target 1.
+    const target2Tally = results[1].result.focusStrategy[0];
+    const buyMass = (target2Tally.healthy ?? []).reduce((sum, t) => sum + t.buyMass, 0) + (target2Tally.debuffed ?? []).reduce((sum, t) => sum + t.buyMass, 0);
+    expect(buyMass).toBeGreaterThan(0.9);
+  });
+
+  it('is a no-op for a single target (the last target in any sequence never gets a downstream value function)', () => {
+    const weapon: SequencedAttack = {
+      id: 'w', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1,
+    };
+    const target: SequenceTarget = { def: 'KD', arm: 14, boxes: 1 };
+
+    const direct = computeSequenceOdds([weapon], target);
+    const [viaMultiTarget] = computeMultiTargetSequenceOdds([weapon], [target]);
+
+    expect(viaMultiTarget.result.finalDestroyChance).toBeCloseTo(direct.finalDestroyChance, 9);
+  });
+});
+
 describe('sequence engine - Attacker Focus vs a fixed manual translation', () => {
   // Regression for a user-reported "why is the number different" question, not a bug: manually
   // translating "boost this roll" into +1 die and "buy N attacks" into N extra configured attacks
@@ -2804,3 +2845,4 @@ describe('sequence engine - Attacker Focus vs a fixed manual translation', () =>
     expect(focusChance).toBeGreaterThan(manualChance);
   });
 });
+

@@ -26,6 +26,41 @@ export function computeMultiTargetSequenceOdds(
   const rowCount = attacks.length;
   let available: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
 
+  // Attacker Focus's cross-target downstream value: `downstreamValueAfter[i](F)` = "destroy chance
+  // of targets[i..] onward, given the attacker enters target i fresh (row 0) with leftover Focus
+  // vector F" - built last-target-first so target i's own value function already accounts for
+  // everything after it (see single-target.ts's `withAttackerFocusValue`, and `SequenceOptions`'s
+  // own doc comment for why each target's own Attacker-Focus decisions need this to avoid being
+  // only locally optimal). Threaded into each target's REAL `computeSequenceOdds` call below so the
+  // actual displayed results use the same value function this was built with. Purely a hypothetical
+  // "if I had F leftover, starting fresh" probe - it deliberately does NOT replicate the
+  // passthrough/engagement-chance machinery below, since it's a pure function of F, not an actual
+  // mass-flow computation. Memoized per level (one Map per i, captured by that level's own closure
+  // and shared across every caller, including this reverse pass's own recursive calls into level
+  // i+1) so the total cost is bounded by O(distinct F vectors, <= 121 per
+  // MAX_FOCUS_ATTACKERS/MAX_RESOURCE_POINTS) x targets.length, not exponential in the number of
+  // targets. A no-op (never invoked) whenever no attacker has Focus active - the common case pays
+  // nothing.
+  const downstreamValueAfter: Array<(f: number[]) => number> = new Array(targets.length + 1);
+  downstreamValueAfter[targets.length] = () => 0;
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const rowActiveForI = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(i));
+    const cache = new Map<string, number>();
+    const next = downstreamValueAfter[i + 1];
+    downstreamValueAfter[i] = (f: number[]) => {
+      const key = f.join(',');
+      const cached = cache.get(key);
+      if (cached !== undefined) return cached;
+      const value = computeSequenceOdds(attacks, targets[i], undefined, {
+        rowActive: rowActiveForI,
+        injection: [{ row: 0, shotsRemaining: 0, probability: 1, attackerFocusRemaining: f }],
+        attackerFocusDownstreamValue: next,
+      }).finalDestroyChance;
+      cache.set(key, value);
+      return value;
+    };
+  }
+
   targets.forEach((target, targetIndex) => {
     const rowActive = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(targetIndex));
     // `row === rowCount` isn't a real configured row at all - it's Attacker Focus's own "every row
@@ -87,7 +122,7 @@ export function computeMultiTargetSequenceOdds(
       attacks,
       target,
       onProgress ? (fraction) => onProgress((targetIndex + fraction) / targets.length) : undefined,
-      { rowActive, injection: ownInjection }
+      { rowActive, injection: ownInjection, attackerFocusDownstreamValue: downstreamValueAfter[targetIndex + 1] }
     );
 
     // `computeSequenceOdds` computes each shot's own `occursChance` relative to ITS OWN incoming

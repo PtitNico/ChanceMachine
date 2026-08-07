@@ -24,7 +24,6 @@ import {
   ToughRules,
   ValueLookup,
   bestAction,
-  branchesValue,
   isBetterForAttacker,
   isBetterScore,
   outcomeScore,
@@ -40,7 +39,6 @@ import {
   SequenceShotResult,
   SequenceStepResult,
   SequenceTarget,
-  StatEffect,
 } from './types';
 
 /** The probability distribution over how many total shots actually fire: `attackCount`'s
@@ -125,6 +123,9 @@ interface SequenceContext {
    *  the Focus strategy summary text (see `summarizeFocusPolicy`) - the mutable counterpart to
    *  `profileCache` above. */
   focusPolicyLog?: FocusPolicyLog;
+  /** See `SequenceOptions.attackerFocusDownstreamValue`'s own doc comment - threaded straight
+   *  through from `options`. */
+  attackerFocusDownstreamValue?: (attackerFocusLeft: number[]) => number;
 }
 
 /** One (attacker, "situation", weapon) bucket's own weighted tally of which Attacker Focus action
@@ -521,6 +522,27 @@ function resolveKotdOffSplit(
   return populations;
 }
 
+/** Nudges a raw survival-value scalar toward the attacker's favor by how much downstream value
+ *  (against LATER targets in a multi-target sequence) the given leftover-Focus vector is worth,
+ *  weighted by how likely this candidate is to destroy the CURRENT target (`1 - survivalValue`) -
+ *  see `SequenceOptions.attackerFocusDownstreamValue`'s own doc comment. `survivalValue` is
+ *  already the whole-future survival probability from this point on (everything ultimately
+ *  bottoms out at `getValueTableAt[n]`'s flat `() => 1` terminal), so `1 - survivalValue` is
+ *  genuinely "P(this target ends up destroyed by the end of the sequence, given this candidate)" -
+ *  the right weight for how much this candidate's own leftover Focus is worth downstream.
+ *  `attackerFocusLeft` is whatever remains AFTER this candidate's own spend decision - exactly the
+ *  Focus level that would carry over to the next target if this candidate is the one that ends up
+ *  killing this one. Used ONLY to bias a comparison between candidates at Attacker-Focus decision
+ *  points (never to decide the TARGET's own Focus/Fury/KotD spending, which has no cross-target
+ *  meaning) - the winning candidate's ORIGINAL, unadjusted value is what actually gets
+ *  returned/cached, so this bonus can never leak into `bestAction`/`resolveKotdDefChoice`'s own
+ *  value tables. A verified no-op whenever `ctx.attackerFocusDownstreamValue` is unset (every
+ *  single-target call, and the last target of a multi-target one). */
+function withAttackerFocusValue(ctx: SequenceContext, survivalValue: number, attackerFocusLeft: number[]): number {
+  if (!ctx.attackerFocusDownstreamValue) return survivalValue;
+  return survivalValue - (1 - survivalValue) * ctx.attackerFocusDownstreamValue(attackerFocusLeft);
+}
+
 /** One genuinely-occurring sub-population arising from Attacker Focus's damage-roll boost choice -
  *  see `resolveAttackerDamageBoostChoice`. Shaped like `PmPopulation`/`KotdPopulation` but tracking
  *  the WHOLE `attackerFocusLeft` vector (only this attacker's own slot ever changes). */
@@ -606,8 +628,14 @@ function resolveAttackerDamageBoostChoice(
 
     const keptScore = scoreOf(keptProfile, attackerFocusLeft);
     const boostedScore = scoreOf(boostedProfile, boostedAttackerFocusLeft);
+    const adjustedKept: [number, number, number] = [
+      withAttackerFocusValue(ctx, keptScore[0], attackerFocusLeft), keptScore[1], keptScore[2],
+    ];
+    const adjustedBoosted: [number, number, number] = [
+      withAttackerFocusValue(ctx, boostedScore[0], boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
+    ];
     populations.push(
-      isBetterForAttacker(boostedScore, keptScore)
+      isBetterForAttacker(adjustedBoosted, adjustedKept)
         ? { profile: boostedProfile, resultingAttackerFocusLeft: boostedAttackerFocusLeft }
         : { profile: keptProfile, resultingAttackerFocusLeft: attackerFocusLeft }
     );
@@ -1044,7 +1072,13 @@ function chooseAttackerAttackBoost(
     pmMask, kotdOffLeft, kotdDefLeft, boostedAttackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
   );
 
-  return isBetterForAttacker(boostedScore, unboostedScore)
+  const adjustedBoosted: [number, number, number] = [
+    withAttackerFocusValue(ctx, boostedScore[0], boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
+  ];
+  const adjustedUnboosted: [number, number, number] = [
+    withAttackerFocusValue(ctx, unboostedScore[0], attackerFocusLeft), unboostedScore[1], unboostedScore[2],
+  ];
+  return isBetterForAttacker(adjustedBoosted, adjustedUnboosted)
     ? { trueOriginal: boostedOriginal, attackerFocusLeft: boostedAttackerFocusLeft, score: boostedScore }
     : { trueOriginal: unboostedOriginal, attackerFocusLeft, score: unboostedScore };
 }
@@ -1404,7 +1438,6 @@ export function computeSequenceOdds(
     throw new Error(`Puppet Master active on ${pmAttackerIndices.length} attackers (cap: ${MAX_PM_ATTACKERS})`);
   }
   const pmBitOf = new Map<number, number>(pmAttackerIndices.map((idx, i) => [idx, 1 << i]));
-  const maxPmMask = 1 << pmAttackerIndices.length;
 
   // Every attack index (in `attacks`, in order) belonging to a given PM-active attacker - used by
   // `isLastAttackOfAttacker`/`isAutoHitGuaranteedForRest` below. `hasPuppetMaster` is always set
@@ -1487,6 +1520,7 @@ export function computeSequenceOdds(
     attackIndicesByAttacker,
     profileCache,
     focusPolicyLog: focusAttackerIndices.length > 0 ? { byAttackerAndSituation: new Map() } : undefined,
+    attackerFocusDownstreamValue: options?.attackerFocusDownstreamValue,
   };
 
 
@@ -1644,6 +1678,7 @@ export function computeSequenceOdds(
         const stopFocusLeft = attackerFocusLeft.slice();
         stopFocusLeft[slot] = focusLeftHere;
         let best = readValueTable(getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, stopFocusLeft), boxes, focus, fury, shieldGuards, scapegoats);
+        let bestAdjusted = withAttackerFocusValue(ctx, best, stopFocusLeft);
 
         if (focusLeftHere > 0) {
           const spentFocusLeft = attackerFocusLeft.slice();
@@ -1657,10 +1692,14 @@ export function computeSequenceOdds(
             const value = attackChainValue(
               ctx, w, attacks[w], debuffState, boxes, focus, fury, shieldGuards, scapegoats,
               pmMask, kotdOffLeft, kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH,
-              (b, d, f, fu, sg, sc, m, o, dk, afl, sus) => readValueTable(boughtTable(afl[slot], d, m, o, dk, afl), b, f, fu, sg, sc),
+              (b, d, f, fu, sg, sc, m, o, dk, afl) => readValueTable(boughtTable(afl[slot], d, m, o, dk, afl), b, f, fu, sg, sc),
               weaponCache
             );
-            if (value < best) best = value;
+            const adjustedValue = withAttackerFocusValue(ctx, value, spentFocusLeft);
+            if (adjustedValue < bestAdjusted) {
+              best = value;
+              bestAdjusted = adjustedValue;
+            }
           }
         }
 
@@ -1932,7 +1971,7 @@ export function computeSequenceOdds(
         );
 
         let bestWeapon = -1;
-        let bestValue = stopValue;
+        let bestAdjusted = withAttackerFocusValue(ctx, stopValue, state.attackerFocusLeft);
         if (state.attackerFocusLeft[slot] > 0) {
           const spentFocusLeft = state.attackerFocusLeft.slice();
           spentFocusLeft[slot] -= 1;
@@ -1947,8 +1986,9 @@ export function computeSequenceOdds(
               ctx, w, attacks[w], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
               state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, number>()
             );
-            if (value < bestValue) {
-              bestValue = value;
+            const adjustedValue = withAttackerFocusValue(ctx, value, spentFocusLeft);
+            if (adjustedValue < bestAdjusted) {
+              bestAdjusted = adjustedValue;
               bestWeapon = w;
             }
           }
@@ -2041,7 +2081,6 @@ export function computeSequenceOdds(
     const rowInjections = injectionsByRow.get(k) ?? [];
     const freshInjections = rowInjections.filter((inj) => inj.shotsRemaining === 0);
     const partialInjections = rowInjections.filter((inj) => inj.shotsRemaining > 0);
-    const freshInjectedMass = freshInjections.reduce((sum, inj) => sum + inj.probability, 0);
 
     const enteringDist = new Map(dist);
     // Grouped by `attackerFocusRemaining` (defaulting to this call's own configured
