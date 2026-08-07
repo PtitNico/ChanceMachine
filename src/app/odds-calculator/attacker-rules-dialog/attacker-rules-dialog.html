@@ -4,14 +4,6 @@
       <button
         type="button"
         class="toggle-btn"
-        [class.toggle-btn--active]="a.puppetMaster()"
-        (click)="a.puppetMaster.set(!a.puppetMaster())"
-      >
-        Puppet Master
-      </button>
-      <button
-        type="button"
-        class="toggle-btn"
         [class.toggle-btn--active]="a.charge() === 'charge'"
         (click)="toggleCharge(a, 'charge')"
       >
@@ -24,6 +16,14 @@
         (click)="toggleCharge(a, 'cavalryCharge')"
       >
         Cavalry Charge
+      </button>
+      <button
+        type="button"
+        class="toggle-btn"
+        [class.toggle-btn--active]="a.puppetMaster()"
+        (click)="a.puppetMaster.set(!a.puppetMaster())"
+      >
+        Puppet Master
       </button>
     </div>
   }

@@ -101,22 +101,22 @@ export const GENERAL_EFFECT_KEYS: TriggerEffectKey[] = ['jumpTheShark', 'blessed
 /** Rendered in the "Attack" section, each as a single simple toggle. */
 export const ATTACK_EFFECT_KEYS: TriggerEffectKey[] = [
   'forceAutoHit',
+  'boostedAttack',
   'discardAttackLowest',
   'discardAttackHighest',
   'rerollAttack',
   'sanguineFate',
-  'boostedAttack',
 ];
 
 /** Rendered in the "Damage" section, each as a single simple toggle. */
 export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
+  'boostedDamage',
   'discardDamageLowest',
   'discardDamageHighest',
   'rerollDamage',
   'trash',
   'shatter',
   'chainWeapon',
-  'boostedDamage',
 ];
 
 /** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`.
@@ -318,12 +318,15 @@ export interface EffectSummaryTag {
    *  `@for` tracking this instead of the label string itself, to avoid NG0956: tracking by the
    *  text would make Angular treat that switch as removing one tag and adding an unrelated one
    *  (destroying and recreating its DOM node) instead of just updating the existing node's text. */
-  readonly key: TriggerEffectKey;
+  readonly key: TriggerEffectKey | 'reload';
   readonly label: string;
 }
 
 export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
   const tags: EffectSummaryTag[] = [];
+  if (row.reload() > 0) {
+    tags.push({ key: 'reload', label: `Reload[${row.reload() === Infinity ? '∞' : row.reload()}]` });
+  }
   if (row.armPenaltyHitAmount() > 0) {
     tags.push({ key: 'armPenalty', label: `-${row.armPenaltyHitAmount()} ARM` });
   } else if (row.armPenaltyCritAmount() > 0) {

@@ -19,9 +19,6 @@
 
     <h3 class="dialog__section-title">General</h3>
     <div class="toggle-group">
-      @for (effect of effectsFor(row, generalEffectKeys); track effect.key) {
-        <app-toggle-button [effect]="effect" />
-      }
       @if (row.type() === 'ranged') {
         <app-toggle-select
           label="Reload"
@@ -30,6 +27,9 @@
           [formatValue]="formatReload"
           title="Buy additional attacks with this weapon (up to this many, using Focus)"
         />
+      }
+      @for (effect of effectsFor(row, generalEffectKeys); track effect.key) {
+        <app-toggle-button [effect]="effect" />
       }
     </div>
 
