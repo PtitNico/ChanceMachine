@@ -41,7 +41,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: 'Unreleased',
     items: [
-      'Added Attacker Focus: a per-attacker Focus counter (0-10), spent optimally (full-sequence lookahead, same principle as the target\'s own Focus/Fury) to boost an attack or damage roll (+1 die) or buy an extra melee attack fired after the attacker\'s own configured attacks. Shared across the whole sequence rather than reset per target - an attacker with leftover Focus can keep buying attacks against a later target once an earlier one is destroyed. The Details pop-up shows a "Focus strategy" line per attacker and target, naming the exact weapon each boost or buy applies to and mentioning multiple simultaneous actions (e.g. "boost Ranged\'s attack rolls" against one target, "buy extra attacks with Melee1" against another) rather than blurring every target and weapon into one generic sentence.',
+      'ChanceMachine now supports attacker Focus! Focus is spent optimally to boost attack or damage rolls, or buy additional melee attacks. Check the Details view to see the optimal Focus spending strategy: buy or boost? Reload and automatic boost (charge, cavalry charge, etc) coming soon!',
     ],
   },
   {
@@ -53,7 +53,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-08-04',
     items: [
-      "Fixed a bug where picking \"1\" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking \"2\".",
+      'Fixed a bug where picking "1" die for an attack or damage roll had no effect - it silently rolled 2 dice anyway, same as picking "2".',
     ],
   },
   {
