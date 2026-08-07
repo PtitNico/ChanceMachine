@@ -2048,6 +2048,12 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     };
   }
 
+  // `entry.healthy`/`entry.debuffed` are now arrays of per-weapon tallies (see FocusWeaponTally) -
+  // these sum across every weapon so single-weapon tests below can still assert on a plain total.
+  const sumBoostAttack = (tallies?: { boostAttackMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.boostAttackMass, 0);
+  const sumBoostDamage = (tallies?: { boostDamageMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+  const sumBuy = (tallies?: { buyMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.buyMass, 0);
+
   it('is empty when no attacker has Focus active (regression safety)', () => {
     const result = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
     expect(result.focusStrategy).toEqual([]);
@@ -2060,7 +2066,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(entry.attackerIndex).toBe(0);
     expect(entry.debuffed).toBeUndefined();
     expect(entry.healthy).toBeDefined();
-    const totalHealthyMass = entry.healthy!.boostAttackMass + entry.healthy!.boostDamageMass + entry.healthy!.buyMass;
+    const totalHealthyMass = sumBoostAttack(entry.healthy) + sumBoostDamage(entry.healthy) + sumBuy(entry.healthy);
     expect(totalHealthyMass).toBeGreaterThan(0);
 
     const text = summarizeFocusStrategy(entry, 'Attacker 1');
@@ -2111,7 +2117,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
             };
             const result = computeSequenceOdds([atk], { def: 'KD', arm, boxes });
             const entry = result.focusStrategy[0];
-            const boostAttack = (entry?.debuffed?.boostAttackMass ?? 0) + (entry?.healthy?.boostAttackMass ?? 0);
+            const boostAttack = sumBoostAttack(entry?.debuffed) + sumBoostAttack(entry?.healthy);
             expect(boostAttack, `pow=${pow} arm=${arm} boxes=${boxes} focus=${focus}`).toBeLessThanOrEqual(1e-9);
           }
         }
@@ -2132,11 +2138,11 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(result.finalDestroyChance).toBeGreaterThan(0);
     const entry = result.focusStrategy[0];
     expect(entry.healthy).toBeUndefined();
-    expect(entry.debuffed!.boostAttackMass).toBeCloseTo(0, 9);
-    expect(entry.debuffed!.boostDamageMass).toBeGreaterThan(0);
+    expect(sumBoostAttack(entry.debuffed)).toBeCloseTo(0, 9);
+    expect(sumBoostDamage(entry.debuffed)).toBeGreaterThan(0);
     const text = summarizeFocusStrategy(entry, 'Attacker 1');
-    expect(text).toContain('boost damage rolls');
-    expect(text).not.toContain('boost attack rolls');
+    expect(text).toContain("Attack's damage rolls");
+    expect(text).not.toContain('attack rolls');
   });
 
   it('mentions BOTH boosted rolls when the true-optimal policy spends on both for the same roll, not just the larger one', () => {
@@ -2152,9 +2158,9 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     };
     const result = computeSequenceOdds([atk], { def: 15, arm: 15, boxes: 5 });
     const entry = result.focusStrategy[0];
-    expect(entry.healthy!.boostAttackMass).toBeGreaterThan(0);
-    expect(entry.healthy!.boostDamageMass).toBeGreaterThan(0);
-    expect(summarizeFocusStrategy(entry, 'Attacker 1')).toBe('Attacker 1: boost attack and damage rolls whenever Focus is available.');
+    expect(sumBoostAttack(entry.healthy)).toBeGreaterThan(0);
+    expect(sumBoostDamage(entry.healthy)).toBeGreaterThan(0);
+    expect(summarizeFocusStrategy(entry, 'Attacker 1')).toBe("Attacker 1: boost Attack's attack and damage rolls whenever Focus is available.");
   });
 
   it('an attacker with leftover Focus can keep buying attacks against a second target once the first dies', () => {
@@ -2214,6 +2220,37 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(results[1].result.finalDestroyChance).toBe(0);
   });
 
+  it('names the correct weapon per target when different weapons do different things against different targets', () => {
+    // A user-reported real-game case: a ranged attack scoped to a fragile solo (Vassal, 1 box) and
+    // two melee weapons free to hit either target - true-optimal Focus should boost the ranged
+    // attack's own roll against the solo (there's only one shot at it, can't risk missing) and use
+    // whatever's left buying/boosting the melee weapons against the second, much tankier target
+    // (Cyrenia, 18 boxes) - and the summary should say so BY WEAPON, not blur everything from both
+    // targets into one generic "boost attack rolls and buy extra attacks" sentence.
+    const vassal = { def: 10, arm: 12, boxes: 1 };
+    const cyrenia = { def: 13, arm: 16, boxes: 18 };
+    const atks: SequencedAttack[] = [
+      { id: 'ranged', attackerName: 'A', label: 'Ranged', type: 'ranged', stat: 7, pow: 13, attackerIndex: 0, attackerFocus: 4, eligibleTargetIndices: [0] },
+      { id: 'melee1', attackerName: 'A', label: 'Melee1', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 }, attackerIndex: 0, attackerFocus: 4 },
+      { id: 'melee2', attackerName: 'A', label: 'Melee2', type: 'melee', stat: 7, pow: 10, damageModifiers: { boostDice: 1 }, attackerIndex: 0, attackerFocus: 4 },
+    ];
+    const results = computeMultiTargetSequenceOdds(atks, [vassal, cyrenia]);
+
+    const vassalEntry = results[0].result.focusStrategy[0];
+    const vassalWeapons = (vassalEntry.healthy ?? []).concat(vassalEntry.debuffed ?? []).map((t) => t.weaponLabel);
+    // Melee1/Melee2 are unrestricted (eligible for either target), so a sliver of activity against
+    // Vassal from them is legitimate too - in the rare branch where the ranged shot doesn't kill it,
+    // whichever melee weapon fires next also still has Vassal as its own current target. What
+    // matters is that Ranged - the weapon actually scoped to Vassal - is the dominant one reported.
+    expect(vassalWeapons).toContain('Ranged');
+    expect(summarizeFocusStrategy(vassalEntry, 'Attacker 1')).toContain("Ranged's attack rolls");
+
+    const cyreniaEntry = results[1].result.focusStrategy[0];
+    const cyreniaWeapons = new Set((cyreniaEntry.healthy ?? []).concat(cyreniaEntry.debuffed ?? []).map((t) => t.weaponLabel));
+    expect(cyreniaWeapons.has('Ranged')).toBe(false);
+    expect(cyreniaWeapons.size).toBeGreaterThan(0);
+    for (const label of cyreniaWeapons) expect(['Melee1', 'Melee2']).toContain(label);
+  });
 });
 
 describe('sequence engine - Shield Guards and Scapegoats', () => {
@@ -2726,5 +2763,44 @@ describe('sequence engine - multiple targets - Attacker Focus persistence', () =
     withoutFields.forEach((t, i) => {
       expect(withZeroFocus[i].result.finalDestroyChance).toBeCloseTo(t.result.finalDestroyChance, 9);
     });
+  });
+});
+
+describe('sequence engine - Attacker Focus vs a fixed manual translation', () => {
+  // Regression for a user-reported "why is the number different" question, not a bug: manually
+  // translating "boost this roll" into +1 die and "buy N attacks" into N extra configured attacks
+  // is NOT equivalent to the real Focus mechanic, because that translation is a single FIXED
+  // allocation chosen in advance, while the true-optimal policy decides adaptively, per branch, how
+  // to split each remaining point between boosting the attack roll, boosting the damage roll, and
+  // buying - and can do so differently depending on what actually happened on earlier rolls. Since
+  // the fixed allocation is just one candidate the optimizer could have picked (and isn't always the
+  // best one), the real mechanic's own chance-to-destroy must always be >= the manual translation's.
+  it('the real mechanic never scores worse than a fixed "always boost, buy N" manual translation of the same total Focus', () => {
+    const target1 = { def: 10, arm: 12, boxes: 1 };
+    const target2 = { def: 13, arm: 16, boxes: 18 };
+
+    const withFocus: SequencedAttack[] = [
+      { id: 'ranged', attackerName: 'A', label: 'Ranged', type: 'ranged', stat: 7, pow: 13, attackerIndex: 0, attackerFocus: 4, eligibleTargetIndices: [0] },
+      { id: 'melee1', attackerName: 'A', label: 'Melee1', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 }, attackerIndex: 0, attackerFocus: 4 },
+      { id: 'melee2', attackerName: 'A', label: 'Melee2', type: 'melee', stat: 7, pow: 10, damageModifiers: { boostDice: 1 }, attackerIndex: 0, attackerFocus: 4 },
+    ];
+    const focusResults = computeMultiTargetSequenceOdds(withFocus, [target1, target2]);
+    const focusChance = chanceToDestroyAllTargets(withFocus, focusResults);
+
+    // Manual translation of the SAME 4 points: 1 always boosts the ranged attack roll (+1 die), the
+    // other 3 always buy an extra melee attack (each with its own damage roll pre-boosted, +1 die) -
+    // exactly the fixed policy a player might reach for by hand instead of trusting the optimizer.
+    const manual: SequencedAttack[] = [
+      { id: 'ranged', attackerName: 'A', label: 'Ranged', type: 'ranged', stat: 7, pow: 13, modifiers: { boostDice: 1 }, eligibleTargetIndices: [0] },
+      { id: 'melee1', attackerName: 'A', label: 'Melee1', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 } },
+      { id: 'melee2', attackerName: 'A', label: 'Melee2', type: 'melee', stat: 7, pow: 10, damageModifiers: { boostDice: 1 } },
+      { id: 'bought1', attackerName: 'A', label: 'Bought1', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 } },
+      { id: 'bought2', attackerName: 'A', label: 'Bought2', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 } },
+      { id: 'bought3', attackerName: 'A', label: 'Bought3', type: 'melee', stat: 7, pow: 13, damageModifiers: { boostDice: 1 } },
+    ];
+    const manualResults = computeMultiTargetSequenceOdds(manual, [target1, target2]);
+    const manualChance = chanceToDestroyAllTargets(manual, manualResults);
+
+    expect(focusChance).toBeGreaterThan(manualChance);
   });
 });

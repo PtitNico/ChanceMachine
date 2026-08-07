@@ -242,14 +242,28 @@ export interface SequenceResult {
   postSequenceBuyingDestroyMass: { attackerFocusRemaining: number[]; probability: number }[];
 }
 
+/** One weapon's own recorded Focus-spending tally within one attacker/situation bucket - see
+ *  `FocusStrategyEntry`. `weaponLabel` is the display label of the weapon this mass applies to:
+ *  for `boostAttackMass`/`boostDamageMass`, the weapon whose OWN roll is being decided; for
+ *  `buyMass`, the weapon actually fired as the bought attack - which can be a DIFFERENT weapon
+ *  than whichever row's own boundary triggered the buy decision (buying always happens at the
+ *  attacker's own LAST configured row, but picks whichever melee weapon scores best). All three
+ *  mass figures are probability-weighted (summing to at most 1 across the whole per-attacker log,
+ *  not per weapon or situation). */
+export interface FocusWeaponTally {
+  weaponLabel: string;
+  boostAttackMass: number;
+  boostDamageMass: number;
+  buyMass: number;
+}
+
 /** One attacker's own recorded Focus-spending tallies, split by target "situation" (healthy vs
- *  debuffed - see single-target.ts's `situationOf`) - `undefined` for a situation this attacker
- *  never actually reached during the forward replay. All three mass figures are probability-
- *  weighted (summing to at most 1 across the whole per-attacker log, not per situation). */
+ *  debuffed - see single-target.ts's `situationOf`) and, within each situation, by weapon -
+ *  `undefined` for a situation this attacker never actually reached during the forward replay. */
 export interface FocusStrategyEntry {
   attackerIndex: number;
-  healthy?: { boostAttackMass: number; boostDamageMass: number; buyMass: number };
-  debuffed?: { boostAttackMass: number; boostDamageMass: number; buyMass: number };
+  healthy?: FocusWeaponTally[];
+  debuffed?: FocusWeaponTally[];
 }
 
 /** Where a target's probability mass enters the fight, instead of the default "100% before row

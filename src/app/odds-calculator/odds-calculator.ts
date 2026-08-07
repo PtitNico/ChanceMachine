@@ -268,40 +268,42 @@ export class OddsCalculator {
     })
   );
 
-  /** One short sentence per Focus-enabled attacker, describing the true-optimal Focus policy
-   *  `computeMultiTargetSequenceOdds` actually computed - see `summarizeFocusStrategy`'s own doc
-   *  comment. Merged ACROSS every target (summing each attacker's own per-situation tallies) rather
-   *  than shown per-target: Focus is one shared pool for the WHOLE sequence, not reset per target
-   *  (see sequence.ts's Attacker Focus section), so the strategy is a property of the whole fight,
-   *  not any one target's own slice of it. Empty whenever no attacker has Focus active. */
+  /** One short sentence per (Focus-enabled attacker, target) pair actually engaged, describing the
+   *  true-optimal Focus policy `computeMultiTargetSequenceOdds` actually computed for THAT target -
+   *  see `summarizeFocusStrategy`'s own doc comment. Shown PER TARGET (with a "vs TargetName" suffix
+   *  once there's more than one) rather than merged across the whole fight: Focus IS one shared pool
+   *  across targets (see sequence.ts's Attacker Focus section), but a merged sentence would blur
+   *  together decisions the policy made under very different circumstances (e.g. "always boost the
+   *  ranged attack against a 1-box solo" and "mix boosting/buying against an 18-box heavy") into one
+   *  misleadingly generic line - each target's own `result.focusStrategy` entry already carries
+   *  exactly the slice of the story that happened while fighting IT, so there's nothing to merge.
+   *  Skips a (attacker, target) pair entirely when none of that attacker's own rows are even
+   *  eligible for that target (see `reachesTarget`) - `focusStrategy` is seeded from EVERY
+   *  Focus-enabled attacker regardless of eligibility (see single-target.ts), so without this check
+   *  an attacker with no weapon in range of some target would still print a misleading "rarely
+   *  finds it worth spending Focus here" line for a target it could never even reach. Empty
+   *  whenever no attacker has Focus active. */
   protected readonly focusStrategySummaries = computed<string[]>(() => {
-    type Tally = { boostAttackMass: number; boostDamageMass: number; buyMass: number };
-    const zeroTally = (): Tally => ({ boostAttackMass: 0, boostDamageMass: 0, buyMass: 0 });
-    const addInto = (into: Tally, from: Tally | undefined) => {
-      if (!from) return;
-      into.boostAttackMass += from.boostAttackMass;
-      into.boostDamageMass += from.boostDamageMass;
-      into.buyMass += from.buyMass;
-    };
-
-    const merged = new Map<number, { healthy: Tally; debuffed: Tally }>();
-    for (const t of this.sequence()) {
-      for (const entry of t.result.focusStrategy) {
-        let m = merged.get(entry.attackerIndex);
-        if (!m) {
-          m = { healthy: zeroTally(), debuffed: zeroTally() };
-          merged.set(entry.attackerIndex, m);
-        }
-        addInto(m.healthy, entry.healthy);
-        addInto(m.debuffed, entry.debuffed);
-      }
-    }
-
+    const results = this.sequence();
     const attackers = this.attackers();
-    return [...merged.entries()].map(([attackerIndex, tallies]) => {
-      const name = attackerIndex < attackers.length ? attackerDisplayName(attackers[attackerIndex], attackerIndex) : `Attacker ${attackerIndex + 1}`;
-      return summarizeFocusStrategy({ attackerIndex, healthy: tallies.healthy, debuffed: tallies.debuffed }, name);
+    const targetNames = this.targetNames();
+    const attacks = this.sequencedAttacks();
+    const multipleTargets = results.length > 1;
+
+    const reachesTarget = (attackerIndex: number, targetIndex: number): boolean =>
+      attacks.some((a) => a.attackerIndex === attackerIndex && (!a.eligibleTargetIndices || a.eligibleTargetIndices.includes(targetIndex)));
+
+    const summaries: string[] = [];
+    results.forEach((t, targetIndex) => {
+      for (const entry of t.result.focusStrategy) {
+        if (!reachesTarget(entry.attackerIndex, targetIndex)) continue;
+        const attackerName =
+          entry.attackerIndex < attackers.length ? attackerDisplayName(attackers[entry.attackerIndex], entry.attackerIndex) : `Attacker ${entry.attackerIndex + 1}`;
+        const label = multipleTargets ? `${attackerName} vs ${targetNames[targetIndex]}` : attackerName;
+        summaries.push(summarizeFocusStrategy(entry, label));
+      }
     });
+    return summaries;
   });
 
   /** Appends a new attacker card, then scrolls it into view - `.attacker-list` is the one part

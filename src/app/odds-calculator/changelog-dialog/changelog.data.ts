@@ -41,7 +41,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: 'Unreleased',
     items: [
-      'Added Attacker Focus: a per-attacker Focus counter (0-10), spent optimally (full-sequence lookahead, same principle as the target\'s own Focus/Fury) to boost an attack or damage roll (+1 die) or buy an extra melee attack fired after the attacker\'s own configured attacks. Shared across the whole sequence rather than reset per target - an attacker with leftover Focus can keep buying attacks against a later target once an earlier one is destroyed. The Details pop-up now shows a "Focus strategy" summary per attacker explaining the computed policy in plain language, correctly mentioning multiple actions together (e.g. "boost attack and damage rolls") when the optimal policy genuinely spends on both rather than just picking whichever is larger.',
+      'Added Attacker Focus: a per-attacker Focus counter (0-10), spent optimally (full-sequence lookahead, same principle as the target\'s own Focus/Fury) to boost an attack or damage roll (+1 die) or buy an extra melee attack fired after the attacker\'s own configured attacks. Shared across the whole sequence rather than reset per target - an attacker with leftover Focus can keep buying attacks against a later target once an earlier one is destroyed. The Details pop-up shows a "Focus strategy" line per attacker and target, naming the exact weapon each boost or buy applies to and mentioning multiple simultaneous actions (e.g. "boost Ranged\'s attack rolls" against one target, "buy extra attacks with Melee1" against another) rather than blurring every target and weapon into one generic sentence.',
     ],
   },
   {
