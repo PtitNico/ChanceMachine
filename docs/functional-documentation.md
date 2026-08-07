@@ -114,7 +114,8 @@ own ordered list of attacks:
   it as the only hint that it's editable. Its **MAT / RAT / AAT** (0 to 20 each) sit inline next to
   the name, but only the ones its own attacks actually use — a melee-only attacker shows just MAT,
   a caster with a melee attack and a spell shows MAT and AAT, and so on. A blue **⚙ (cog)** icon
-  button opens the **Attacker's special rules** pop-up (Puppet Master and Focus — see below); a red
+  button opens the **Attacker's special rules** pop-up (Puppet Master, Charge/Cavalry Charge — see
+  below); a red
   trash icon button removes the whole attacker (disabled while it's the only one — at least one
   attacker always remains).
 - One **weapon sub-card** per weapon this attacker carries, each with its own drag handle to reorder
@@ -162,6 +163,14 @@ would let the app claim a higher chance to destroy the target than a real player
 achieve, since they don't know in advance which roll will turn out to be the best one to save it
 for. Puppet Master instead follows the same simple, mechanical rule a player would apply at the
 table, watching the sequence unfold roll by roll.
+
+**Charge** / **Cavalry Charge** (also toggled in the attacker's special rules pop-up, mutually
+exclusive — activating one deactivates the other): boost the attacker's own **first melee attack**
+(whichever melee weapon is first in that attacker's own configured order) for free, no Focus spent.
+Charge boosts just its damage roll; Cavalry Charge boosts both its attack and damage rolls. This is
+the exact same "Boosted" effect a weapon's own Boosted toggle grants (see "Effects" below) — not
+cumulative with it, or with Focus, on that same roll: a roll is boosted or it isn't, regardless of
+how many of these three sources say so.
 
 **Focus** (0 to 10, set via the same attacker's special rules pop-up as Puppet Master): a per-attacker
 resource, spent on any roll made by any of that attacker's own attacks, over the **whole sequence**

@@ -399,7 +399,9 @@ export function toSequencedAttack(
   attackerIndex: number,
   hasPuppetMaster: boolean,
   attackerFocus: number,
-  targets: Target[]
+  targets: Target[],
+  charge: 'off' | 'charge' | 'cavalryCharge',
+  isFirstMeleeAttack: boolean
 ): SequencedAttack {
   const eligibleTargetIds = row.eligibleTargetIds();
   const eligibleTargetIndices = eligibleTargetIds
@@ -414,6 +416,13 @@ export function toSequencedAttack(
     statEffects.push({ type: 'armPenalty', trigger: 'crit', amount: row.armPenaltyCritAmount() });
   }
 
+  // Charge/Cavalry Charge are just another SOURCE for the same "Boosted" flags a weapon's own
+  // toggle sets (see AttackRow.reload's neighboring doc comments for the broader "Boosted"
+  // mechanism) - OR'd together so a roll boosted by either (or both) source still only gets +1
+  // die, never stacked, exactly matching the "not cumulative" rule for both Focus and each other.
+  const boostedAttack = isEffectOn(row, 'boostedAttack') || (isFirstMeleeAttack && charge === 'cavalryCharge');
+  const boostedDamage = isEffectOn(row, 'boostedDamage') || (isFirstMeleeAttack && charge !== 'off');
+
   return {
     id: row.id,
     attackerName,
@@ -424,7 +433,7 @@ export function toSequencedAttack(
     rof: row.rof(),
     reload: row.reload(),
     modifiers: {
-      boostDice: toBoostDice(row.diceCount()) + (isEffectOn(row, 'boostedAttack') ? 1 : 0),
+      boostDice: toBoostDice(row.diceCount()) + (boostedAttack ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),
       reroll: isEffectOn(row, 'rerollAttack') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -432,7 +441,7 @@ export function toSequencedAttack(
     },
     pow: resolvePow(row.pow()),
     damageModifiers: {
-      boostDice: toBoostDice(row.damageDiceCount()) + (isEffectOn(row, 'boostedDamage') ? 1 : 0),
+      boostDice: toBoostDice(row.damageDiceCount()) + (boostedDamage ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardDamageLowest'), isEffectOn(row, 'discardDamageHighest')),
       reroll: isEffectOn(row, 'rerollDamage') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -453,8 +462,8 @@ export function toSequencedAttack(
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
     attackerFocus: attackerFocus || undefined,
-    boostedAttack: isEffectOn(row, 'boostedAttack') || undefined,
-    boostedDamage: isEffectOn(row, 'boostedDamage') || undefined,
+    boostedAttack: boostedAttack || undefined,
+    boostedDamage: boostedDamage || undefined,
     eligibleTargetIndices,
   };
 }

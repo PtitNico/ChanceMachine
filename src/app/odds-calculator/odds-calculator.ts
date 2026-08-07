@@ -97,8 +97,14 @@ export class OddsCalculator {
     const targets = this.targets();
     this.attackers().forEach((attacker, attackerIndex) => {
       const name = attackerDisplayName(attacker, attackerIndex);
-      for (const row of attacker.attacks()) {
-        result.push(toSequencedAttack(row, result.length, statFor(attacker, row.type()), name, attackerIndex, attacker.puppetMaster(), attacker.focusPoints(), targets));
+      const rows = attacker.attacks();
+      const firstMeleeId = rows.find((r) => r.type() === 'melee')?.id;
+      for (const row of rows) {
+        result.push(toSequencedAttack(
+          row, result.length, statFor(attacker, row.type()), name, attackerIndex,
+          attacker.puppetMaster(), attacker.focusPoints(), targets,
+          attacker.charge(), row.id === firstMeleeId
+        ));
       }
     });
     return result;
