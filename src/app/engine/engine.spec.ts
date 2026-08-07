@@ -1942,6 +1942,94 @@ describe('sequence engine - Attacker Focus (boost attack/damage rolls)', () => {
   });
 });
 
+describe('sequence engine - Boosted (free, unstackable +1 die on the attack or damage roll)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  // The engine builds SequencedAttack objects directly here, bypassing toSequencedAttack - so every
+  // test below sets BOTH the baked-in `modifiers`/`damageModifiers.boostDice: 1` AND the
+  // `boostedAttack`/`boostedDamage` flag together, mirroring exactly what toSequencedAttack would
+  // produce for a "Boosted" toggle switched on.
+
+  it('is a no-op when neither flag is set (regression safety)', () => {
+    const withoutFields = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const explicitlyOff = computeSequenceOdds([attack({ stat: 6, pow: 12, boostedAttack: false, boostedDamage: false })], target);
+    expect(explicitlyOff.finalDestroyChance).toBeCloseTo(withoutFields.finalDestroyChance, 9);
+  });
+
+  it('a Boosted attack roll improves the to-hit chance over an otherwise-identical unboosted roll', () => {
+    const unboosted = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const boosted = computeSequenceOdds([attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true })], target);
+    expect(boosted.steps[0].shots[0].hitChance).toBeGreaterThan(unboosted.steps[0].shots[0].hitChance);
+  });
+
+  it('a Boosted damage roll improves average damage over an otherwise-identical unboosted roll', () => {
+    // forceAutoHit isolates the damage-roll effect from to-hit variance, same technique as the
+    // "boosts the damage roll instead when auto-hit" Attacker Focus test above.
+    const unboosted = computeSequenceOdds([attack({ stat: 6, pow: 12, type: 'ranged', forceAutoHit: true })], target);
+    const boosted = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, type: 'ranged', forceAutoHit: true, damageModifiers: { boostDice: 1 }, boostedDamage: true })],
+      target
+    );
+    expect(boosted.steps[0].shots[0].averageDamage).toBeGreaterThan(unboosted.steps[0].shots[0].averageDamage);
+  });
+
+  it('Focus never spends on an already-Boosted attack roll (a roll can only be boosted once)', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostAttackMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostAttackMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostAttackMass, 0);
+    expect(boostAttackMass).toBe(0);
+  });
+
+  it('Focus never spends on an already-Boosted damage roll (a roll can only be boosted once)', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, damageModifiers: { boostDice: 1 }, boostedDamage: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostDamageMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostDamageMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+    expect(boostDamageMass).toBe(0);
+  });
+
+  it('Boosted on one roll only gates THAT roll - Focus can still boost the other', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostDamageMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostDamageMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+    expect(boostDamageMass).toBeGreaterThan(0);
+  });
+
+  it('probability mass is conserved with both flags active alongside Focus buying', () => {
+    const result = computeSequenceOdds(
+      [
+        attack({
+          stat: 6, pow: 12, modifiers: { boostDice: 1 }, damageModifiers: { boostDice: 1 },
+          boostedAttack: true, boostedDamage: true, attackerIndex: 0, attackerFocus: 3,
+        }),
+      ],
+      target
+    );
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+});
+
 describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
   const target = { def: 13, arm: 15, boxes: 5 };
 

@@ -634,7 +634,7 @@ function resolveAttackerDamageBoostChoice(
   downstreamShotsRemaining: number
 ): AttackerFocusDamagePopulation[] {
   const slot = focusSlotOf(ctx, atk);
-  if (slot === undefined || attackerFocusLeft[slot] === 0) {
+  if (slot === undefined || attackerFocusLeft[slot] === 0 || atk.boostedDamage) {
     return [{ profile: finalProfile, resultingAttackerFocusLeft: attackerFocusLeft }];
   }
 
@@ -1126,7 +1126,7 @@ function chooseAttackerAttackBoost(
   );
 
   const slot = focusSlotOf(ctx, atk);
-  if (slot === undefined || attackerFocusLeft[slot] === 0) {
+  if (slot === undefined || attackerFocusLeft[slot] === 0 || atk.boostedAttack) {
     return { trueOriginal: unboostedOriginal, attackerFocusLeft, score: unboostedScore };
   }
 

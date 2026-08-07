@@ -42,6 +42,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: 'Unreleased',
     items: [
       'Attacker Focus can now buy extra attacks with a ranged weapon too, not just melee: set Reload in that weapon\'s Effects pop-up (1, 2, or ∞ extra shots) to make it eligible, still spending from the same shared Focus pool.',
+      'Added a "Boosted" toggle to a weapon\'s Attack and Damage sections: adds one extra die to that roll for free, no Focus spent - and, since a roll can only be boosted once, Attacker Focus won\'t offer to boost it again.',
     ],
   },
   {

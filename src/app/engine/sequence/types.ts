@@ -89,6 +89,15 @@ export interface SequencedAttack {
    *  attacker has no Focus and every Focus code path is a no-op for it. See the Attacker Focus
    *  section in single-target.ts. */
   attackerFocus?: number;
+  /** This attack's own to-hit roll is boosted (+1 die) for free, unconditionally - already baked
+   *  into `modifiers.boostDice` by `toSequencedAttack`. This flag's only remaining job is telling
+   *  Attacker Focus's boost-attack-roll decision (`chooseAttackerAttackBoost`) that this roll is
+   *  already boosted and ineligible for a further Focus-funded boost (a roll can only be boosted
+   *  once). */
+  boostedAttack?: boolean;
+  /** Same idea for the damage roll and `resolveAttackerDamageBoostChoice` - already baked into
+   *  `damageModifiers.boostDice`. */
+  boostedDamage?: boolean;
   /** Which targets (by index into `computeMultiTargetSequenceOdds`'s own `targets` array) this
    *  weapon is in range of - unset means every target (the default - see the module doc comment's
    *  "Multiple targets" section). Index-based for the same reason `attackerIndex` is: a display

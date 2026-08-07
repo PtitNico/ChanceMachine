@@ -91,6 +91,8 @@ export type TriggerEffectKey =
   | 'sustainedAttack'
   | 'armorPiercing'
   | 'decapitation'
+  | 'boostedAttack'
+  | 'boostedDamage'
   | StatEffectType;
 
 /** Rendered in the Effects dialog's "General" section, each as a single simple toggle. */
@@ -103,6 +105,7 @@ export const ATTACK_EFFECT_KEYS: TriggerEffectKey[] = [
   'discardAttackHighest',
   'rerollAttack',
   'sanguineFate',
+  'boostedAttack',
 ];
 
 /** Rendered in the "Damage" section, each as a single simple toggle. */
@@ -113,6 +116,7 @@ export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
   'trash',
   'shatter',
   'chainWeapon',
+  'boostedDamage',
 ];
 
 /** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`.
@@ -142,12 +146,14 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   discardAttackHighest: 'Discard highest',
   rerollAttack: 'Reroll',
   sanguineFate: 'Sanguine Fate',
+  boostedAttack: 'Boosted',
   discardDamageLowest: 'Discard lowest',
   discardDamageHighest: 'Discard highest',
   rerollDamage: 'Reroll',
   trash: 'Trash',
   shatter: 'Shatter',
   chainWeapon: 'Chain Weapon',
+  boostedDamage: 'Boosted',
   brutalDamage: 'Brutal Damage',
   criticalShred: 'Shred',
   sustainedAttack: 'Sustained Attack',
@@ -173,9 +179,11 @@ const SUMMARY_LABEL_OVERRIDES: Partial<Record<TriggerEffectKey, string>> = {
   discardAttackLowest: 'Discard lowest (atk)',
   discardAttackHighest: 'Discard highest (atk)',
   rerollAttack: 'Reroll (atk)',
+  boostedAttack: 'Boosted (atk)',
   discardDamageLowest: 'Discard lowest (dmg)',
   discardDamageHighest: 'Discard highest (dmg)',
   rerollDamage: 'Reroll (dmg)',
+  boostedDamage: 'Boosted (dmg)',
   brutalDamage: 'Crit Brutal Damage',
   criticalShred: 'Crit Shred',
 };
@@ -416,7 +424,7 @@ export function toSequencedAttack(
     rof: row.rof(),
     reload: row.reload(),
     modifiers: {
-      boostDice: toBoostDice(row.diceCount()),
+      boostDice: toBoostDice(row.diceCount()) + (isEffectOn(row, 'boostedAttack') ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),
       reroll: isEffectOn(row, 'rerollAttack') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -424,7 +432,7 @@ export function toSequencedAttack(
     },
     pow: resolvePow(row.pow()),
     damageModifiers: {
-      boostDice: toBoostDice(row.damageDiceCount()),
+      boostDice: toBoostDice(row.damageDiceCount()) + (isEffectOn(row, 'boostedDamage') ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardDamageLowest'), isEffectOn(row, 'discardDamageHighest')),
       reroll: isEffectOn(row, 'rerollDamage') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -445,6 +453,8 @@ export function toSequencedAttack(
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
     attackerFocus: attackerFocus || undefined,
+    boostedAttack: isEffectOn(row, 'boostedAttack') || undefined,
+    boostedDamage: isEffectOn(row, 'boostedDamage') || undefined,
     eligibleTargetIndices,
   };
 }
