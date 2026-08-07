@@ -2094,6 +2094,126 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const text = summarizeFocusStrategy(entry, 'Attacker 1');
     expect(text.length).toBeGreaterThan(0);
   });
+
+  it('never wastes Focus boosting an attack roll that is already guaranteed to auto-hit (regression sweep, DEF: KD)', () => {
+    // A DEF: KD target auto-hits every melee attack from the very first roll - boosting the attack
+    // roll can therefore never do anything (see attack-model.ts: an auto-hit rolls no dice at all),
+    // so a true-optimal policy should NEVER record any boostAttackMass here, regardless of POW/ARM/
+    // boxes/Focus/MAT. Swept rather than a single case, since this is exactly the kind of decision a
+    // narrow regression could silently reintroduce for only some combinations.
+    for (const pow of [0, 4, 8, 12, 16]) {
+      for (const arm of [0, 8, 15, 20, 25]) {
+        for (const boxes of [1, 3, 6]) {
+          for (const focus of [1, 4, 10]) {
+            const atk: SequencedAttack = {
+              id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow,
+              attackerIndex: 0, attackerFocus: focus,
+            };
+            const result = computeSequenceOdds([atk], { def: 'KD', arm, boxes });
+            const entry = result.focusStrategy[0];
+            const boostAttack = (entry?.debuffed?.boostAttackMass ?? 0) + (entry?.healthy?.boostAttackMass ?? 0);
+            expect(boostAttack, `pow=${pow} arm=${arm} boxes=${boxes} focus=${focus}`).toBeLessThanOrEqual(1e-9);
+          }
+        }
+      }
+    }
+  });
+
+  it('a target that can only be hurt by boosting damage never mentions "boost attack rolls" in its summary', () => {
+    // ARM 20 vs POW 8/2 damage dice: max unboosted non-crit damage is 12+8-20=0, so the true-optimal
+    // policy MUST boost damage to ever destroy this DEF: KD (auto-hit, never-crits) target at all -
+    // and, with 10 Focus and only a 1-box target, it's also worth BUYING further attacks to keep
+    // trying once an earlier one fails, so the summary legitimately mentions both.
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow: 8,
+      attackerIndex: 0, attackerFocus: 10,
+    };
+    const result = computeSequenceOdds([atk], { def: 'KD', arm: 20, boxes: 1 });
+    expect(result.finalDestroyChance).toBeGreaterThan(0);
+    const entry = result.focusStrategy[0];
+    expect(entry.healthy).toBeUndefined();
+    expect(entry.debuffed!.boostAttackMass).toBeCloseTo(0, 9);
+    expect(entry.debuffed!.boostDamageMass).toBeGreaterThan(0);
+    const text = summarizeFocusStrategy(entry, 'Attacker 1');
+    expect(text).toContain('boost damage rolls');
+    expect(text).not.toContain('boost attack rolls');
+  });
+
+  it('mentions BOTH boosted rolls when the true-optimal policy spends on both for the same roll, not just the larger one', () => {
+    // RAT 6 vs DEF 15 is a hard roll to land at all, so with 2 Focus and a single ranged attack, the
+    // true-optimal policy boosts the attack roll on essentially every branch (making the target
+    // easier to hit in the first place) AND, on most of the resulting hits, ALSO boosts the damage
+    // roll with the second point - two genuinely different decisions on the SAME roll, not
+    // alternatives competing for the same probability mass. An earlier version of this summarizer
+    // picked only the single larger tally and silently dropped the other action from the sentence.
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'ranged', stat: 6, pow: 12,
+      attackerIndex: 0, attackerFocus: 2,
+    };
+    const result = computeSequenceOdds([atk], { def: 15, arm: 15, boxes: 5 });
+    const entry = result.focusStrategy[0];
+    expect(entry.healthy!.boostAttackMass).toBeGreaterThan(0);
+    expect(entry.healthy!.boostDamageMass).toBeGreaterThan(0);
+    expect(summarizeFocusStrategy(entry, 'Attacker 1')).toBe('Attacker 1: boost attack and damage rolls whenever Focus is available.');
+  });
+
+  it('an attacker with leftover Focus can keep buying attacks against a second target once the first dies', () => {
+    // Regression: `RowInjection.row === attacks.length` (every configured row already spent against
+    // an earlier target) used to be silently dropped by both computeSequenceOdds (never read past
+    // the last configured row) and computeMultiTargetSequenceOdds (excluded from `ownInjection` via
+    // `rowActive`, which has no entry past the last row) - an attacker who destroyed target 1 with
+    // leftover Focus could never spend it against target 2 at all, even though buying is melee-only
+    // and target 2 is well within reach.
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow: 12,
+      attackerIndex: 0, attackerFocus: 10,
+    };
+    const targets: SequenceTarget[] = [
+      { def: 12, arm: 12, boxes: 1 },
+      { def: 12, arm: 12, boxes: 1 },
+    ];
+    const results = computeMultiTargetSequenceOdds([atk], targets);
+    expect(results).toHaveLength(2);
+    expect(results[0].result.finalDestroyChance).toBeGreaterThan(0.99);
+    expect(results[1].engagementChance).toBeGreaterThan(0.99);
+    expect(results[1].result.finalDestroyChance).toBeGreaterThan(0.99);
+    const survivalMass = results[1].result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(results[1].result.finalDestroyChance + survivalMass).toBeCloseTo(results[1].engagementChance, 6);
+  });
+
+  it('leftover Focus keeps propagating to a third target too', () => {
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow: 12,
+      attackerIndex: 0, attackerFocus: 10,
+    };
+    const targets: SequenceTarget[] = [
+      { def: 12, arm: 12, boxes: 1 },
+      { def: 12, arm: 12, boxes: 1 },
+      { def: 12, arm: 12, boxes: 1 },
+    ];
+    const results = computeMultiTargetSequenceOdds([atk], targets);
+    expect(results).toHaveLength(3);
+    expect(results[2].engagementChance).toBeGreaterThan(0);
+    expect(results[2].result.finalDestroyChance).toBeGreaterThan(0);
+  });
+
+  it('is a no-op for a second target when the attacker has no Focus left to spend (regression safety)', () => {
+    // Without Focus (or with an attacker who has none configured), an exhausted single-shot weapon
+    // correctly contributes NOTHING further to a second target - there's genuinely nothing left to
+    // fire. This must stay true after the row-n fix above (which only ever activates for entries
+    // that actually carry spendable Focus).
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow: 12,
+    };
+    const targets: SequenceTarget[] = [
+      { def: 12, arm: 12, boxes: 1 },
+      { def: 12, arm: 12, boxes: 1 },
+    ];
+    const results = computeMultiTargetSequenceOdds([atk], targets);
+    expect(results[1].engagementChance).toBe(0);
+    expect(results[1].result.finalDestroyChance).toBe(0);
+  });
+
 });
 
 describe('sequence engine - Shield Guards and Scapegoats', () => {

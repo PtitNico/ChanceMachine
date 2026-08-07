@@ -229,6 +229,17 @@ export interface SequenceResult {
    *  and aggregated per attacker/situation - the raw data `summarizeFocusStrategy` (single-target.ts)
    *  turns into player-facing advice text. Empty whenever no attacker has Focus active. */
   focusStrategy: FocusStrategyEntry[];
+  /** Destroy mass arising from Attacker Focus buying MORE attacks after every configured row had
+   *  already resolved - i.e. mass that arrived via a multi-target `RowInjection` at
+   *  `row: attacks.length` (an attacker who'd already exhausted every configured row against an
+   *  EARLIER target, but still had Focus left over - see single-target.ts's Attacker Focus section
+   *  and `computeMultiTargetSequenceOdds`'s own handling of such entries). Not tied to any
+   *  particular `SequenceStepResult` - there's no configured row for it to belong to.
+   *  `computeMultiTargetSequenceOdds` reads this directly, alongside every step's own
+   *  `destroyMassByShotsRemainingAndFocus`, to keep handing leftover Focus forward correctly to a
+   *  THIRD target if this one also doesn't consume all of it. Always empty for a plain single-target
+   *  call (no `RowInjection` ever lands on `row: n` there). */
+  postSequenceBuyingDestroyMass: { attackerFocusRemaining: number[]; probability: number }[];
 }
 
 /** One attacker's own recorded Focus-spending tallies, split by target "situation" (healthy vs

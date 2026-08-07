@@ -1699,6 +1699,32 @@ export function computeSequenceOdds(
   const getValueTableAt: ((debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]) => ValueTable)[] = new Array(n + 1);
   getValueTableAt[n] = () => baseValueTable;
 
+  // Attacker Focus's own "keep buying after every configured row is done" ladder - deliberately
+  // SEPARATE from `boughtAttacksValueAtByAttacker` below (built per-attacker at THAT attacker's own
+  // last configured row, which can sit strictly before `n` when a LATER row belongs to a different,
+  // non-Focus-enabled attacker - wrong to reuse here, since that ladder still expects those later
+  // rows to fire). This one is always rooted at the true terminal table (`getValueTableAt[n]`,
+  // "nothing else happens") and exists purely for `RowInjection.row === n` mass arriving from an
+  // EARLIER multi-target target - an attacker who already exhausted every configured row against
+  // that earlier target, but still has Focus left over, gets one more chance to keep buying against
+  // THIS target instead of that leftover Focus silently vanishing (see the module doc comment's
+  // Multiple targets / Attacker Focus sections, and `computeMultiTargetSequenceOdds`'s own routing
+  // of such entries into `ownInjection` only when they carry spendable Focus). Chained
+  // attacker-by-attacker in a fixed (ascending index) order, exactly like the normal per-row hook
+  // chains through `getValueTableAt[k+1]` - each later attacker's own "stop" baseline is "the
+  // earlier attacker already bought optimally", not the bare terminal table. A complete no-op
+  // (empty map) whenever no attacker has Focus active, and never touched at all unless a `row: n`
+  // injection actually exists (never true for a plain single-target call).
+  const terminalBoughtLookups = new Map<number, { valueAt: ExtendedValueLookup; stopValueAt: ExtendedValueLookup }>();
+  {
+    let chainTable = getValueTableAt[n];
+    for (const attackerIdx of [...ctx.focusIndexOf.keys()].sort((a, b) => a - b)) {
+      const bought = buildBoughtAttacksValue(attackerIdx, chainTable);
+      terminalBoughtLookups.set(attackerIdx, { valueAt: bought.valueAt, stopValueAt: bought.stopValueAt });
+      chainTable = bought.nextTable;
+    }
+  }
+
   // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
   const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[], sustained: boolean) => number)[] =
     new Array(n);
@@ -1972,6 +1998,7 @@ export function computeSequenceOdds(
 
   const steps: SequenceStepResult[] = [];
   let cumulativeDestroy = 0;
+  const postSequenceBuyingDestroyMass: { attackerFocusRemaining: number[]; probability: number }[] = [];
 
   for (let k = 0; k < n; k++) {
     const atk = attacks[k];
@@ -2076,6 +2103,40 @@ export function computeSequenceOdds(
     onProgress?.((k + 1) / n);
   }
 
+  // `RowInjection.row === n` mass (see `terminalBoughtLookups` above): an attacker who already
+  // exhausted every configured row against an EARLIER multi-target target, but still has Focus left
+  // over, entering THIS target completely fresh - not "row 0 fresh" (that would let every OTHER
+  // row fire again, which is wrong, every row already had its turn), just this attacker's own
+  // remaining Focus getting one more chance to buy attacks here. A no-op whenever no such injection
+  // exists (every existing single-target call, and every multi-target call with no Focus active).
+  const rowNInjections = injectionsByRow.get(n) ?? [];
+  if (rowNInjections.length > 0) {
+    let postBuyingDist = new Map<string, { state: FwdState; probability: number }>();
+    for (const inj of rowNInjections) {
+      if (inj.probability <= 0) continue;
+      const state = freshStateWithFocus(inj.attackerFocusRemaining ?? initialAttackerFocus);
+      const key = fwdKey(state);
+      const existing = postBuyingDist.get(key);
+      if (existing) existing.probability += inj.probability;
+      else postBuyingDist.set(key, { state, probability: inj.probability });
+    }
+    for (const attackerIdx of [...ctx.focusIndexOf.keys()].sort((a, b) => a - b)) {
+      const lookups = terminalBoughtLookups.get(attackerIdx)!;
+      const bought = resolveBoughtAttacksForward(attackerIdx, postBuyingDist, lookups.valueAt, lookups.stopValueAt);
+      postBuyingDist = bought.dist;
+      for (const { attackerFocusRemaining, mass } of bought.destroyed.byFocus.values()) {
+        postSequenceBuyingDestroyMass.push({ attackerFocusRemaining, probability: mass });
+      }
+      cumulativeDestroy += bought.destroyed.mass;
+    }
+    for (const { state, probability } of postBuyingDist.values()) {
+      const key = fwdKey(state);
+      const existing = dist.get(key);
+      if (existing) existing.probability += probability;
+      else dist.set(key, { state, probability });
+    }
+  }
+
   const survivalByBoxes = new Map<number, number>();
   for (const { state, probability } of dist.values()) {
     survivalByBoxes.set(state.boxes, (survivalByBoxes.get(state.boxes) ?? 0) + probability);
@@ -2093,8 +2154,17 @@ export function computeSequenceOdds(
     return { attackerIndex, healthy: bySituation?.get('healthy'), debuffed: bySituation?.get('debuffed') };
   });
 
-  return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution, focusStrategy };
+  return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution, focusStrategy, postSequenceBuyingDestroyMass };
 }
+
+/** How much of a situation's own strongest action's mass a SECOND (or third) action needs before
+ *  it's worth mentioning too - see `summarizeFocusStrategy`'s own doc comment for why this can't be
+ *  "pick the single biggest one": the three tallies are NOT a mutually-exclusive partition (a boost-
+ *  attack-roll decision and a boost-damage-roll decision on that SAME roll, or a boost decision on a
+ *  configured attack followed by a buy decision once it's done, routinely both fire for the SAME
+ *  underlying probability mass) - a 50%-of-the-max threshold is a readable, if inexact, stand-in for
+ *  "clearly part of the real strategy" without needing to reconstruct the exact joint mass. */
+const SIGNIFICANT_ACTION_RATIO = 0.5;
 
 /**
  * Turns one attacker's own `FocusStrategyEntry` (raw, probability-weighted tallies recorded during
@@ -2104,30 +2174,54 @@ export function computeSequenceOdds(
  * until the target is Knocked Down, then boost damage rolls"), never a hand-authored heuristic or
  * raw numbers. `attackerName` resolves a display name for `entry.attackerIndex` - the engine itself
  * has no notion of attacker names, only the UI layer does. Data-driven, not template-hardcoded
- * advice: which action dominates (and whether the policy branches by situation at all) is read
+ * advice: which action(s) dominate (and whether the policy branches by situation at all) is read
  * directly off whatever `computeSequenceOdds` actually decided for THIS specific attacker/weapon/
  * target combination, so two different setups can legitimately produce different summaries.
+ *
+ * `boostAttackMass`/`boostDamageMass`/`buyMass` are recorded independently at three SEPARATE
+ * decision points (see `recordFocusPolicy`'s own call sites) - they are NOT alternatives competing
+ * for the same probability mass the way an earlier version of this function assumed (picking a
+ * single "dominant" action and discarding the rest). With only a couple of Focus points and a
+ * single hard-to-hit roll, for instance, the true-optimal policy routinely spends BOTH a boosted
+ * attack roll AND a boosted damage roll on that SAME roll - reporting only the larger of the two
+ * would silently drop half of the real strategy. `significantActions` below lists every action
+ * whose own mass is at least `SIGNIFICANT_ACTION_RATIO` of that situation's strongest action,
+ * ordered the way the pipeline itself decides them (boost attack roll, outermost, first; boost
+ * damage roll, mid-pipeline, second; buy, only after every configured attack, last).
  */
 export function summarizeFocusStrategy(entry: FocusStrategyEntry, attackerName: string): string {
-  type Action = 'buy' | 'boostDamage' | 'boostAttack';
-  const dominantAction = (tally?: { boostAttackMass: number; boostDamageMass: number; buyMass: number }): Action | undefined => {
-    if (!tally) return undefined;
+  type Action = 'boostAttack' | 'boostDamage' | 'buy';
+  const significantActions = (tally?: { boostAttackMass: number; boostDamageMass: number; buyMass: number }): Action[] => {
+    if (!tally) return [];
     const { boostAttackMass, boostDamageMass, buyMass } = tally;
-    if (buyMass <= 0 && boostDamageMass <= 0 && boostAttackMass <= 0) return undefined;
-    if (buyMass >= boostDamageMass && buyMass >= boostAttackMass) return 'buy';
-    return boostDamageMass >= boostAttackMass ? 'boostDamage' : 'boostAttack';
+    const strongest = Math.max(boostAttackMass, boostDamageMass, buyMass);
+    if (strongest <= 0) return [];
+    const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
+    const actions: Action[] = [];
+    if (boostAttackMass >= threshold) actions.push('boostAttack');
+    if (boostDamageMass >= threshold) actions.push('boostDamage');
+    if (buyMass >= threshold) actions.push('buy');
+    return actions;
   };
-  const label = (action: Action): string =>
-    action === 'buy' ? 'buy extra attacks' : action === 'boostDamage' ? 'boost damage rolls' : 'boost attack rolls';
+  const phraseFor = (actions: Action[]): string => {
+    const boostedRolls: string[] = [];
+    if (actions.includes('boostAttack')) boostedRolls.push('attack');
+    if (actions.includes('boostDamage')) boostedRolls.push('damage');
+    const phrases: string[] = [];
+    if (boostedRolls.length > 0) phrases.push(`boost ${boostedRolls.join(' and ')} rolls`);
+    if (actions.includes('buy')) phrases.push('buy extra attacks');
+    if (phrases.length <= 1) return phrases[0] ?? '';
+    return phrases.length === 2 ? phrases.join(' and ') : `${phrases.slice(0, -1).join(', ')}, and ${phrases.at(-1)}`;
+  };
 
-  const healthyAction = dominantAction(entry.healthy);
-  const debuffedAction = dominantAction(entry.debuffed);
+  const healthyPhrase = phraseFor(significantActions(entry.healthy));
+  const debuffedPhrase = phraseFor(significantActions(entry.debuffed));
 
-  if (!healthyAction && !debuffedAction) {
+  if (!healthyPhrase && !debuffedPhrase) {
     return `${attackerName} rarely finds it worth spending Focus here.`;
   }
-  if (healthyAction && debuffedAction && healthyAction !== debuffedAction) {
-    return `${attackerName}: ${label(healthyAction)} until the target is Knocked Down, then ${label(debuffedAction)}.`;
+  if (healthyPhrase && debuffedPhrase && healthyPhrase !== debuffedPhrase) {
+    return `${attackerName}: ${healthyPhrase} until the target is Knocked Down, then ${debuffedPhrase}.`;
   }
-  return `${attackerName}: ${label(healthyAction ?? debuffedAction!)} whenever Focus is available.`;
+  return `${attackerName}: ${healthyPhrase || debuffedPhrase} whenever Focus is available.`;
 }

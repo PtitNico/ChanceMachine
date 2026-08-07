@@ -23,15 +23,25 @@ export function computeMultiTargetSequenceOdds(
   onProgress?: (fraction: number) => void
 ): TargetSequenceResult[] {
   const results: TargetSequenceResult[] = [];
+  const rowCount = attacks.length;
   let available: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
 
   targets.forEach((target, targetIndex) => {
     const rowActive = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(targetIndex));
-    let ownInjection = available.filter((inj) => rowActive[inj.row]);
+    // `row === rowCount` isn't a real configured row at all - it's Attacker Focus's own "every row
+    // is already spent against an earlier target, but some attacker still has leftover Focus"
+    // marker (see single-target.ts's `terminalBoughtLookups`/`postSequenceBuyingDestroyMass`).
+    // `rowActive` has nothing to say about it (it's only ever indexed 0..rowCount-1), so it's routed
+    // by hand: genuinely spendable Focus is a real potential engagement with THIS target (buying
+    // more attacks), so it goes to `ownInjection`; a fragment with nothing left to spend (no Focus
+    // at all, or every configured attacker's own slot already at 0) can never touch this target and
+    // keeps flowing through untouched, exactly like every other never-eligible row already does.
+    const hasSpendableFocus = (inj: RowInjection) => (inj.attackerFocusRemaining ?? []).some((f) => f > 0);
+    let ownInjection = available.filter((inj) => (inj.row === rowCount ? hasSpendableFocus(inj) : rowActive[inj.row]));
     // Mass on a row this target was never even a candidate for - untouched by this target's own
     // computeSequenceOdds call (which only ever reports on rows in `rowActive`), so it has to be
     // carried forward here explicitly rather than re-derived from `result` below.
-    const passthrough = available.filter((inj) => !rowActive[inj.row]);
+    const passthrough = available.filter((inj) => (inj.row === rowCount ? !hasSpendableFocus(inj) : !rowActive[inj.row]));
 
     // `available` only ever carries EXPLICIT injection entries forward - it has no notion of "100%
     // is implicitly available at every row nobody's claimed yet". That's invisible for target 0 (its
@@ -121,6 +131,14 @@ export function computeMultiTargetSequenceOdds(
         if (shotsRemaining === 0) nextInjection.push({ row: k + 1, shotsRemaining: 0, probability, attackerFocusRemaining });
         else nextInjection.push({ row: k, shotsRemaining, probability, attackerFocusRemaining });
       });
+    });
+    // Mass destroyed by Attacker Focus buying MORE attacks after every configured row was already
+    // spent (this target's own `row: rowCount` injection, above) - not tied to any step, so it isn't
+    // covered by the loop above at all. Fed back in at the SAME `row: rowCount` marker, in case a
+    // THIRD target also needs a shot at whatever Focus is still left after this one.
+    result.postSequenceBuyingDestroyMass.forEach(({ attackerFocusRemaining, probability }) => {
+      if (probability <= 0) return;
+      nextInjection.push({ row: rowCount, shotsRemaining: 0, probability, attackerFocusRemaining });
     });
     available = nextInjection;
   });
