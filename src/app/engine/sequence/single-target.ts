@@ -127,7 +127,7 @@ interface SequenceContext {
   focusPolicyLog?: FocusPolicyLog;
   /** See `SequenceOptions.attackerFocusDownstreamValue`'s own doc comment - threaded straight
    *  through from `options`. */
-  attackerFocusDownstreamValue?: (attackerFocusLeft: number[]) => number;
+  attackerFocusDownstreamValue?: (row: number, shotsRemaining: number, attackerFocusLeft: number[]) => number;
 }
 
 /** One (attacker, "situation", weapon) bucket's own weighted tally of which Attacker Focus action
@@ -538,15 +538,27 @@ function resolveKotdOffSplit(
  *  the right weight for how much this candidate's own leftover Focus is worth downstream.
  *  `attackerFocusLeft` is whatever remains AFTER this candidate's own spend decision - exactly the
  *  Focus level that would carry over to the next target if this candidate is the one that ends up
- *  killing this one. Used ONLY to bias a comparison between candidates at Attacker-Focus decision
+ *  killing this one. `downstreamRow`/`downstreamShotsRemaining` is exactly the `(row,
+ *  shotsRemaining)` position the NEXT target would enter at if THIS candidate's own kill happens
+ *  right here (see every call site's own comment for how that's derived) - passed straight through
+ *  to `ctx.attackerFocusDownstreamValue`, which needs it to know how much of this attacker's OWN
+ *  weaponry would still be unconsumed by the time a later target is reached (see
+ *  `SequenceOptions.attackerFocusDownstreamValue`'s own doc comment for why that can't be
+ *  collapsed away). Used ONLY to bias a comparison between candidates at Attacker-Focus decision
  *  points (never to decide the TARGET's own Focus/Fury/KotD spending, which has no cross-target
  *  meaning) - the winning candidate's ORIGINAL, unadjusted value is what actually gets
  *  returned/cached, so this bonus can never leak into `bestAction`/`resolveKotdDefChoice`'s own
  *  value tables. A verified no-op whenever `ctx.attackerFocusDownstreamValue` is unset (every
  *  single-target call, and the last target of a multi-target one). */
-function withAttackerFocusValue(ctx: SequenceContext, survivalValue: number, attackerFocusLeft: number[]): number {
+function withAttackerFocusValue(
+  ctx: SequenceContext,
+  survivalValue: number,
+  downstreamRow: number,
+  downstreamShotsRemaining: number,
+  attackerFocusLeft: number[]
+): number {
   if (!ctx.attackerFocusDownstreamValue) return survivalValue;
-  return survivalValue - (1 - survivalValue) * ctx.attackerFocusDownstreamValue(attackerFocusLeft);
+  return survivalValue - (1 - survivalValue) * ctx.attackerFocusDownstreamValue(downstreamRow, downstreamShotsRemaining, attackerFocusLeft);
 }
 
 /** One genuinely-occurring sub-population arising from Attacker Focus's damage-roll boost choice -
@@ -593,7 +605,9 @@ function resolveAttackerDamageBoostChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): AttackerFocusDamagePopulation[] {
   const slot = focusSlotOf(ctx, atk);
   if (slot === undefined || attackerFocusLeft[slot] === 0) {
@@ -618,7 +632,7 @@ function resolveAttackerDamageBoostChoice(
     profileScore(
       ctx, profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
       resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, candidateFocusLeft, shotsRemainingThisRow,
-      sustained, depthRemaining, outerValueAt, cache
+      sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
     );
 
   (['nonCrit', 'crit'] as const).forEach((variant) => {
@@ -635,10 +649,10 @@ function resolveAttackerDamageBoostChoice(
     const keptScore = scoreOf(keptProfile, attackerFocusLeft);
     const boostedScore = scoreOf(boostedProfile, boostedAttackerFocusLeft);
     const adjustedKept: [number, number, number] = [
-      withAttackerFocusValue(ctx, keptScore[0], attackerFocusLeft), keptScore[1], keptScore[2],
+      withAttackerFocusValue(ctx, keptScore[0], downstreamRow, downstreamShotsRemaining, attackerFocusLeft), keptScore[1], keptScore[2],
     ];
     const adjustedBoosted: [number, number, number] = [
-      withAttackerFocusValue(ctx, boostedScore[0], boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
+      withAttackerFocusValue(ctx, boostedScore[0], downstreamRow, downstreamShotsRemaining, boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
     ];
     populations.push(
       isBetterForAttacker(adjustedBoosted, adjustedKept)
@@ -810,7 +824,9 @@ function resolveOneOutcome(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean; outcomeSustained: boolean } {
   const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
   const rawContinuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
@@ -820,9 +836,16 @@ function resolveOneOutcome(
   const outerFallback: ValueLookup = (b, d, f, fu, sg, sc) =>
     outerValueAt(b, d, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, attackerFocusLeft, outcomeSustained);
 
+  // A Shred follow-up is still resolving THIS SAME row's own instance (see the module doc comment's
+  // Critical Shred section) - `downstreamRow`/`downstreamShotsRemaining` describe "what happens if
+  // the target dies here", which is exactly as true for a Shred-chained attack as for the original,
+  // so they pass through unchanged rather than being recomputed.
   const shredValueAt: ValueLookup = rawContinuesChain
     ? (b, d, f, fu, sg, sc) =>
-        attackChainValue(ctx, k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow, outcomeSustained, depthRemaining - 1, outerValueAt, cache)
+        attackChainValue(
+          ctx, k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow, outcomeSustained, depthRemaining - 1, outerValueAt, cache,
+          downstreamRow, downstreamShotsRemaining
+        )
     : outerFallback;
 
   const { branches, valueAt } = bestAction(
@@ -868,14 +891,16 @@ function profileScore(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): [number, number, number] {
   let score: [number, number, number] = [0, 0, 0];
   for (const outcome of applyProfile(profile)) {
     const { branches, continuationValueAt } = resolveOneOutcome(
       ctx, outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
       resultingMask, resultingOffKotdLeft, candidateDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow,
-      sustained, depthRemaining, outerValueAt, cache
+      sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
     );
     const s = outcomeScore(branches, continuationValueAt);
     score = [score[0] + outcome.probability * s[0], score[1] + outcome.probability * s[1], score[2] + outcome.probability * s[2]];
@@ -912,12 +937,17 @@ function resolveKotdDefChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): { profile: AttackProfile; resultingLeft: number } {
   if (kotdDefLeft === 0) return { profile: inputProfile, resultingLeft: 0 };
 
   const scoreOf = (profile: AttackProfile, candidateLeft: number) =>
-    profileScore(ctx, profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache);
+    profileScore(
+      ctx, profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+      downstreamRow, downstreamShotsRemaining
+    );
 
   let best = { profile: inputProfile, resultingLeft: kotdDefLeft };
   let bestScore = scoreOf(inputProfile, kotdDefLeft);
@@ -992,7 +1022,9 @@ function pipelineScore(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): [number, number, number] {
   let score: [number, number, number] = [0, 0, 0];
   for (const { profile: pmProfile, resultingMask } of resolvePmSplit(ctx, k, atk, debuffState, pmMask, trueOriginal, sustained)) {
@@ -1002,18 +1034,18 @@ function pipelineScore(
       const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
         ctx, k, atk, debuffState, kotdDefLeft, offProfile, trueOriginal,
         boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, attackerFocusLeft,
-        shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+        shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
       );
       for (const { profile: boostedFinalProfile, resultingAttackerFocusLeft } of resolveAttackerDamageBoostChoice(
         ctx, k, atk, debuffState, attackerFocusLeft, finalProfile,
         boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft,
-        shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+        shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
       )) {
         for (const outcome of applyProfile(boostedFinalProfile)) {
           const { branches, continuationValueAt } = resolveOneOutcome(
             ctx, outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, resultingAttackerFocusLeft, shotsRemainingThisRow,
-            sustained, depthRemaining, outerValueAt, cache
+            sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
           );
           const s = outcomeScore(branches, continuationValueAt);
           score = [score[0] + outcome.probability * s[0], score[1] + outcome.probability * s[1], score[2] + outcome.probability * s[2]];
@@ -1057,12 +1089,15 @@ function chooseAttackerAttackBoost(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): { trueOriginal: AttackProfile; attackerFocusLeft: number[]; score: [number, number, number] } {
   const unboostedOriginal = profileFor(ctx, k, atk, debuffState, sustained, false);
   const unboostedScore = pipelineScore(
     ctx, k, atk, debuffState, unboostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
-    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+    downstreamRow, downstreamShotsRemaining
   );
 
   const slot = focusSlotOf(ctx, atk);
@@ -1075,14 +1110,15 @@ function chooseAttackerAttackBoost(
   boostedAttackerFocusLeft[slot] -= 1;
   const boostedScore = pipelineScore(
     ctx, k, atk, debuffState, boostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
-    pmMask, kotdOffLeft, kotdDefLeft, boostedAttackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+    pmMask, kotdOffLeft, kotdDefLeft, boostedAttackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+    downstreamRow, downstreamShotsRemaining
   );
 
   const adjustedBoosted: [number, number, number] = [
-    withAttackerFocusValue(ctx, boostedScore[0], boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
+    withAttackerFocusValue(ctx, boostedScore[0], downstreamRow, downstreamShotsRemaining, boostedAttackerFocusLeft), boostedScore[1], boostedScore[2],
   ];
   const adjustedUnboosted: [number, number, number] = [
-    withAttackerFocusValue(ctx, unboostedScore[0], attackerFocusLeft), unboostedScore[1], unboostedScore[2],
+    withAttackerFocusValue(ctx, unboostedScore[0], downstreamRow, downstreamShotsRemaining, attackerFocusLeft), unboostedScore[1], unboostedScore[2],
   ];
   return isBetterForAttacker(adjustedBoosted, adjustedUnboosted)
     ? { trueOriginal: boostedOriginal, attackerFocusLeft: boostedAttackerFocusLeft, score: boostedScore }
@@ -1107,11 +1143,14 @@ function resolveAttackerAttackBoostChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): number {
   return chooseAttackerAttackBoost(
     ctx, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
-    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+    downstreamRow, downstreamShotsRemaining
   ).score[0];
 }
 
@@ -1147,7 +1186,9 @@ function attackChainValue(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>
+  cache: Map<string, number>,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): number {
   const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${shieldGuardsLeft}|${scapegoatsLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}|${attackerFocusLeft.join(',')}|${sustained}`;
   const cached = cache.get(key);
@@ -1155,7 +1196,8 @@ function attackChainValue(
 
   const total = resolveAttackerAttackBoostChoice(
     ctx, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
-    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache
+    pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+    downstreamRow, downstreamShotsRemaining
   );
 
   cache.set(key, total);
@@ -1243,7 +1285,9 @@ function resolveAttackChainForward(
   shredCache: Map<string, number>,
   stats: ShotStats,
   next: Map<string, { state: FwdState; probability: number }>,
-  destroyed: DestroyedAccumulator
+  destroyed: DestroyedAccumulator,
+  downstreamRow: number,
+  downstreamShotsRemaining: number
 ): void {
   const initialState: FwdState = { boxes, debuffState, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, sustained };
   let current = new Map<string, { state: FwdState; probability: number }>([
@@ -1267,7 +1311,7 @@ function resolveAttackChainForward(
       const { trueOriginal, attackerFocusLeft: postBoostFocusLeft } = chooseAttackerAttackBoost(
         ctx, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
         state.pmMask, state.kotdOffLeft, state.kotdDefLeft, state.attackerFocusLeft, shotsRemainingThisRow,
-        state.sustained, depthRemaining, outerValueAt, shredCache
+        state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
       );
       // Reference equality: `chooseAttackerAttackBoost` returns the SAME `attackerFocusLeft` array
       // it was given when it kept the unboosted candidate, and a freshly-sliced one when it picked
@@ -1284,13 +1328,13 @@ function resolveAttackChainForward(
             ctx, k, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
             state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, postBoostFocusLeft, shotsRemainingThisRow,
-            state.sustained, depthRemaining, outerValueAt, shredCache
+            state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
           );
           for (const { profile: boostedFinalProfile, resultingAttackerFocusLeft } of resolveAttackerDamageBoostChoice(
             ctx, k, atk, state.debuffState, postBoostFocusLeft, finalProfile,
             state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
-            state.sustained, depthRemaining, outerValueAt, shredCache
+            state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
           )) {
             if (resultingAttackerFocusLeft !== postBoostFocusLeft) {
               const populationMass = boostedFinalProfile.missChance + boostedFinalProfile.hitNonCritChance + boostedFinalProfile.hitCritChance;
@@ -1309,7 +1353,7 @@ function resolveAttackChainForward(
                 ctx, outcome, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
                 state.shieldGuardsLeft, state.scapegoatsLeft,
                 resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, resultingAttackerFocusLeft, shotsRemainingThisRow,
-                state.sustained, depthRemaining, outerValueAt, shredCache
+                state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
               );
 
               for (const b of branches) {
@@ -1590,6 +1634,13 @@ export function computeSequenceOdds(
         const table = getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft);
         return readValueTable(table, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft);
       }
+      // If a kill happens resolving THIS shot, the next target (see `SequenceOptions.attackerFocusDownstreamValue`)
+      // would enter at exactly the same `(row, shotsRemaining)` position this row's own bookkeeping
+      // already uses elsewhere for a real cross-target handoff (see `computeMultiTargetSequenceOdds`'s
+      // own `nextInjection` construction) - `shotsRemaining - 1 === 0` means this was the row's own
+      // last shot (next row fresh), otherwise the row itself continues with that many shots still owed.
+      const downstreamShotsRemaining = shotsRemaining - 1;
+      const downstreamRow = downstreamShotsRemaining === 0 ? k + 1 : k;
       return attackChainValue(
         ctx,
         k,
@@ -1608,7 +1659,9 @@ export function computeSequenceOdds(
         sustained,
         MAX_SHRED_DEPTH,
         (b, d, f, fu, sg, sc, m, o, dk, afl, sus) => shotsValue(shotsRemaining - 1, d, b, f, fu, sg, sc, m, o, dk, afl, sus),
-        cachesByShotsRemaining[shotsRemaining]
+        cachesByShotsRemaining[shotsRemaining],
+        downstreamRow,
+        downstreamShotsRemaining
       );
     }
 
@@ -1658,7 +1711,15 @@ export function computeSequenceOdds(
    */
   function buildBoughtAttacksValue(
     attackerIndex: number,
-    getNextTable: (debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]) => ValueTable
+    getNextTable: (debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]) => ValueTable,
+    // The `row` a later multi-target target would enter at if a bought shot HERE ends up being the
+    // one that kills the current target - `shotsRemaining` is always 0 there (a bought attack is
+    // always a standalone singleton, see this function's own doc comment), so only `row` varies:
+    // the mid-sequence hook (this attacker's own last configured row `k`) passes `k + 1` (the SAME
+    // row a normal last-shot-of-the-row death would hand off to); the true terminal ladder (rooted
+    // at `getValueTableAt[n]`) passes `n` itself, since further buying there always re-enters the
+    // exact same terminal marker (see `postSequenceBuyingDestroyMass`/`RowInjection.row === n`).
+    downstreamRow: number
   ): {
     nextTable: (debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]) => ValueTable;
     valueAt: ExtendedValueLookup;
@@ -1684,7 +1745,7 @@ export function computeSequenceOdds(
         const stopFocusLeft = attackerFocusLeft.slice();
         stopFocusLeft[slot] = focusLeftHere;
         let best = readValueTable(getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, stopFocusLeft), boxes, focus, fury, shieldGuards, scapegoats);
-        let bestAdjusted = withAttackerFocusValue(ctx, best, stopFocusLeft);
+        let bestAdjusted = withAttackerFocusValue(ctx, best, downstreamRow, 0, stopFocusLeft);
 
         if (focusLeftHere > 0) {
           const spentFocusLeft = attackerFocusLeft.slice();
@@ -1699,9 +1760,10 @@ export function computeSequenceOdds(
               ctx, w, attacks[w], debuffState, boxes, focus, fury, shieldGuards, scapegoats,
               pmMask, kotdOffLeft, kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH,
               (b, d, f, fu, sg, sc, m, o, dk, afl) => readValueTable(boughtTable(afl[slot], d, m, o, dk, afl), b, f, fu, sg, sc),
-              weaponCache
+              weaponCache,
+              downstreamRow, 0
             );
-            const adjustedValue = withAttackerFocusValue(ctx, value, spentFocusLeft);
+            const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
             if (adjustedValue < bestAdjusted) {
               best = value;
               bestAdjusted = adjustedValue;
@@ -1775,7 +1837,7 @@ export function computeSequenceOdds(
   {
     let chainTable = getValueTableAt[n];
     for (const attackerIdx of [...ctx.focusIndexOf.keys()].sort((a, b) => a - b)) {
-      const bought = buildBoughtAttacksValue(attackerIdx, chainTable);
+      const bought = buildBoughtAttacksValue(attackerIdx, chainTable, n);
       terminalBoughtLookups.set(attackerIdx, { valueAt: bought.valueAt, stopValueAt: bought.stopValueAt });
       chainTable = bought.nextTable;
     }
@@ -1802,7 +1864,7 @@ export function computeSequenceOdds(
     const attackerIdx = atk.attackerIndex ?? 0;
     let nextTableForShots = getValueTableAt[k + 1];
     if (ctx.focusIndexOf.has(attackerIdx) && isLastAttackOfAttackerForFocus(ctx, k, atk)) {
-      const bought = buildBoughtAttacksValue(attackerIdx, getValueTableAt[k + 1]);
+      const bought = buildBoughtAttacksValue(attackerIdx, getValueTableAt[k + 1], k + 1);
       nextTableForShots = bought.nextTable;
       boughtAttacksValueAtByAttacker.set(attackerIdx, { valueAt: bought.valueAt, stopValueAt: bought.stopValueAt });
     }
@@ -1871,6 +1933,10 @@ export function computeSequenceOdds(
 
         const shotsRemainingAfter = count - i;
         const isLastShot = i === count;
+        // Mirrors `shotsValue`'s own backward-pass computation of "where the next target would
+        // enter if a kill happens resolving THIS shot" - see that function's own comment.
+        const downstreamShotsRemaining = shotsRemainingAfter;
+        const downstreamRow = downstreamShotsRemaining === 0 ? k + 1 : k;
         const shredCache = new Map<string, number>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
         const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk, afl, sus) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk, afl, sus);
@@ -1897,7 +1963,9 @@ export function computeSequenceOdds(
             shredCache,
             entry,
             isLastShot ? next : survivors,
-            destroyedByShotsRemaining[shotsRemainingAfter]
+            destroyedByShotsRemaining[shotsRemainingAfter],
+            downstreamRow,
+            downstreamShotsRemaining
           );
         }
 
@@ -1957,7 +2025,10 @@ export function computeSequenceOdds(
     attackerIndex: number,
     dist: Map<string, { state: FwdState; probability: number }>,
     valueAt: ExtendedValueLookup,
-    stopValueAt: ExtendedValueLookup
+    stopValueAt: ExtendedValueLookup,
+    // See `buildBoughtAttacksValue`'s own `downstreamRow` doc comment - must match whatever that
+    // call was built with, since this replays the SAME policy for real forward-pass reporting.
+    downstreamRow: number
   ): { dist: Map<string, { state: FwdState; probability: number }>; destroyed: DestroyedAccumulator } {
     const slot = ctx.focusIndexOf.get(attackerIndex)!;
     const candidateWeapons = (ctx.attackIndicesByAttacker.get(attackerIndex) ?? []).filter((w) => attacks[w].type === 'melee');
@@ -1977,7 +2048,7 @@ export function computeSequenceOdds(
         );
 
         let bestWeapon = -1;
-        let bestAdjusted = withAttackerFocusValue(ctx, stopValue, state.attackerFocusLeft);
+        let bestAdjusted = withAttackerFocusValue(ctx, stopValue, downstreamRow, 0, state.attackerFocusLeft);
         if (state.attackerFocusLeft[slot] > 0) {
           const spentFocusLeft = state.attackerFocusLeft.slice();
           spentFocusLeft[slot] -= 1;
@@ -1990,9 +2061,10 @@ export function computeSequenceOdds(
             // for why that's normally safe and why it wouldn't be here).
             const value = attackChainValue(
               ctx, w, attacks[w], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
-              state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, number>()
+              state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, number>(),
+              downstreamRow, 0
             );
-            const adjustedValue = withAttackerFocusValue(ctx, value, spentFocusLeft);
+            const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
             if (adjustedValue < bestAdjusted) {
               bestAdjusted = adjustedValue;
               bestWeapon = w;
@@ -2016,7 +2088,8 @@ export function computeSequenceOdds(
         const boughtStats: ShotStats = { hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 };
         resolveAttackChainForward(
           ctx, bestWeapon, attacks[bestWeapon], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
-          state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, p0, valueAt, shredCache, boughtStats, continuing, destroyed
+          state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, p0, valueAt, shredCache, boughtStats, continuing, destroyed,
+          downstreamRow, 0
         );
       }
 
@@ -2118,7 +2191,7 @@ export function computeSequenceOdds(
     const boughtLookups = boughtAttacksValueAtByAttacker.get(attackerIdx);
     let afterBuying = next;
     if (boughtLookups && isLastAttackOfAttackerForFocus(ctx, k, atk)) {
-      const bought = resolveBoughtAttacksForward(attackerIdx, next, boughtLookups.valueAt, boughtLookups.stopValueAt);
+      const bought = resolveBoughtAttacksForward(attackerIdx, next, boughtLookups.valueAt, boughtLookups.stopValueAt, k + 1);
       afterBuying = bought.dist;
       mergeDestroyed(destroyedByShotsRemaining[0], bought.destroyed);
     }
@@ -2178,7 +2251,7 @@ export function computeSequenceOdds(
     }
     for (const attackerIdx of [...ctx.focusIndexOf.keys()].sort((a, b) => a - b)) {
       const lookups = terminalBoughtLookups.get(attackerIdx)!;
-      const bought = resolveBoughtAttacksForward(attackerIdx, postBuyingDist, lookups.valueAt, lookups.stopValueAt);
+      const bought = resolveBoughtAttacksForward(attackerIdx, postBuyingDist, lookups.valueAt, lookups.stopValueAt, n);
       postBuyingDist = bought.dist;
       for (const { attackerFocusRemaining, mass } of bought.destroyed.byFocus.values()) {
         postSequenceBuyingDestroyMass.push({ attackerFocusRemaining, probability: mass });

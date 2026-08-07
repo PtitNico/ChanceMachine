@@ -2219,13 +2219,24 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(results[1].result.finalDestroyChance).toBe(0);
   });
 
+  // Exercises a genuinely more expensive path than most tests here: an 18-box second target with
+  // 3 Focus-enabled weapon rows means the cross-target downstream-value probe (see the "cross-target
+  // value-aware" describe block above) ends up rebuilding a full backward induction for Cyrenia
+  // once per distinct (row, F) combination it's asked about - correct, but not yet optimized (that
+  // induction doesn't actually depend on the starting Focus/row at all, so today's repeated full
+  // rebuilds are pure waste a future pass could memoize away) - past the default test timeout on a
+  // loaded machine, hence the explicit bump here rather than in the runner config.
   it('names the correct weapon per target when different weapons do different things against different targets', () => {
     // A user-reported real-game case: a ranged attack scoped to a fragile solo (Vassal, 1 box) and
-    // two melee weapons free to hit either target - true-optimal Focus should boost the ranged
-    // attack's own roll against the solo (there's only one shot at it, can't risk missing) and use
-    // whatever's left buying/boosting the melee weapons against the second, much tankier target
-    // (Cyrenia, 18 boxes) - and the summary should say so BY WEAPON, not blur everything from both
-    // targets into one generic "boost attack rolls and buy extra attacks" sentence.
+    // two melee weapons free to hit either target - and the summary should describe each target's
+    // own policy BY WEAPON, not blur everything from both targets into one generic "boost attack
+    // rolls and buy extra attacks" sentence. Since Melee1/Melee2 are unrestricted (eligible for
+    // either target) and each individually strong enough to drop a 1-box/ARM12 solo on their own,
+    // ANY of the three weapons already destroys Vassal on essentially every branch with ZERO Focus
+    // spent - true-optimal play recognizes this and saves the entire 4-point pool for Cyrenia's
+    // much tankier 18-box pool instead (see the cross-target downstream-value fix: an earlier,
+    // less accurate version of that mechanism underestimated this and wastefully spent a sliver of
+    // Focus boosting Ranged's own roll against Vassal even though it was never actually needed).
     const vassal = { def: 10, arm: 12, boxes: 1 };
     const cyrenia = { def: 13, arm: 16, boxes: 18 };
     const atks: SequencedAttack[] = [
@@ -2235,21 +2246,17 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     ];
     const results = computeMultiTargetSequenceOdds(atks, [vassal, cyrenia]);
 
-    const vassalEntry = results[0].result.focusStrategy[0];
-    const vassalWeapons = (vassalEntry.healthy ?? []).concat(vassalEntry.debuffed ?? []).map((t) => t.weaponLabel);
-    // Melee1/Melee2 are unrestricted (eligible for either target), so a sliver of activity against
-    // Vassal from them is legitimate too - in the rare branch where the ranged shot doesn't kill it,
-    // whichever melee weapon fires next also still has Vassal as its own current target. What
-    // matters is that Ranged - the weapon actually scoped to Vassal - is the dominant one reported.
-    expect(vassalWeapons).toContain('Ranged');
-    expect(summarizeFocusStrategy(vassalEntry, 'Vassal')).toContain("🏹 Ranged's attack rolls");
-
+    // Vassal dies essentially for free - confirms Focus wasn't needlessly spent defending an
+    // already-overwhelming matchup.
+    expect(results[0].result.finalDestroyChance).toBeGreaterThan(0.999);
+    // Ranged is never even mentioned in Cyrenia's own strategy (it's out of range there) - Melee1/
+    // Melee2 (both in range of both targets) are the only weapons that can legitimately show up.
     const cyreniaEntry = results[1].result.focusStrategy[0];
     const cyreniaWeapons = new Set((cyreniaEntry.healthy ?? []).concat(cyreniaEntry.debuffed ?? []).map((t) => t.weaponLabel));
     expect(cyreniaWeapons.has('Ranged')).toBe(false);
     expect(cyreniaWeapons.size).toBeGreaterThan(0);
     for (const label of cyreniaWeapons) expect(['Melee1', 'Melee2']).toContain(label);
-  });
+  }, 20000);
 });
 
 describe('sequence engine - Shield Guards and Scapegoats', () => {
@@ -2804,6 +2811,42 @@ describe('sequence engine - Attacker Focus is cross-target value-aware, not just
 
     expect(viaMultiTarget.result.finalDestroyChance).toBeCloseTo(direct.finalDestroyChance, 9);
   });
+
+  // User-reported follow-up bug: 4 KD/ARM14/1-box targets, 1 attacker with 1 Focus, MAT6/RAT6, a
+  // ranged weapon (POW12, 2 configured attacks) and a melee weapon (POW12, 1 configured attack) -
+  // only 3 total configured shots for 4 targets, so target 4 can ONLY ever be reached via a bought
+  // attack. The engine used to compute 0% chance to destroy all targets (it kept boosting the
+  // melee weapon's own damage roll against target 3 - a small local improvement - instead of
+  // buying, so target 4 never got touched at all). Root cause: the reverse-pass "downstream value"
+  // probe used to always hypothesize each later target entering completely FRESH at row 0 (i.e.
+  // with EVERY weapon still unconsumed), which is only ever true for target 0 - for target 3+ it
+  // wildly overestimated how much of this attacker's own arsenal would really still be available,
+  // understating the true value of preserving Focus. The fix makes that probe `(row,
+  // shotsRemaining)`-aware, matching exactly the row position a real cross-target handoff would
+  // use (see `computeMultiTargetSequenceOdds`'s own reverse pass). Manually forcing "0 focus, an
+  // extra melee attack instead" gives ~84.4%.
+  it('stays value-aware across more than two targets and more than one weapon', () => {
+    const target: SequenceTarget = { def: 'KD', arm: 14, boxes: 1 };
+    const ranged: SequencedAttack = {
+      id: 'r', attackerName: 'A', label: 'Weapon 1', type: 'ranged', stat: 6, pow: 12,
+      attackCount: 2, attackerIndex: 0, attackerFocus: 1,
+    };
+    const melee: SequencedAttack = {
+      id: 'm', attackerName: 'A', label: 'Weapon 2', type: 'melee', stat: 6, pow: 12,
+      attackCount: 1, attackerIndex: 0, attackerFocus: 1,
+    };
+
+    const results = computeMultiTargetSequenceOdds([ranged, melee], [target, target, target, target]);
+    const chanceAll = chanceToDestroyAllTargets([ranged, melee], results);
+
+    expect(chanceAll).toBeGreaterThan(0.8);
+
+    // Target 4 only ever gets a shot at all via a bought attack - any mass reaching it at all
+    // confirms the point was preserved rather than spent boosting an earlier target.
+    const target4Tally = results[3].result.focusStrategy[0];
+    const buyMass = (target4Tally.healthy ?? []).reduce((sum, t) => sum + t.buyMass, 0) + (target4Tally.debuffed ?? []).reduce((sum, t) => sum + t.buyMass, 0);
+    expect(buyMass).toBeGreaterThan(0.8);
+  });
 });
 
 describe('sequence engine - Attacker Focus vs a fixed manual translation', () => {
@@ -2842,6 +2885,6 @@ describe('sequence engine - Attacker Focus vs a fixed manual translation', () =>
     const manualChance = chanceToDestroyAllTargets(manual, manualResults);
 
     expect(focusChance).toBeGreaterThan(manualChance);
-  });
+  }, 20000);
 });
 

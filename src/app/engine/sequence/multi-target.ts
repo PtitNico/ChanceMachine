@@ -26,34 +26,47 @@ export function computeMultiTargetSequenceOdds(
   const rowCount = attacks.length;
   let available: RowInjection[] = [{ row: 0, shotsRemaining: 0, probability: 1 }];
 
-  // Attacker Focus's cross-target downstream value: `downstreamValueAfter[i](F)` = "destroy chance
-  // of targets[i..] onward, given the attacker enters target i fresh (row 0) with leftover Focus
-  // vector F" - built last-target-first so target i's own value function already accounts for
-  // everything after it (see single-target.ts's `withAttackerFocusValue`, and `SequenceOptions`'s
-  // own doc comment for why each target's own Attacker-Focus decisions need this to avoid being
-  // only locally optimal). Threaded into each target's REAL `computeSequenceOdds` call below so the
-  // actual displayed results use the same value function this was built with. Purely a hypothetical
-  // "if I had F leftover, starting fresh" probe - it deliberately does NOT replicate the
-  // passthrough/engagement-chance machinery below, since it's a pure function of F, not an actual
-  // mass-flow computation. Memoized per level (one Map per i, captured by that level's own closure
-  // and shared across every caller, including this reverse pass's own recursive calls into level
-  // i+1) so the total cost is bounded by O(distinct F vectors, <= 121 per
-  // MAX_FOCUS_ATTACKERS/MAX_RESOURCE_POINTS) x targets.length, not exponential in the number of
-  // targets. A no-op (never invoked) whenever no attacker has Focus active - the common case pays
-  // nothing.
-  const downstreamValueAfter: Array<(f: number[]) => number> = new Array(targets.length + 1);
+  // Attacker Focus's cross-target downstream value: `downstreamValueAfter[i](row, shotsRemaining,
+  // F)` = "destroy chance of targets[i..] onward, given the attacker enters target i at exactly
+  // this `(row, shotsRemaining)` position (see `RowInjection`'s own doc comment for what that pair
+  // means) with leftover Focus vector F" - built last-target-first so target i's own value function
+  // already accounts for everything after it (see single-target.ts's `withAttackerFocusValue`, and
+  // `SequenceOptions`'s own doc comment for why each target's own Attacker-Focus decisions need
+  // this to avoid being only locally optimal).
+  //
+  // `row`/`shotsRemaining` are NOT optional detail here - an earlier version of this probe always
+  // hypothesized "fresh at row 0", i.e. every one of this attacker's OWN weapons still fully
+  // unconsumed, regardless of how much of the sequence a real earlier target would already have
+  // eaten through by the time target i is actually reached. That's wildly optimistic for target 2+
+  // (row 0 is only ever true for target 0), which systematically UNDERSTATED how much preserving
+  // Focus is really worth: the hypothetical baseline already assumed a full fresh arsenal even at
+  // F=0, so the computed MARGINAL value of an extra Focus point (the F=1-vs-F=0 delta this whole
+  // mechanism runs on) came out far smaller than reality, in some cases wrongly favoring a marginal
+  // local boost over preserving Focus for a later target that would otherwise get NOTHING at all.
+  // Threaded into each target's REAL `computeSequenceOdds` call below so the actual displayed
+  // results use the same value function this was built with.
+  //
+  // Memoized per level (one Map per i, captured by that level's own closure and shared across every
+  // caller, including this reverse pass's own recursive calls into level i+1) so the total cost is
+  // bounded by O(distinct (row, shotsRemaining, F) triples actually queried) x targets.length, not
+  // exponential in the number of targets - see single-target.ts's own call sites for exactly which
+  // `(row, shotsRemaining)` pairs are ever asked for (always the exact position a real cross-target
+  // handoff would use, mirroring `computeMultiTargetSequenceOdds`'s own `nextInjection`
+  // construction below). A no-op (never invoked) whenever no attacker has Focus active - the common
+  // case pays nothing.
+  const downstreamValueAfter: Array<(row: number, shotsRemaining: number, f: number[]) => number> = new Array(targets.length + 1);
   downstreamValueAfter[targets.length] = () => 0;
   for (let i = targets.length - 1; i >= 0; i--) {
     const rowActiveForI = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(i));
     const cache = new Map<string, number>();
     const next = downstreamValueAfter[i + 1];
-    downstreamValueAfter[i] = (f: number[]) => {
-      const key = f.join(',');
+    downstreamValueAfter[i] = (row: number, shotsRemaining: number, f: number[]) => {
+      const key = `${row}|${shotsRemaining}|${f.join(',')}`;
       const cached = cache.get(key);
       if (cached !== undefined) return cached;
       const value = computeSequenceOdds(attacks, targets[i], undefined, {
         rowActive: rowActiveForI,
-        injection: [{ row: 0, shotsRemaining: 0, probability: 1, attackerFocusRemaining: f }],
+        injection: [{ row, shotsRemaining, probability: 1, attackerFocusRemaining: f }],
         attackerFocusDownstreamValue: next,
       }).finalDestroyChance;
       cache.set(key, value);
