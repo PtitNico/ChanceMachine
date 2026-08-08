@@ -39,6 +39,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Focus strategy advice in the Details pop-up now breaks into separate steps for before/after the target is debuffed and for initial vs. bought-with-Focus attacks, instead of one run-on sentence.',
+      'Fixed a bug where buying an extra attack with Focus could recommend a lower-POW weapon over a higher-POW one available to the same attacker, whenever the two were close enough in value that floating-point precision could no longer tell them apart.',
+    ],
+  },
+  {
     date: '2026-08-08',
     items: [
       'Fixed a major bug where an "on hit" effect (Knockdown, Stationary, Ice Cage, Paralysis, "-X ARM", etc.) would be applied even when the attack that was supposed to grant it actually missed.',

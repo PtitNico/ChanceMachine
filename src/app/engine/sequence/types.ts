@@ -262,19 +262,27 @@ export interface SequenceResult {
 
 /** One weapon's own recorded Focus-spending tally within one attacker/situation bucket - see
  *  `FocusStrategyEntry`. `weaponLabel` is the display label of the weapon this mass applies to:
- *  for `boostAttackMass`/`boostDamageMass`, the weapon whose OWN roll is being decided; for
- *  `buyMass`, the weapon actually fired as the bought attack - which can be a DIFFERENT weapon
- *  than whichever row's own boundary triggered the buy decision (buying always happens at the
- *  attacker's own LAST configured row, but picks whichever melee weapon scores best). All three
- *  mass figures are probability-weighted (summing to at most 1 across the whole per-attacker log,
- *  not per weapon or situation). */
+ *  for `boostAttackMass`/`boostDamageMass`/their `*Bought` counterparts, the weapon whose OWN roll
+ *  is being decided; for `buyMass`, the weapon actually fired as the bought attack - which can be
+ *  a DIFFERENT weapon than whichever row's own boundary triggered the buy decision (buying always
+ *  happens at the attacker's own LAST configured row, but picks whichever melee weapon scores
+ *  best). All mass figures are probability-weighted (summing to at most 1 across the whole
+ *  per-attacker log, not per weapon or situation). The `Mass`/`MassBought` split lets the Focus
+ *  strategy summary say WHEN a boost applies - on this weapon's own configured attack(s), on an
+ *  attack bought with leftover Focus, or both, since the true-optimal policy can genuinely differ
+ *  between the two (e.g. boost the attack roll on a guaranteed initial swing, but boost damage
+ *  instead once buying extra attacks late in the fight). `buyMass` itself needs no such split - the
+ *  decision to buy an attack at all only ever happens once Focus is being spent past the attacker's
+ *  own configured attacks, so it's inherently a "bought" concept already. */
 export interface FocusWeaponTally {
   weaponLabel: string;
   /** The weapon's own `AttackType` - lets the summary name the weapon's type emoji alongside its
    *  label (see `TYPE_EMOJI` in `attack-model.ts`). */
   weaponType: AttackType;
   boostAttackMass: number;
+  boostAttackMassBought: number;
   boostDamageMass: number;
+  boostDamageMassBought: number;
   buyMass: number;
 }
 

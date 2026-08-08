@@ -305,7 +305,7 @@ export class OddsCalculator {
         if (!reachesTarget(entry.attackerIndex, targetIndex)) continue;
         const bullets = bulletsByAttacker.get(entry.attackerIndex) ?? [];
         bulletsByAttacker.set(entry.attackerIndex, bullets);
-        bullets.push(summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
+        bullets.push(...summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
       }
     });
 

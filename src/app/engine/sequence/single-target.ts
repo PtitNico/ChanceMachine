@@ -154,7 +154,9 @@ interface SequenceContext {
 interface FocusPolicyTally {
   weaponType: AttackType;
   boostAttackMass: number;
+  boostAttackMassBought: number;
   boostDamageMass: number;
+  boostDamageMassBought: number;
   buyMass: number;
 }
 
@@ -172,15 +174,19 @@ function situationOf(debuffState: DebuffState): 'healthy' | 'debuffed' {
 }
 
 /** `weaponLabel` is the display label of the weapon this recording applies to - the row whose OWN
- *  roll is being decided for `boostAttackMass`/`boostDamageMass`, or the weapon actually fired for
- *  `buyMass` (see `FocusWeaponTally`'s own doc comment for why those can differ). `weaponType` is
- *  that same weapon's own `AttackType`, recorded once per weapon (redundant on repeat calls for the
- *  same weapon, but harmless - a weapon's type never changes mid-sequence). */
+ *  roll is being decided for `boostAttack`/`boostDamage`, or the weapon actually fired for `buy`
+ *  (see `FocusWeaponTally`'s own doc comment for why those can differ). `weaponType` is that same
+ *  weapon's own `AttackType`, recorded once per weapon (redundant on repeat calls for the same
+ *  weapon, but harmless - a weapon's type never changes mid-sequence). `bought` is only meaningful
+ *  for `boostAttack`/`boostDamage` - whether this roll belongs to a configured attack or one bought
+ *  with leftover Focus (see `resolveAttackChainForward`'s own `isBoughtAttack` param); a `buy`
+ *  decision is inherently a "bought" concept already, so `bought` is ignored for it. */
 function recordFocusPolicy(
   ctx: SequenceContext,
   attackerIndex: number,
   debuffState: DebuffState,
-  action: keyof Omit<FocusPolicyTally, 'weaponType'>,
+  action: 'boostAttack' | 'boostDamage' | 'buy',
+  bought: boolean,
   mass: number,
   weaponLabel: string,
   weaponType: AttackType
@@ -197,8 +203,19 @@ function recordFocusPolicy(
     byWeapon = new Map();
     byAttacker.set(situation, byWeapon);
   }
-  const tally = byWeapon.get(weaponLabel) ?? { weaponType, boostAttackMass: 0, boostDamageMass: 0, buyMass: 0 };
-  tally[action] += mass;
+  const tally = byWeapon.get(weaponLabel) ?? {
+    weaponType,
+    boostAttackMass: 0,
+    boostAttackMassBought: 0,
+    boostDamageMass: 0,
+    boostDamageMassBought: 0,
+    buyMass: 0,
+  };
+  const field: keyof Omit<FocusPolicyTally, 'weaponType'> =
+    action === 'boostAttack' ? (bought ? 'boostAttackMassBought' : 'boostAttackMass')
+    : action === 'boostDamage' ? (bought ? 'boostDamageMassBought' : 'boostDamageMass')
+    : 'buyMass';
+  tally[field] += mass;
   byWeapon.set(weaponLabel, tally);
 }
 
@@ -1293,6 +1310,11 @@ function resolveAttackChainForward(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  // Is this call resolving a configured row (false) or an attack bought with leftover Focus
+  // (true, from `resolveBoughtAttacksForward`)? Only used to route the two `recordFocusPolicy`
+  // calls below into `FocusWeaponTally`'s `*Mass` vs `*MassBought` fields - see that type's own
+  // doc comment for why the Focus strategy summary wants this distinction.
+  isBoughtAttack: boolean,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1343,7 +1365,7 @@ function resolveAttackChainForward(
       // the boosted candidate - a cheap, reliable way to tell which one won without widening its
       // own return type just for this.
       if (postBoostFocusLeft !== state.attackerFocusLeft) {
-        recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostAttackMass', p0, atk.label, atk.type);
+        recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostAttack', isBoughtAttack, p0, atk.label, atk.type);
       }
       for (const { profile: pmProfile, resultingMask } of resolvePmSplit(ctx, k, atk, state.debuffState, state.pmMask, trueOriginal, state.sustained)) {
         for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
@@ -1363,7 +1385,7 @@ function resolveAttackChainForward(
           )) {
             if (resultingAttackerFocusLeft !== postBoostFocusLeft) {
               const populationMass = boostedFinalProfile.missChance + boostedFinalProfile.hitNonCritChance + boostedFinalProfile.hitCritChance;
-              recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostDamageMass', p0 * populationMass, atk.label, atk.type);
+              recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostDamage', isBoughtAttack, p0 * populationMass, atk.label, atk.type);
             }
             for (const outcome of applyProfile(boostedFinalProfile)) {
               const p = p0 * outcome.probability;
@@ -1800,6 +1822,7 @@ export function computeSequenceOdds(
         stopFocusLeft[slot] = focusLeftHere;
         let best = readValueTable(getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, stopFocusLeft), boxes, focus, fury, shieldGuards, scapegoats);
         let bestAdjusted = withAttackerFocusValue(ctx, best, downstreamRow, 0, stopFocusLeft);
+        let bestWeapon = -1;
 
         if (focusLeftHere > 0) {
           for (const w of candidateWeapons) {
@@ -1824,9 +1847,16 @@ export function computeSequenceOdds(
               downstreamRow, 0
             );
             const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
-            if (adjustedValue < bestAdjusted) {
+            // Prefer a strictly better value; on an exact TIE with the current best WEAPON specifically
+            // (never against the "stop" baseline) break toward the higher-POW weapon - see
+            // `resolveBoughtAttacksForward`'s identical tiebreak (kept consistent with this one, since
+            // that function replays the SAME policy this table encodes) for why exact ties are a real,
+            // common case here.
+            const isBetter = adjustedValue < bestAdjusted || (bestWeapon !== -1 && adjustedValue === bestAdjusted && attacks[w].pow > attacks[bestWeapon].pow);
+            if (isBetter) {
               best = value;
               bestAdjusted = adjustedValue;
+              bestWeapon = w;
             }
           }
         }
@@ -2006,6 +2036,7 @@ export function computeSequenceOdds(
             ctx,
             k,
             atk,
+            false,
             state.debuffState,
             state.boxes,
             state.focusLeft,
@@ -2132,7 +2163,16 @@ export function computeSequenceOdds(
               downstreamRow, 0
             );
             const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
-            if (adjustedValue < bestAdjusted) {
+            // Prefer a strictly better value; on an exact TIE with the current best WEAPON specifically
+            // (never against the "stop" baseline - a tie against stopping still means "not worth
+            // spending Focus") break toward the higher-POW weapon, matching `buildBoughtAttacksValue`'s
+            // own identical tiebreak so the forward replay stays consistent with the backward-computed
+            // policy it's supposed to reproduce - see that function's own comment for why exact ties are
+            // a real, common case here (once the target has far more boxes than the remaining Focus
+            // could ever meaningfully threaten, the destroy-probability delta between two candidate
+            // weapons underflows double precision to bit-identical values).
+            const isBetter = adjustedValue < bestAdjusted || (bestWeapon !== -1 && adjustedValue === bestAdjusted && attacks[w].pow > attacks[bestWeapon].pow);
+            if (isBetter) {
               bestAdjusted = adjustedValue;
               bestWeapon = w;
               bestSpentFocusLeft = spentFocusLeft;
@@ -2148,13 +2188,13 @@ export function computeSequenceOdds(
           continue;
         }
 
-        recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buyMass', p0, attacks[bestWeapon].label, attacks[bestWeapon].type);
+        recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buy', true, p0, attacks[bestWeapon].label, attacks[bestWeapon].type);
 
         const spentFocusLeft = bestSpentFocusLeft!;
         const shredCache = new Map<string, number>();
         const boughtStats: ShotStats = { hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 };
         resolveAttackChainForward(
-          ctx, bestWeapon, attacks[bestWeapon], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
+          ctx, bestWeapon, attacks[bestWeapon], true, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
           state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, p0, valueAt, shredCache, boughtStats, continuing, destroyed,
           downstreamRow, 0
         );
@@ -2359,18 +2399,17 @@ export function computeSequenceOdds(
   return { steps, finalDestroyChance: cumulativeDestroy, survivalDistribution, focusStrategy, postSequenceBuyingDestroyMass };
 }
 
-/** How much of a situation's own strongest action's mass (across EVERY weapon, not just one) a
- *  weapon's own action needs before it's worth mentioning - see `summarizeFocusStrategy`'s own doc
- *  comment for why this can't be "pick the single biggest one": the three tallies within a weapon
- *  are NOT a mutually-exclusive partition (a boost-attack-roll decision and a boost-damage-roll
- *  decision on that SAME roll, or a boost decision on a configured attack followed by a buy
- *  decision once it's done, routinely both fire for the SAME underlying probability mass), and
- *  DIFFERENT weapons' own tallies aren't mutually exclusive either (Focus is one shared pool, so
- *  time spent on one weapon's own roll is time NOT spent on another's). A 50%-of-the-GLOBAL-max
- *  threshold is a readable, if inexact, stand-in for "clearly part of the real strategy" -
- *  deliberately computed across every weapon in the situation at once (not per weapon), so a
- *  weapon with only a sliver of genuinely-reachable mass doesn't get flagged as "significant"
- *  purely because it's the largest of ITS OWN three small numbers. */
+/** How much of a situation/phase bucket's own strongest action's mass (across EVERY weapon, not
+ *  just one) a weapon's own action needs before it's worth mentioning - see
+ *  `summarizeFocusStrategy`'s own doc comment for why this can't be "pick the single biggest one":
+ *  the tallies within a weapon are NOT a mutually-exclusive partition (a boost-attack-roll decision
+ *  and a boost-damage-roll decision on that SAME roll routinely both fire for the SAME underlying
+ *  probability mass), and DIFFERENT weapons' own tallies aren't mutually exclusive either (Focus is
+ *  one shared pool, so time spent on one weapon's own roll is time NOT spent on another's). A
+ *  50%-of-the-GLOBAL-max threshold is a readable, if inexact, stand-in for "clearly part of the
+ *  real strategy" - deliberately computed across every weapon in the bucket at once (not per
+ *  weapon), so a weapon with only a sliver of genuinely-reachable mass doesn't get flagged as
+ *  "significant" purely because it's the largest of its own small numbers. */
 const SIGNIFICANT_ACTION_RATIO = 0.5;
 
 type FocusAction = 'boostAttack' | 'boostDamage' | 'buy';
@@ -2401,19 +2440,51 @@ function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: F
   return joinPhrases(clauses);
 }
 
-/** Turns one situation's own per-weapon tallies into a single sentence fragment, e.g. "boost 🏹
- *  Ranged's attack rolls, boost 🗡️ Melee1's attack and damage rolls, and buy attacks with 🗡️
- *  Melee1" - empty when nothing in this situation clears `SIGNIFICANT_ACTION_RATIO`. */
-function summarizeSituation(weaponTallies: FocusWeaponTally[] | undefined): string {
+/** Turns one situation's own per-weapon tallies into a single sentence fragment, reading BOTH the
+ *  initial and bought mass for a given action together (e.g. `boostAttackMass +
+ *  boostAttackMassBought`) - e.g. "boost 🏹 Ranged's attack rolls, boost 🗡️ Melee1's attack and
+ *  damage rolls, and buy attacks with 🗡️ Melee1" - empty when nothing in this situation clears
+ *  `SIGNIFICANT_ACTION_RATIO`. Used only to decide whether the healthy/debuffed situation axis
+ *  itself needs a label at all (see `summarizeFocusStrategy`) - the actual displayed text is built
+ *  per-phase by `summarizePhase` below, which is what can tell initial and bought advice apart. */
+function summarizeSituationMerged(weaponTallies: FocusWeaponTally[] | undefined): string {
   if (!weaponTallies || weaponTallies.length === 0) return '';
-  const strongest = Math.max(0, ...weaponTallies.flatMap((t) => [t.boostAttackMass, t.boostDamageMass, t.buyMass]));
+  const strongest = Math.max(
+    0,
+    ...weaponTallies.flatMap((t) => [t.boostAttackMass + t.boostAttackMassBought, t.boostDamageMass + t.boostDamageMassBought, t.buyMass])
+  );
   if (strongest <= 0) return '';
   const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
   const weaponPhrases = weaponTallies.map((t) => {
     const actions: FocusAction[] = [];
-    if (t.boostAttackMass >= threshold) actions.push('boostAttack');
-    if (t.boostDamageMass >= threshold) actions.push('boostDamage');
+    if (t.boostAttackMass + t.boostAttackMassBought >= threshold) actions.push('boostAttack');
+    if (t.boostDamageMass + t.boostDamageMassBought >= threshold) actions.push('boostDamage');
     if (t.buyMass >= threshold) actions.push('buy');
+    return actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions) : '';
+  });
+  return joinPhrases(weaponPhrases);
+}
+
+/** Same idea as `summarizeSituationMerged`, but scoped to only ONE phase's own mass - `'initial'`
+ *  reads a weapon's own configured-attack boost mass (`boostAttackMass`/`boostDamageMass`, no
+ *  `buy` - buying only ever happens once configured attacks are done); `'bought'` reads the
+ *  boost mass recorded on attacks bought with leftover Focus (`*MassBought`) together with
+ *  `buyMass` itself, since "buy this weapon" and "boost the roll you just bought" are both
+ *  "once you're buying" advice. `SIGNIFICANT_ACTION_RATIO`'s threshold is computed within this
+ *  phase's own values only - a phase's own "which weapon dominates THIS phase" question,
+ *  independent of the other phase's own numbers. */
+function summarizePhase(weaponTallies: FocusWeaponTally[] | undefined, phase: 'initial' | 'bought'): string {
+  if (!weaponTallies || weaponTallies.length === 0) return '';
+  const boostAttackOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostAttackMass : t.boostAttackMassBought);
+  const boostDamageOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostDamageMass : t.boostDamageMassBought);
+  const strongest = Math.max(0, ...weaponTallies.flatMap((t) => [boostAttackOf(t), boostDamageOf(t), phase === 'bought' ? t.buyMass : 0]));
+  if (strongest <= 0) return '';
+  const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
+  const weaponPhrases = weaponTallies.map((t) => {
+    const actions: FocusAction[] = [];
+    if (boostAttackOf(t) >= threshold) actions.push('boostAttack');
+    if (boostDamageOf(t) >= threshold) actions.push('boostDamage');
+    if (phase === 'bought' && t.buyMass >= threshold) actions.push('buy');
     return actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions) : '';
   });
   return joinPhrases(weaponPhrases);
@@ -2423,34 +2494,58 @@ function capitalize(s: string): string {
   return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+/** Builds 1 or 2 lines of advice for one situation bucket (healthy or debuffed), splitting into a
+ *  separate "on your initial attacks" / "once buying" line whenever the true-optimal policy's
+ *  initial-attack advice and bought-attack advice actually differ - a single unlabeled line
+ *  otherwise (today's format, whichever phase has content). `situationLabel` ('while healthy',
+ *  'once Knocked Down or Stationary', or '' for the non-branching case) is combined with the
+ *  phase label, when both apply, as "situationLabel, phaseLabel: phrase." */
+function linesForSituation(weaponTallies: FocusWeaponTally[] | undefined, situationLabel: string): string[] {
+  const initialPhrase = summarizePhase(weaponTallies, 'initial');
+  const boughtPhrase = summarizePhase(weaponTallies, 'bought');
+  const mkLine = (phaseLabel: string, phrase: string): string => {
+    const header = [situationLabel, phaseLabel].filter(Boolean).join(', ');
+    return header ? `${header}: ${phrase}.` : `${phrase}.`;
+  };
+  if (initialPhrase && boughtPhrase && initialPhrase !== boughtPhrase) {
+    return [mkLine('initial attacks', initialPhrase), mkLine('buying', boughtPhrase)];
+  }
+  return [mkLine('', initialPhrase || boughtPhrase)];
+}
+
 /**
  * Turns one attacker's own `FocusStrategyEntry` (raw, probability-weighted tallies recorded during
- * the forward replay - see `recordFocusPolicy`) into a short, player-facing bullet describing the
- * true-optimal Focus policy actually computed - branching by target condition when the computed
- * policy itself branches, and naming which weapon (with its type emoji, see `TYPE_EMOJI`) each
- * boost/buy applies to (mirrors the kind of advice a player would expect: "Boost 🏹 Ranged's attack
- * rolls until the target is Knocked Down, then buy attacks with 🗡️ Melee1"), never a hand-authored
- * heuristic or raw numbers. The caller is expected to show the attacker's own name as
- * a heading ABOVE one or more of these bullets (one per target the attacker's Focus reaches, since
- * it's one pool spent across the whole sequence - see the module doc comment's Attacker Focus
- * section) rather than repeating it inside the text itself - `targetLabel`, when given (a
- * multi-target sequence), is folded in as a "vs {targetLabel}: " prefix so each bullet still reads
- * standalone; omit it for a single-target sequence, where the bullet needs no target reference at
- * all. Data-driven, not template-hardcoded advice: which action(s) dominate on which weapon (and
- * whether the policy branches by situation at all) is read directly off whatever
+ * the forward replay - see `recordFocusPolicy`) into short, player-facing step-by-step bullets
+ * describing the true-optimal Focus policy actually computed, one line per distinct step rather
+ * than one glued run-on sentence - branching by target situation (healthy vs. once Knocked
+ * Down/Stationary) and, independently, by whether a weapon's own roll is a configured/initial
+ * attack or one bought with leftover Focus, whenever the computed policy itself branches along
+ * either axis (see `linesForSituation`/`summarizePhase`), and naming which weapon (with its type
+ * emoji, see `TYPE_EMOJI`) each boost/buy applies to. Never a hand-authored heuristic or raw
+ * numbers. The caller is expected to show the attacker's own name as a heading ABOVE one or more
+ * of these bullets (one or more per target the attacker's Focus reaches, since it's one pool spent
+ * across the whole sequence - see the module doc comment's Attacker Focus section) rather than
+ * repeating it inside the text itself - `targetLabel`, when given (a multi-target sequence), is
+ * folded into each returned line as a "vs {targetLabel}: " prefix so every line still reads
+ * standalone; omit it for a single-target sequence, where no line needs a target reference at all.
+ * Data-driven, not template-hardcoded advice: which action(s) dominate on which weapon, and
+ * whether the policy branches by situation and/or phase at all, is read directly off whatever
  * `computeSequenceOdds` actually decided for THIS specific attacker/target combination, so two
  * different setups can legitimately produce different summaries.
  */
-export function summarizeFocusStrategy(entry: FocusStrategyEntry, targetLabel?: string): string {
-  const healthyPhrase = summarizeSituation(entry.healthy);
-  const debuffedPhrase = summarizeSituation(entry.debuffed);
+export function summarizeFocusStrategy(entry: FocusStrategyEntry, targetLabel?: string): readonly string[] {
+  const healthyMerged = summarizeSituationMerged(entry.healthy);
+  const debuffedMerged = summarizeSituationMerged(entry.debuffed);
   const prefix = targetLabel ? `vs ${targetLabel}: ` : '';
 
-  if (!healthyPhrase && !debuffedPhrase) {
-    return `${prefix}${capitalize('rarely worth spending Focus here.')}`;
+  if (!healthyMerged && !debuffedMerged) {
+    return [`${prefix}${capitalize('rarely worth spending Focus here.')}`];
   }
-  if (healthyPhrase && debuffedPhrase && healthyPhrase !== debuffedPhrase) {
-    return `${prefix}${capitalize(`${healthyPhrase} until the target is Knocked Down, then ${debuffedPhrase}.`)}`;
-  }
-  return `${prefix}${capitalize(`${healthyPhrase || debuffedPhrase}.`)}`;
+
+  const lines =
+    healthyMerged && debuffedMerged && healthyMerged !== debuffedMerged
+      ? [...linesForSituation(entry.healthy, 'healthy'), ...linesForSituation(entry.debuffed, 'Knocked Down/Stationary')]
+      : linesForSituation(entry.healthy ?? entry.debuffed, '');
+
+  return lines.map((line) => `${prefix}${capitalize(line)}`);
 }
