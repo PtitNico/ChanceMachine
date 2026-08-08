@@ -24,6 +24,7 @@ import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
 import { DamagePoint, FocusStrategyBlock, ShotRow } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
+import { serializeFeedbackData } from './feedback-dialog/feedback-data';
 import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
@@ -84,6 +85,11 @@ export class OddsCalculator {
 
   // --- Attack sequence, grouped by attacker ---
   protected readonly attackers = signal<Attacker[]>([createAttacker()]);
+
+  /** The current sequence builder state as JSON, captured for the Feedback pop-up (see
+   *  `serializeFeedbackData`) so a report can be reproduced exactly instead of relying on the
+   *  reporter to describe their setup in prose. */
+  protected readonly feedbackData = computed(() => serializeFeedbackData(this.targets(), this.attackers()));
 
   /** Attacks still resolve as ONE flat ordered sequence for the engine, regardless of which
    *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see

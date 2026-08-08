@@ -28,10 +28,16 @@ export class FeedbackDialog {
   protected readonly message = signal('');
   protected readonly email = signal('');
   protected readonly state = signal<SubmitState>('idle');
+  /** The current sequence builder state (targets/attackers/weapons), already serialized to JSON by
+   *  the caller (see `serializeFeedbackData`) - captured once when the dialog opens rather than
+   *  read live, so a report reflects whatever the reporter was actually looking at, not whatever
+   *  they've since changed it to while typing their message. */
+  private data = '';
 
   @ViewChild('shell') private shell?: DialogShell;
 
-  open(): void {
+  open(data: string): void {
+    this.data = data;
     this.state.set('idle');
     this.shell?.open();
   }
@@ -49,7 +55,7 @@ export class FeedbackDialog {
     body.set('type', this.kind());
     body.set('message', this.message().trim());
     body.set('email', this.email().trim());
-    body.set('page', location.href);
+    body.set('data', this.data);
     body.set('userAgent', navigator.userAgent);
     try {
       // Apps Script Web Apps don't send back CORS headers a browser fetch can read from a
