@@ -31,4 +31,10 @@ export class AttackerRulesDialog {
     this.index.set(index);
     this.shell?.open();
   }
+
+  /** Charge/Cavalry Charge are mutually exclusive - clicking the active one turns it off,
+   *  clicking the other one always switches straight to it (overwriting whatever was there). */
+  protected toggleCharge(attacker: Attacker, value: 'charge' | 'cavalryCharge'): void {
+    attacker.charge.set(attacker.charge() === value ? 'off' : value);
+  }
 }

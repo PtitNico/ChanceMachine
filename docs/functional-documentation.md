@@ -114,7 +114,8 @@ own ordered list of attacks:
   it as the only hint that it's editable. Its **MAT / RAT / AAT** (0 to 20 each) sit inline next to
   the name, but only the ones its own attacks actually use — a melee-only attacker shows just MAT,
   a caster with a melee attack and a spell shows MAT and AAT, and so on. A blue **⚙ (cog)** icon
-  button opens the **Attacker's special rules** pop-up (Puppet Master and Focus — see below); a red
+  button opens the **Attacker's special rules** pop-up (Puppet Master, Charge/Cavalry Charge — see
+  below); a red
   trash icon button removes the whole attacker (disabled while it's the only one — at least one
   attacker always remains).
 - One **weapon sub-card** per weapon this attacker carries, each with its own drag handle to reorder
@@ -163,15 +164,25 @@ achieve, since they don't know in advance which roll will turn out to be the bes
 for. Puppet Master instead follows the same simple, mechanical rule a player would apply at the
 table, watching the sequence unfold roll by roll.
 
+**Charge** / **Cavalry Charge** (also toggled in the attacker's special rules pop-up, mutually
+exclusive — activating one deactivates the other): boost the attacker's own **first melee attack**
+(whichever melee weapon is first in that attacker's own configured order) for free, no Focus spent.
+Charge boosts just its damage roll; Cavalry Charge boosts both its attack and damage rolls. This is
+the exact same "Boosted" effect a weapon's own Boosted toggle grants (see "Effects" below) — not
+cumulative with it, or with Focus, on that same roll: a roll is boosted or it isn't, regardless of
+how many of these three sources say so.
+
 **Focus** (0 to 10, set via the same attacker's special rules pop-up as Puppet Master): a per-attacker
 resource, spent on any roll made by any of that attacker's own attacks, over the **whole sequence**
 (not reset when attacks spill onto a new target — the attacker keeps whatever Focus it hasn't spent
 yet). Each point can be spent, once per roll, to:
-- **Boost an attack or damage roll**: add one extra die to that roll.
-- **Buy an extra melee attack**: fired with whichever of the attacker's own melee weapons the app
-  determines is best, **after** every one of that attacker's own configured attacks have fired
-  (bought attacks stack — a second point can buy a further attack after the first bought one, and so
-  on, for as long as Focus remains).
+- **Boost an attack or damage roll**: add one extra die to that roll. A roll already boosted for
+  free by the **Boosted** effect (see below) can't be boosted again this way — a roll can only ever
+  be boosted once.
+- **Buy an extra attack**: fired with whichever of the attacker's own melee weapons — or ranged
+  weapons with **Reload** active (see below) — the app determines is best, **after** every one of
+  that attacker's own configured attacks have fired (bought attacks stack — a second point can buy
+  a further attack after the first bought one, and so on, for as long as Focus remains).
 
 Unlike Puppet Master, Focus is spent **optimally** — the same whole-sequence lookahead already used
 for the target's own Focus/Fury (see below): the app computes, ahead of time, the spending policy
@@ -189,9 +200,9 @@ across the whole sequence.
 
 Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
 - **Auto-hit**: a standalone button at the top of the pop-up — forces the to-hit roll to automatically succeed, regardless of DEF.
-- **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores the target's spell-granted DEF/ARM bonuses — see "Custom effects" below).
-- **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate.
-- **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else).
+- **General**: Jump the Shark — applies **to both** the to-hit roll and the damage roll (a single button for both, rather than a separate setting per roll) —, Blessed (ignores the target's spell-granted DEF/ARM bonuses — see "Custom effects" below). For a **Ranged** weapon only, a **Reload** selector also appears here: 0 (off, the default — this weapon can't be bought with Focus at all), 1 or 2 (this weapon can be bought that many times total, shared across the whole sequence, exactly like Focus itself), or ∞ (unlimited buys, exactly like a melee weapon — see "Buy an extra attack" above).
+- **Attack** (to-hit roll modifiers): Discard lowest, Discard highest — discards the lowest and/or the highest die before summing; **both can be active at the same time** on the same roll —, Reroll (optional reroll if the roll would miss), Sanguine Fate, Boosted (adds one extra die to the attack roll for free, no Focus spent — and makes this roll ineligible for a Focus-funded boost on top, since a roll can only be boosted once).
+- **Damage** (damage roll modifiers): Discard lowest, Discard highest (same rule: stackable), Reroll (optional reroll if the roll is below average), Trash, Shatter, Chain Weapon (ignores the target's Shield ARM bonus specifically — nothing else), Boosted (same idea as the Attack section's own Boosted, but for the damage roll).
 - **On hit** / **On crit**: every effect that can trigger on a hit and/or on a critical hit (Armor Piercing, Decapitation, Sustained Attack, Knockdown, Stationary, Ice Cage, Shadowbind, Blind, Paralysis, Flare, Weaken, "-X ARM", Dispel, Grievous Wounds) appears in both categories, once each, under the same name. Activating an effect's button under "On hit" triggers it on any hit (crits included); activating it under "On crit" restricts it to critical hits only; the two buttons for a given effect are mutually exclusive (activating one deactivates the other). **Sustained Attack**: once one shot from this weapon's own volley — its # Atks and/or ROF shots — hits (if activated under "On hit") or specifically crits (if activated under "On crit"), every later shot in that same volley automatically hits too; doesn't reach a different weapon row, even one representing the same physical weapon. Brutal Damage and Critical Shred only appear under "On crit" (neither can ever trigger on a plain hit). When **"-X ARM"** is active (in either category), an amount selector (1 to 10) appears at the bottom of the pop-up.
 - **Reset**: a button at the bottom of the pop-up that deactivates every effect on this weapon at once (Auto-hit included), so the player can start over from a "clean" weapon instead of unchecking effects one by one — # Atks/Type/ROF/Dice/POW live on the card itself and aren't touched by this.
 

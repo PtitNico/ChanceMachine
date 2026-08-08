@@ -7,6 +7,7 @@ import {
   DAMAGE_EFFECT_KEYS,
   GENERAL_EFFECT_KEYS,
   HIT_CRIT_PAIR_KEYS,
+  RELOAD_OPTIONS,
   effectsFor,
   resetEffects,
 } from '../attack-row.model';
@@ -46,6 +47,7 @@ export class AttackEditDialog {
   protected readonly damageEffectKeys = DAMAGE_EFFECT_KEYS;
   protected readonly hitCritPairKeys = HIT_CRIT_PAIR_KEYS;
   protected readonly critOnlySimpleKeys = CRIT_ONLY_SIMPLE_KEYS;
+  protected readonly reloadOptions = RELOAD_OPTIONS;
   protected readonly effectsFor = effectsFor;
   protected readonly targetDisplayName = targetDisplayName;
 
@@ -56,6 +58,10 @@ export class AttackEditDialog {
    *  `formatActive`). */
   protected readonly formatPenalty = (v: number) => `-${v}`;
   protected readonly formatPenaltyActive = (_label: string, v: string) => `${v} ARM`;
+
+  /** Renders `Infinity` (unlimited Reload, exactly like a melee weapon's own unrestricted buying)
+   *  as '∞' - every other value is just its plain number. */
+  protected readonly formatReload = (v: number) => (v === Infinity ? '∞' : `${v}`);
 
   open(row: AttackRow): void {
     this.row.set(row);

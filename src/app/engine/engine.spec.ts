@@ -439,6 +439,31 @@ describe('sequence engine', () => {
     expect(result.steps[1].shots[0].hitChance).toBeCloseTo(0, 6);
   });
 
+  it('a MISSED on-hit statEffect does not carry over (regression: applyStatEffectsForOutcome used to check only isCrit - a miss ALSO has isCrit=false, so a \'hit\'-triggered effect like Knockdown was wrongly applied on a genuine miss too, in both the backward and forward pass)', () => {
+    // Attack 1 keeps a normal, realistic chance to MISS (DEF 13) with Knockdown on 'hit' (fires
+    // on a plain hit too, not just a crit - unlike the 'crit'-triggered tests above, this is the
+    // exact trigger value the bug affected) - `pow: -9999` (matching how the UI encodes a '-'
+    // POW) means it can NEVER deal damage, so every branch (hit or miss) survives to reach attack
+    // 2, keeping this test's own arithmetic clean. Attack 2 has an absurdly low stat AND a single
+    // die (exempt from the "natural 6s always hit" rule - see attack-model.ts), so its OWN
+    // baseline hit chance is genuinely 0 - the ONLY way it can ever hit is a real Knockdown
+    // carrying over from attack 1 actually landing, never from attack 1 merely NOT critting
+    // (which is what a miss and a plain hit both look like to a check that only inspects isCrit).
+    const singleDieMods = { discard: { lowest: 1 } };
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', pow: -9999, statEffects: [{ type: 'knockdown', trigger: 'hit' }] }),
+      attack({ id: '2', type: 'melee', stat: -50, modifiers: singleDieMods }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    // Attack 2 auto-hits (100%) whenever - and only whenever - Knockdown actually applied, i.e.
+    // exactly when attack 1 itself hit (crit or not, since 'hit' fires on either) - so attack 2's
+    // own overall hit chance must equal attack 1's own hit chance exactly, not attack 1's crit
+    // chance and not 100%.
+    expect(result.steps[1].shots[0].hitChance).toBeCloseTo(result.steps[0].shots[0].hitChance, 9);
+    expect(result.steps[1].shots[0].hitChance).toBeLessThan(1);
+    expect(result.steps[1].shots[0].hitChance).toBeGreaterThan(0);
+  });
+
   it('attack order matters: a high-crit-chance Knockdown attack helps more when it goes first', () => {
     const knockdownFirst: SequencedAttack[] = [
       attack({ id: '1', statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
@@ -1942,6 +1967,94 @@ describe('sequence engine - Attacker Focus (boost attack/damage rolls)', () => {
   });
 });
 
+describe('sequence engine - Boosted (free, unstackable +1 die on the attack or damage roll)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  // The engine builds SequencedAttack objects directly here, bypassing toSequencedAttack - so every
+  // test below sets BOTH the baked-in `modifiers`/`damageModifiers.boostDice: 1` AND the
+  // `boostedAttack`/`boostedDamage` flag together, mirroring exactly what toSequencedAttack would
+  // produce for a "Boosted" toggle switched on.
+
+  it('is a no-op when neither flag is set (regression safety)', () => {
+    const withoutFields = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const explicitlyOff = computeSequenceOdds([attack({ stat: 6, pow: 12, boostedAttack: false, boostedDamage: false })], target);
+    expect(explicitlyOff.finalDestroyChance).toBeCloseTo(withoutFields.finalDestroyChance, 9);
+  });
+
+  it('a Boosted attack roll improves the to-hit chance over an otherwise-identical unboosted roll', () => {
+    const unboosted = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
+    const boosted = computeSequenceOdds([attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true })], target);
+    expect(boosted.steps[0].shots[0].hitChance).toBeGreaterThan(unboosted.steps[0].shots[0].hitChance);
+  });
+
+  it('a Boosted damage roll improves average damage over an otherwise-identical unboosted roll', () => {
+    // forceAutoHit isolates the damage-roll effect from to-hit variance, same technique as the
+    // "boosts the damage roll instead when auto-hit" Attacker Focus test above.
+    const unboosted = computeSequenceOdds([attack({ stat: 6, pow: 12, type: 'ranged', forceAutoHit: true })], target);
+    const boosted = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, type: 'ranged', forceAutoHit: true, damageModifiers: { boostDice: 1 }, boostedDamage: true })],
+      target
+    );
+    expect(boosted.steps[0].shots[0].averageDamage).toBeGreaterThan(unboosted.steps[0].shots[0].averageDamage);
+  });
+
+  it('Focus never spends on an already-Boosted attack roll (a roll can only be boosted once)', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostAttackMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostAttackMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostAttackMass, 0);
+    expect(boostAttackMass).toBe(0);
+  });
+
+  it('Focus never spends on an already-Boosted damage roll (a roll can only be boosted once)', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, damageModifiers: { boostDice: 1 }, boostedDamage: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostDamageMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostDamageMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+    expect(boostDamageMass).toBe(0);
+  });
+
+  it('Boosted on one roll only gates THAT roll - Focus can still boost the other', () => {
+    const result = computeSequenceOdds(
+      [attack({ stat: 6, pow: 12, modifiers: { boostDice: 1 }, boostedAttack: true, attackerIndex: 0, attackerFocus: 3 })],
+      target
+    );
+    const tally = result.focusStrategy[0];
+    const boostDamageMass = (tally.healthy ?? []).reduce((s, t) => s + t.boostDamageMass, 0) + (tally.debuffed ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+    expect(boostDamageMass).toBeGreaterThan(0);
+  });
+
+  it('probability mass is conserved with both flags active alongside Focus buying', () => {
+    const result = computeSequenceOdds(
+      [
+        attack({
+          stat: 6, pow: 12, modifiers: { boostDice: 1 }, damageModifiers: { boostDice: 1 },
+          boostedAttack: true, boostedDamage: true, attackerIndex: 0, attackerFocus: 3,
+        }),
+      ],
+      target
+    );
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+});
+
 describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
   const target = { def: 13, arm: 15, boxes: 5 };
 
@@ -2030,6 +2143,87 @@ describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
 
     expect(result.finalDestroyChance).toBeGreaterThan(0);
     expect(elapsedMs).toBeLessThan(5000);
+  });
+});
+
+describe('sequence engine - Attacker Focus (Reload: per-weapon cap on buying a ranged weapon)', () => {
+  const target = { def: 13, arm: 15, boxes: 5 };
+
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is a no-op when reload is absent or 0 - a ranged weapon stays un-buyable (regression safety)', () => {
+    const withoutField = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], target);
+    const withZero = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2, reload: 0 })], target);
+    expect(withZero.finalDestroyChance).toBeCloseTo(withoutField.finalDestroyChance, 9);
+  });
+
+  it('lets a ranged weapon with a Reload value be bought, unlike one without', () => {
+    const withoutReload = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2 })], target);
+    const withReload = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 2, reload: 2 })], target);
+    expect(withReload.finalDestroyChance).toBeGreaterThan(withoutReload.finalDestroyChance);
+  });
+
+  it('caps buying at the Reload value even when more Focus remains, distinct from the Focus pool itself', () => {
+    const bigTarget = { def: 13, arm: 15, boxes: 20 };
+    const capped = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5, reload: 1 })], bigTarget);
+    const uncapped = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5, reload: Infinity })], bigTarget);
+    expect(uncapped.finalDestroyChance).toBeGreaterThan(capped.finalDestroyChance);
+  });
+
+  it('Reload: Infinity behaves exactly like an unrestricted melee weapon', () => {
+    const melee = computeSequenceOdds([attack({ type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], target);
+    const rangedInfinite = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, reload: Infinity })], target);
+    expect(rangedInfinite.finalDestroyChance).toBeCloseTo(melee.finalDestroyChance, 9);
+  });
+
+  it('probability mass is conserved when buying a Reload-capped ranged weapon', () => {
+    const result = computeSequenceOdds([attack({ type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3, reload: 2 })], target);
+    const survivalMass = result.survivalDistribution.reduce((acc, p) => acc + p.probability, 0);
+    expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
+  });
+
+  it('throws when Reload is active on more weapons than the cap allows', () => {
+    const attacks = [0, 1, 2].map((i) =>
+      attack({ id: `${i}`, type: 'ranged', attackerIndex: 0, attackerFocus: 1, reload: 1 })
+    );
+    expect(() => computeSequenceOdds(attacks, target)).toThrow();
+  });
+});
+
+describe('sequence engine - multiple targets - Reload persistence and downstream value awareness', () => {
+  it('is cross-target value-aware for a Reload-capped weapon, not just locally optimal (mirrors the melee Attacker Focus case)', () => {
+    // Same shape as "prefers buying an extra attack against a later target over a marginal boost
+    // against this one" above, but with a Reload-capped RANGED weapon instead of an unrestricted
+    // melee one - proves both that Reload state carries across targets (the SAME weapon row's one
+    // charge is still available at target 2) and that the optimizer doesn't waste it boosting a
+    // marginal roll against target 1 when preserving it for target 2 is worth far more.
+    const weapon: SequencedAttack = {
+      id: 'w', attackerName: 'A', label: 'Weapon', type: 'ranged', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 1, reload: 1,
+    };
+    const target: SequenceTarget = { def: 'KD', arm: 14, boxes: 1 };
+
+    const results = computeMultiTargetSequenceOdds([weapon], [target, target]);
+    const chanceAll = chanceToDestroyAllTargets([weapon], results);
+
+    // A slightly lower bar than the melee analog test (~0.945): a ranged weapon doesn't get
+    // melee's own auto-hit-on-Knocked-Down bonus, so its odds are naturally a bit lower even with
+    // Reload/Focus spent identically well - this is a real mechanical difference, not slack in the
+    // Reload feature itself (the buyMass check right below is the real proof of value-awareness).
+    expect(chanceAll).toBeGreaterThan(0.85);
+
+    const target2Tally = results[1].result.focusStrategy[0];
+    const buyMass = (target2Tally.healthy ?? []).reduce((sum, t) => sum + t.buyMass, 0) + (target2Tally.debuffed ?? []).reduce((sum, t) => sum + t.buyMass, 0);
+    expect(buyMass).toBeGreaterThan(0.9);
   });
 });
 

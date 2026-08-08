@@ -32,6 +32,8 @@ export const ATTACK_COUNT_OPTIONS = range(1, 10);
 export const RANGED_ATTACK_COUNT_OPTIONS = range(0, 10);
 /** Ranged-only "extra shots on top of # Atks" field - see `SequencedAttack.rof`'s doc comment. */
 export const ROF_OPTIONS: RofValue[] = ['-', 'd3', '2d3'];
+/** Ranged-only Reload cap - see `SequencedAttack.reload`'s doc comment. 0 = off. */
+export const RELOAD_OPTIONS: number[] = [0, 1, 2, Infinity];
 
 export const STAT_LABELS: Record<AttackType, string> = { melee: 'MAT', ranged: 'RAT', arcane: 'AAT' };
 /** Shown next to Type everywhere it appears - the attack sub-card's own type indicator and the
@@ -89,6 +91,8 @@ export type TriggerEffectKey =
   | 'sustainedAttack'
   | 'armorPiercing'
   | 'decapitation'
+  | 'boostedAttack'
+  | 'boostedDamage'
   | StatEffectType;
 
 /** Rendered in the Effects dialog's "General" section, each as a single simple toggle. */
@@ -97,6 +101,7 @@ export const GENERAL_EFFECT_KEYS: TriggerEffectKey[] = ['jumpTheShark', 'blessed
 /** Rendered in the "Attack" section, each as a single simple toggle. */
 export const ATTACK_EFFECT_KEYS: TriggerEffectKey[] = [
   'forceAutoHit',
+  'boostedAttack',
   'discardAttackLowest',
   'discardAttackHighest',
   'rerollAttack',
@@ -105,6 +110,7 @@ export const ATTACK_EFFECT_KEYS: TriggerEffectKey[] = [
 
 /** Rendered in the "Damage" section, each as a single simple toggle. */
 export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
+  'boostedDamage',
   'discardDamageLowest',
   'discardDamageHighest',
   'rerollDamage',
@@ -140,12 +146,14 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   discardAttackHighest: 'Discard highest',
   rerollAttack: 'Reroll',
   sanguineFate: 'Sanguine Fate',
+  boostedAttack: 'Boosted',
   discardDamageLowest: 'Discard lowest',
   discardDamageHighest: 'Discard highest',
   rerollDamage: 'Reroll',
   trash: 'Trash',
   shatter: 'Shatter',
   chainWeapon: 'Chain Weapon',
+  boostedDamage: 'Boosted',
   brutalDamage: 'Brutal Damage',
   criticalShred: 'Shred',
   sustainedAttack: 'Sustained Attack',
@@ -171,9 +179,11 @@ const SUMMARY_LABEL_OVERRIDES: Partial<Record<TriggerEffectKey, string>> = {
   discardAttackLowest: 'Discard lowest (atk)',
   discardAttackHighest: 'Discard highest (atk)',
   rerollAttack: 'Reroll (atk)',
+  boostedAttack: 'Boosted (atk)',
   discardDamageLowest: 'Discard lowest (dmg)',
   discardDamageHighest: 'Discard highest (dmg)',
   rerollDamage: 'Reroll (dmg)',
+  boostedDamage: 'Boosted (dmg)',
   brutalDamage: 'Crit Brutal Damage',
   criticalShred: 'Crit Shred',
 };
@@ -228,6 +238,11 @@ export interface AttackRow {
    *  rows regardless of this value, so switching Type away from Ranged and back doesn't need to
    *  reset it. */
   readonly rof: WritableSignal<RofValue>;
+  /** Ranged-only "buy additional attacks with this weapon, using Focus, up to this many" cap - see
+   *  `SequencedAttack.reload`'s doc comment. 0 = off (the default). Ignored by the engine for
+   *  melee/arcane rows regardless of this value, same "irrelevant off-type value, no reset-on-Type-
+   *  change needed" reasoning as `rof`. */
+  readonly reload: WritableSignal<number>;
 
   /** "-X ARM" (generic persistent ARM debuff): two independent 0-10 counters (0 = off), one per
    *  trigger timing, each its own `<app-toggle-select>` in the Effects pop-up's "On hit"/"Critical"
@@ -261,6 +276,7 @@ export function createAttackRow(): AttackRow {
     damageDiceCount: signal(2),
     attackCount: signal(1),
     rof: signal<RofValue>('-'),
+    reload: signal(0),
     armPenaltyHitAmount: signal(0),
     armPenaltyCritAmount: signal(0),
     triggerEffects: createTriggerEffects(),
@@ -278,6 +294,7 @@ export function cloneAttackRow(source: AttackRow): AttackRow {
     damageDiceCount: signal(source.damageDiceCount()),
     attackCount: signal(source.attackCount()),
     rof: signal(source.rof()),
+    reload: signal(source.reload()),
     armPenaltyHitAmount: signal(source.armPenaltyHitAmount()),
     armPenaltyCritAmount: signal(source.armPenaltyCritAmount()),
     triggerEffects: cloneTriggerEffects(source.triggerEffects),
@@ -291,6 +308,7 @@ export function resetEffects(row: AttackRow): void {
   }
   row.armPenaltyHitAmount.set(0);
   row.armPenaltyCritAmount.set(0);
+  row.reload.set(0);
 }
 
 /** Short "label (trigger)" summary strings for every active effect on a row, shown under the attack row. */
@@ -300,12 +318,15 @@ export interface EffectSummaryTag {
    *  `@for` tracking this instead of the label string itself, to avoid NG0956: tracking by the
    *  text would make Angular treat that switch as removing one tag and adding an unrelated one
    *  (destroying and recreating its DOM node) instead of just updating the existing node's text. */
-  readonly key: TriggerEffectKey;
+  readonly key: TriggerEffectKey | 'reload';
   readonly label: string;
 }
 
 export function effectsSummary(row: AttackRow): EffectSummaryTag[] {
   const tags: EffectSummaryTag[] = [];
+  if (row.reload() > 0) {
+    tags.push({ key: 'reload', label: `Reload[${row.reload() === Infinity ? '∞' : row.reload()}]` });
+  }
   if (row.armPenaltyHitAmount() > 0) {
     tags.push({ key: 'armPenalty', label: `-${row.armPenaltyHitAmount()} ARM` });
   } else if (row.armPenaltyCritAmount() > 0) {
@@ -381,7 +402,9 @@ export function toSequencedAttack(
   attackerIndex: number,
   hasPuppetMaster: boolean,
   attackerFocus: number,
-  targets: Target[]
+  targets: Target[],
+  charge: 'off' | 'charge' | 'cavalryCharge',
+  isFirstMeleeAttack: boolean
 ): SequencedAttack {
   const eligibleTargetIds = row.eligibleTargetIds();
   const eligibleTargetIndices = eligibleTargetIds
@@ -396,6 +419,13 @@ export function toSequencedAttack(
     statEffects.push({ type: 'armPenalty', trigger: 'crit', amount: row.armPenaltyCritAmount() });
   }
 
+  // Charge/Cavalry Charge are just another SOURCE for the same "Boosted" flags a weapon's own
+  // toggle sets (see AttackRow.reload's neighboring doc comments for the broader "Boosted"
+  // mechanism) - OR'd together so a roll boosted by either (or both) source still only gets +1
+  // die, never stacked, exactly matching the "not cumulative" rule for both Focus and each other.
+  const boostedAttack = isEffectOn(row, 'boostedAttack') || (isFirstMeleeAttack && charge === 'cavalryCharge');
+  const boostedDamage = isEffectOn(row, 'boostedDamage') || (isFirstMeleeAttack && charge !== 'off');
+
   return {
     id: row.id,
     attackerName,
@@ -404,8 +434,9 @@ export function toSequencedAttack(
     stat,
     attackCount: row.attackCount(),
     rof: row.rof(),
+    reload: row.reload(),
     modifiers: {
-      boostDice: toBoostDice(row.diceCount()),
+      boostDice: toBoostDice(row.diceCount()) + (boostedAttack ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardAttackLowest'), isEffectOn(row, 'discardAttackHighest')),
       reroll: isEffectOn(row, 'rerollAttack') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -413,7 +444,7 @@ export function toSequencedAttack(
     },
     pow: resolvePow(row.pow()),
     damageModifiers: {
-      boostDice: toBoostDice(row.damageDiceCount()),
+      boostDice: toBoostDice(row.damageDiceCount()) + (boostedDamage ? 1 : 0),
       discard: discardModifier(isEffectOn(row, 'discardDamageLowest'), isEffectOn(row, 'discardDamageHighest')),
       reroll: isEffectOn(row, 'rerollDamage') || undefined,
       treatOnesAsSixes: isEffectOn(row, 'jumpTheShark') || undefined,
@@ -434,6 +465,8 @@ export function toSequencedAttack(
     attackerIndex,
     hasPuppetMaster: hasPuppetMaster || undefined,
     attackerFocus: attackerFocus || undefined,
+    boostedAttack: boostedAttack || undefined,
+    boostedDamage: boostedDamage || undefined,
     eligibleTargetIndices,
   };
 }

@@ -8,7 +8,7 @@ import {
   buildAttackProfile,
   splitAttackDamageByAverage,
 } from '../attack-model';
-import { DEF_FLOOR, MAX_FOCUS_ATTACKERS, MAX_PM_ATTACKERS, MAX_RESOURCE_POINTS, MAX_SCAPEGOATS, MAX_SHRED_DEPTH } from './constants';
+import { DEF_FLOOR, MAX_FOCUS_ATTACKERS, MAX_PM_ATTACKERS, MAX_RELOAD_WEAPONS, MAX_RESOURCE_POINTS, MAX_SCAPEGOATS, MAX_SHRED_DEPTH } from './constants';
 import {
   DebuffState,
   INITIAL_DEBUFFS,
@@ -111,6 +111,20 @@ interface SequenceContext {
    *  vector threaded everywhere below) - mirrors `pmBitOf`, but a slot INDEX rather than a bitmask
    *  bit, since each attacker's own Focus is a 0-10 count, not a single spent/unspent flag. */
   focusIndexOf: Map<number, number>;
+  /** Reload's own slot-index map (weapon ROW index -> position in the SAME `attackerFocusLeft`
+   *  vector `focusIndexOf` indexes into) - same idea as `focusIndexOf`, but keyed by weapon row
+   *  (each ranged weapon's own Reload cap is independent, unlike Focus which is one pool per
+   *  ATTACKER) and only for ranged rows with a FINITE reload of 1 or 2 - `Infinity` gets no slot
+   *  at all (unlimited buying, exactly like melee). Slots are allocated right after every Focus
+   *  slot (see the ctx-construction site in `computeSequenceOdds`), so wherever
+   *  `attackerFocusLeft` is actually built its full length is `focusIndexOf.size +
+   *  reloadIndexOf.size`. Folding Reload into the SAME vector Focus already uses (rather than
+   *  threading a second parallel one through every function that touches `attackerFocusLeft`) is
+   *  safe because every one of those functions already treats the vector as opaque - sliced,
+   *  joined into a cache key, or carried straight through - never indexed except through
+   *  `focusIndexOf`/`reloadIndexOf` at the handful of call sites that actually gate or spend a
+   *  specific slot (`buildBoughtAttacksValue`/`resolveBoughtAttacksForward`). */
+  reloadIndexOf: Map<number, number>;
   /** Every attack index (in `attacks`, in order) belonging to a given attacker - UNCONDITIONAL
    *  (every attacker, not just Focus-enabled ones), unlike `pmAttackIndicesByAttacker`. Needed by
    *  the bought-attacks feature to find an attacker's own candidate melee weapons and to detect
@@ -209,6 +223,16 @@ function isLastAttackOfAttackerForFocus(ctx: SequenceContext, k: number, atk: Se
  *  Focus active at all - the single check every Attacker Focus decision point gates on first. */
 function focusSlotOf(ctx: SequenceContext, atk: SequencedAttack): number | undefined {
   return ctx.focusIndexOf.get(atk.attackerIndex ?? -1);
+}
+
+/** Every distinct attacker index with Focus active (`attackerFocus > 0` on at least one of their
+ *  own rows), in first-seen order - the attacker-side counterpart to the Reload weapon scan in
+ *  `computeSequenceOdds`'s own ctx-construction block. Exported (rather than inlined there, as it
+ *  used to be) so `computeMultiTargetSequenceOdds` can independently compute the exact same list -
+ *  it needs to know where the Focus slice of the shared `attackerFocusLeft` vector ends and the
+ *  Reload slice begins, see that module's `hasSpendableFocus`. */
+export function focusAttackerIndicesOf(attacks: SequencedAttack[]): number[] {
+  return [...new Set(attacks.filter((a) => (a.attackerFocus ?? 0) > 0).map((a) => a.attackerIndex ?? 0))];
 }
 
 /** Is it ALREADY clear, given `debuffState` as of entering attack `k`, that every one of this
@@ -610,7 +634,7 @@ function resolveAttackerDamageBoostChoice(
   downstreamShotsRemaining: number
 ): AttackerFocusDamagePopulation[] {
   const slot = focusSlotOf(ctx, atk);
-  if (slot === undefined || attackerFocusLeft[slot] === 0) {
+  if (slot === undefined || attackerFocusLeft[slot] === 0 || atk.boostedDamage) {
     return [{ profile: finalProfile, resultingAttackerFocusLeft: attackerFocusLeft }];
   }
 
@@ -765,8 +789,9 @@ interface FwdState {
   pmMask: number;
   kotdOffLeft: number;
   kotdDefLeft: number;
-  /** This sequence's own attacker-Focus vector, one slot per focus-enabled attacker (see
-   *  `SequenceContext.focusIndexOf`) - persists across rows exactly like `pmMask`/`kotdOffLeft`
+  /** This sequence's own combined attacker-resource vector: one slot per focus-enabled attacker
+   *  (see `SequenceContext.focusIndexOf`), then one slot per Reload-capped weapon (see
+   *  `SequenceContext.reloadIndexOf`) - persists across rows exactly like `pmMask`/`kotdOffLeft`
    *  (it's a resource, not a per-row flag), unlike `sustained` below. */
   attackerFocusLeft: number[];
   /** Sustained Attack/Critical Sustained Attack state for THIS row's own volley - see the module
@@ -828,7 +853,7 @@ function resolveOneOutcome(
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean; outcomeSustained: boolean } {
-  const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isCrit);
+  const newDebuffState = applyStatEffectsForOutcome(debuffState, atk.statEffects, outcome.isHit, outcome.isCrit);
   const rawContinuesChain = outcome.isCrit && !!atk.criticalShred && depthRemaining > 0;
   const outcomeSustained =
     sustained || (atk.sustainedAttack === 'hit' && outcome.isHit) || (atk.sustainedAttack === 'crit' && outcome.isCrit);
@@ -1101,7 +1126,7 @@ function chooseAttackerAttackBoost(
   );
 
   const slot = focusSlotOf(ctx, atk);
-  if (slot === undefined || attackerFocusLeft[slot] === 0) {
+  if (slot === undefined || attackerFocusLeft[slot] === 0 || atk.boostedAttack) {
     return { trueOriginal: unboostedOriginal, attackerFocusLeft, score: unboostedScore };
   }
 
@@ -1506,18 +1531,40 @@ export function computeSequenceOdds(
   // doc comment's Attacker Focus section. With no attacker using Focus, `focusAttackerIndices` is
   // empty and every new code path below (boost-attack-roll, boost-damage-roll, bought attacks) is a
   // verified no-op, same reasoning as `pmAttackerIndices` above.
-  const focusAttackerIndices = [...new Set(attacks.filter((a) => (a.attackerFocus ?? 0) > 0).map((a) => a.attackerIndex ?? 0))];
+  const focusAttackerIndices = focusAttackerIndicesOf(attacks);
   if (focusAttackerIndices.length > MAX_FOCUS_ATTACKERS) {
     throw new Error(`Focus active on ${focusAttackerIndices.length} attackers (cap: ${MAX_FOCUS_ATTACKERS})`);
   }
   const focusIndexOf = new Map<number, number>(focusAttackerIndices.map((idx, i) => [idx, i]));
-  const initialAttackerFocus = focusAttackerIndices.map((idx) => {
+  const initialFocusValues = focusAttackerIndices.map((idx) => {
     const focus = Math.floor(attacks.find((a) => (a.attackerIndex ?? 0) === idx)?.attackerFocus ?? 0);
     if (focus > MAX_RESOURCE_POINTS) {
       throw new Error(`attackerFocus=${focus} is unrealistically large (cap: ${MAX_RESOURCE_POINTS})`);
     }
     return focus;
   });
+
+  // Reload: one slot per DISTINCT ranged weapon row with a FINITE reload cap (1 or 2) - a weapon
+  // with `reload: Infinity` behaves exactly like melee (unlimited buying) and gets no slot at all.
+  // Slots are appended right after every Focus slot, on the SAME `attackerFocusLeft` vector - see
+  // `SequenceContext.reloadIndexOf`'s own doc comment for why sharing one vector (rather than
+  // threading a second parallel one everywhere) is safe. Empty `reloadWeaponIndices` (no weapon
+  // has Reload set) is a verified no-op, same reasoning as `focusAttackerIndices` above.
+  const reloadWeaponIndices = attacks
+    .map((_, i) => i)
+    .filter((i) => attacks[i].type === 'ranged' && Number.isFinite(attacks[i].reload) && (attacks[i].reload ?? 0) > 0);
+  if (reloadWeaponIndices.length > MAX_RELOAD_WEAPONS) {
+    throw new Error(`Reload active on ${reloadWeaponIndices.length} weapons (cap: ${MAX_RELOAD_WEAPONS})`);
+  }
+  const reloadIndexOf = new Map<number, number>(reloadWeaponIndices.map((idx, i) => [idx, focusAttackerIndices.length + i]));
+  const initialReloadValues = reloadWeaponIndices.map((idx) => {
+    const reload = attacks[idx].reload ?? 0;
+    if (!Number.isInteger(reload) || reload < 1 || reload > 2) {
+      throw new Error(`reload=${reload} is not a supported finite value (expected 1 or 2)`);
+    }
+    return reload;
+  });
+  const initialAttackerFocus = [...initialFocusValues, ...initialReloadValues];
 
   // Every ACTIVE attack index (in `attacks`, in order) belonging to a given attacker - UNCONDITIONAL
   // on Puppet Master (every attacker, not PM-gated like `pmAttackIndicesByAttacker`) - see
@@ -1567,6 +1614,7 @@ export function computeSequenceOdds(
     pmBitOf,
     pmAttackIndicesByAttacker,
     focusIndexOf,
+    reloadIndexOf,
     attackIndicesByAttacker,
     profileCache,
     focusPolicyLog: focusAttackerIndices.length > 0 ? { byAttackerAndSituation: new Map() } : undefined,
@@ -1726,7 +1774,13 @@ export function computeSequenceOdds(
     stopValueAt: ExtendedValueLookup;
   } {
     const slot = ctx.focusIndexOf.get(attackerIndex)!;
-    const candidateWeapons = (ctx.attackIndicesByAttacker.get(attackerIndex) ?? []).filter((w) => ctx.attacks[w].type === 'melee');
+    // A ranged weapon is a candidate once it has a Reload value at all (1, 2, or Infinity) -
+    // `reloadSlot`/the per-weapon gate below is what actually enforces a FINITE cap; `Infinity`
+    // gets no slot (see `SequenceContext.reloadIndexOf`) and so is never gated, exactly like melee.
+    const candidateWeapons = (ctx.attackIndicesByAttacker.get(attackerIndex) ?? []).filter((w) => {
+      const a = ctx.attacks[w];
+      return a.type === 'melee' || (a.type === 'ranged' && (a.reload ?? 0) > 0);
+    });
     const tableCachesByFocusLeft: Map<string, ValueTable>[] = Array.from({ length: MAX_RESOURCE_POINTS + 1 }, () => new Map());
     // One attackChainValue cache PER (focus level, weapon) - never shared across different weapons
     // at the same level, since attackChainValue's own cache key doesn't include `k`/the weapon
@@ -1748,9 +1802,15 @@ export function computeSequenceOdds(
         let bestAdjusted = withAttackerFocusValue(ctx, best, downstreamRow, 0, stopFocusLeft);
 
         if (focusLeftHere > 0) {
-          const spentFocusLeft = attackerFocusLeft.slice();
-          spentFocusLeft[slot] = focusLeftHere - 1;
           for (const w of candidateWeapons) {
+            // This weapon's own Reload cap (if any) exhausted - a melee/Infinity-reload weapon has
+            // no slot here and is never gated, only a finite-Reload ranged weapon can skip.
+            const reloadSlot = ctx.reloadIndexOf.get(w);
+            if (reloadSlot !== undefined && attackerFocusLeft[reloadSlot] <= 0) continue;
+            const spentFocusLeft = attackerFocusLeft.slice();
+            spentFocusLeft[slot] = focusLeftHere - 1;
+            if (reloadSlot !== undefined) spentFocusLeft[reloadSlot] -= 1;
+
             let weaponCache = chainCachesByFocusLeftAndWeapon[focusLeftHere].get(w);
             if (!weaponCache) {
               weaponCache = new Map<string, number>();
@@ -2031,7 +2091,10 @@ export function computeSequenceOdds(
     downstreamRow: number
   ): { dist: Map<string, { state: FwdState; probability: number }>; destroyed: DestroyedAccumulator } {
     const slot = ctx.focusIndexOf.get(attackerIndex)!;
-    const candidateWeapons = (ctx.attackIndicesByAttacker.get(attackerIndex) ?? []).filter((w) => attacks[w].type === 'melee');
+    const candidateWeapons = (ctx.attackIndicesByAttacker.get(attackerIndex) ?? []).filter((w) => {
+      const a = attacks[w];
+      return a.type === 'melee' || (a.type === 'ranged' && (a.reload ?? 0) > 0);
+    });
     const destroyed: DestroyedAccumulator = { mass: 0, byFocus: new Map() };
     const result = new Map<string, { state: FwdState; probability: number }>();
     let current = dist;
@@ -2049,10 +2112,14 @@ export function computeSequenceOdds(
 
         let bestWeapon = -1;
         let bestAdjusted = withAttackerFocusValue(ctx, stopValue, downstreamRow, 0, state.attackerFocusLeft);
+        let bestSpentFocusLeft: number[] | undefined;
         if (state.attackerFocusLeft[slot] > 0) {
-          const spentFocusLeft = state.attackerFocusLeft.slice();
-          spentFocusLeft[slot] -= 1;
           for (const w of candidateWeapons) {
+            const reloadSlot = ctx.reloadIndexOf.get(w);
+            if (reloadSlot !== undefined && state.attackerFocusLeft[reloadSlot] <= 0) continue;
+            const spentFocusLeft = state.attackerFocusLeft.slice();
+            spentFocusLeft[slot] -= 1;
+            if (reloadSlot !== undefined) spentFocusLeft[reloadSlot] -= 1;
             // A fresh cache per weapon here (not shared across the loop, and not the same cache
             // `resolveAttackChainForward` uses below for the actually-chosen weapon) - reusing one
             // cache across DIFFERENT weapons would let one weapon's cached value get silently
@@ -2068,6 +2135,7 @@ export function computeSequenceOdds(
             if (adjustedValue < bestAdjusted) {
               bestAdjusted = adjustedValue;
               bestWeapon = w;
+              bestSpentFocusLeft = spentFocusLeft;
             }
           }
         }
@@ -2082,8 +2150,7 @@ export function computeSequenceOdds(
 
         recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buyMass', p0, attacks[bestWeapon].label, attacks[bestWeapon].type);
 
-        const spentFocusLeft = state.attackerFocusLeft.slice();
-        spentFocusLeft[slot] -= 1;
+        const spentFocusLeft = bestSpentFocusLeft!;
         const shredCache = new Map<string, number>();
         const boughtStats: ShotStats = { hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 };
         resolveAttackChainForward(

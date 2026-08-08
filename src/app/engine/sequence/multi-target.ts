@@ -1,4 +1,4 @@
-import { computeSequenceOdds } from './single-target';
+import { computeSequenceOdds, focusAttackerIndicesOf } from './single-target';
 import { RowInjection, SequencedAttack, SequenceResult, SequenceTarget, TargetSequenceResult } from './types';
 
 
@@ -74,17 +74,23 @@ export function computeMultiTargetSequenceOdds(
     };
   }
 
+  // `row === rowCount` isn't a real configured row at all - it's Attacker Focus's own "every row is
+  // already spent against an earlier target, but some attacker still has leftover Focus" marker
+  // (see single-target.ts's `terminalBoughtLookups`/`postSequenceBuyingDestroyMass`) - routed below
+  // by hand rather than through `rowActive` (only ever indexed 0..rowCount-1). Only checks the
+  // FOCUS-slot prefix of the shared `attackerFocusRemaining` vector, not the whole thing - Reload's
+  // own slots (appended after, see single-target.ts's `SequenceContext.reloadIndexOf`) share that
+  // same vector, but a Reload-only-nonzero/Focus-all-zero fragment must NOT count as spendable:
+  // buying always costs a Focus point, Reload only caps a specific weapon on top of that.
+  const focusSlotCount = focusAttackerIndicesOf(attacks).length;
+  const hasSpendableFocus = (inj: RowInjection) => (inj.attackerFocusRemaining ?? []).slice(0, focusSlotCount).some((f) => f > 0);
+
   targets.forEach((target, targetIndex) => {
     const rowActive = attacks.map((atk) => !atk.eligibleTargetIndices || atk.eligibleTargetIndices.includes(targetIndex));
-    // `row === rowCount` isn't a real configured row at all - it's Attacker Focus's own "every row
-    // is already spent against an earlier target, but some attacker still has leftover Focus"
-    // marker (see single-target.ts's `terminalBoughtLookups`/`postSequenceBuyingDestroyMass`).
-    // `rowActive` has nothing to say about it (it's only ever indexed 0..rowCount-1), so it's routed
-    // by hand: genuinely spendable Focus is a real potential engagement with THIS target (buying
-    // more attacks), so it goes to `ownInjection`; a fragment with nothing left to spend (no Focus
-    // at all, or every configured attacker's own slot already at 0) can never touch this target and
+    // Genuinely spendable Focus is a real potential engagement with THIS target (buying more
+    // attacks), so it goes to `ownInjection`; a fragment with nothing left to spend (no Focus at
+    // all, or every configured attacker's own slot already at 0) can never touch this target and
     // keeps flowing through untouched, exactly like every other never-eligible row already does.
-    const hasSpendableFocus = (inj: RowInjection) => (inj.attackerFocusRemaining ?? []).some((f) => f > 0);
     let ownInjection = available.filter((inj) => (inj.row === rowCount ? hasSpendableFocus(inj) : rowActive[inj.row]));
     // Mass on a row this target was never even a candidate for - untouched by this target's own
     // computeSequenceOdds call (which only ever reports on rows in `rowActive`), so it has to be

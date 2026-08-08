@@ -39,6 +39,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Fixed a major bug where an "on hit" effect (Knockdown, Stationary, Ice Cage, Paralysis, "-X ARM", etc.) would be applied even when the attack that was supposed to grant it actually missed.',
+      'Added Reload [1, 2 or ∞] for ranged weapons.',
+      "Added an option to automatically boost a weapon's attack and/or damage rolls (without spending focus).",
+      "Added Charge / Cavalry Charge to the attacker's special rules pop-up: boost the attacker's first melee attack without spending focus.",
+    ],
+  },
+  {
     date: '2026-08-07',
     items: [
       'ChanceMachine now supports attacker Focus! Focus is spent optimally to boost attack or damage rolls, or buy additional melee attacks. Check the Details view to see the optimal Focus spending strategy: buy or boost? Reload and automatic boost (charge, cavalry charge, etc) coming soon!',

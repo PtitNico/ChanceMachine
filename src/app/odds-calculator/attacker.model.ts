@@ -36,6 +36,16 @@ export interface Attacker {
    *  `AttackerCard`), not via the "special rules" pop-up. See `sequence.ts`'s Attacker Focus
    *  section for the exact policy. */
   readonly focusPoints: WritableSignal<number>;
+  /** Charge/Cavalry Charge - mutually exclusive, boost the attacker's own FIRST melee attack's
+   *  roll(s) for free, using the exact same "Boosted" mechanism a weapon's own toggle uses (not
+   *  cumulative with it, or with Focus - see `SequencedAttack.boostedAttack`/`boostedDamage`'s doc
+   *  comment). 'off' (default): neither active. 'charge': first melee attack's damage roll is
+   *  boosted. 'cavalryCharge': first melee attack's attack AND damage rolls are both boosted.
+   *  "First" is whichever melee row is first in this attacker's own CURRENT `attacks()` order -
+   *  live, not fixed at creation time, so reordering/adding/removing weapons keeps it correct (see
+   *  `odds-calculator.ts`'s `sequencedAttacks` computed). Edited via the attacker's "special
+   *  rules" pop-up, like Puppet Master. */
+  readonly charge: WritableSignal<'off' | 'charge' | 'cavalryCharge'>;
 }
 
 /** Short "label" summary tag for an active attacker-level special rule, shown under the attacker
@@ -43,17 +53,22 @@ export interface Attacker {
  *  Focus has no tag of its own - it's always directly visible/editable inline on the card (see
  *  `AttackerCard`), the same reason MAT/RAT/AAT never get one either. */
 export interface AttackerRuleSummaryTag {
-  readonly key: 'puppetMaster';
+  readonly key: 'puppetMaster' | 'charge' | 'cavalryCharge';
   readonly label: string;
 }
 
-/** Currently just Puppet Master - more attacker-level toggles land here as they're added, the same
- *  way `effectsSummary` grows with new attack effects (as long as they stay dialog-only, not
- *  inline like Focus). */
+/** Puppet Master and Charge/Cavalry Charge - more attacker-level toggles land here as they're
+ *  added, the same way `effectsSummary` grows with new attack effects (as long as they stay
+ *  dialog-only, not inline like Focus). */
 export function attackerRulesSummary(attacker: Attacker): AttackerRuleSummaryTag[] {
   const tags: AttackerRuleSummaryTag[] = [];
   if (attacker.puppetMaster()) {
     tags.push({ key: 'puppetMaster', label: 'Puppet Master' });
+  }
+  if (attacker.charge() === 'charge') {
+    tags.push({ key: 'charge', label: 'Charge' });
+  } else if (attacker.charge() === 'cavalryCharge') {
+    tags.push({ key: 'cavalryCharge', label: 'Cavalry Charge' });
   }
   return tags;
 }
@@ -68,6 +83,7 @@ export function createAttacker(): Attacker {
     attacks: signal([createAttackRow()]),
     puppetMaster: signal(false),
     focusPoints: signal(0),
+    charge: signal<'off' | 'charge' | 'cavalryCharge'>('off'),
   };
 }
 
