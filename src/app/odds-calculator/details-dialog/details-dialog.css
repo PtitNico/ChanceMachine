@@ -81,6 +81,14 @@
   margin-bottom: 0.15rem;
 }
 
+.focus-strategy__condition {
+  font-weight: 600;
+}
+
+.focus-strategy__bullets--nested {
+  margin-top: 0.15rem;
+}
+
 /* --- Step-by-step and damage distribution --- */
 
 .steps {

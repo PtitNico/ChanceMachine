@@ -33,6 +33,7 @@ import {
 import { ValueTable, buildValueTable, readValueTable } from './value-table';
 import {
   FocusStrategyEntry,
+  FocusStrategyItem,
   FocusWeaponTally,
   RowInjection,
   SequencedAttack,
@@ -162,6 +163,13 @@ interface FocusPolicyTally {
 
 interface FocusPolicyLog {
   byAttackerAndSituation: Map<number, Map<'healthy' | 'debuffed', Map<string, FocusPolicyTally>>>;
+  /** Which SPECIFIC debuff(s) actually put this attacker's own decisions into the `'debuffed'`
+   *  bucket, accumulated across every recorded decision point - see `debuffCausesOf`. Lets
+   *  `summarizeFocusStrategy` label its branch condition with the real debuff that happened
+   *  ("If Knocked Down:") instead of the coarse "Knocked Down or Stationary" umbrella every time,
+   *  reserving that umbrella phrasing for the (rarer) case where BOTH are genuinely reachable
+   *  causes for the same attacker/target. */
+  debuffCausesByAttacker: Map<number, Set<'knockedDown' | 'stationary'>>;
 }
 
 /** Coarse "is the target already debuffed in some attack-relevant way" signal for
@@ -171,6 +179,16 @@ interface FocusPolicyLog {
  *  boost damage rolls") describes. */
 function situationOf(debuffState: DebuffState): 'healthy' | 'debuffed' {
   return isKnockedDownOrStationary(debuffState) ? 'debuffed' : 'healthy';
+}
+
+/** Which of `situationOf`'s two "debuffed" triggers actually apply to `debuffState` - a target can
+ *  in principle be BOTH Knocked Down and Stationary (e.g. also Ice Cage-stacked) at once, so this
+ *  returns every cause that applies, not just one. See `FocusPolicyLog.debuffCausesByAttacker`. */
+function debuffCausesOf(debuffState: DebuffState): ('knockedDown' | 'stationary')[] {
+  const causes: ('knockedDown' | 'stationary')[] = [];
+  if (debuffState.knockedDown) causes.push('knockedDown');
+  if (isStationary(debuffState)) causes.push('stationary');
+  return causes;
 }
 
 /** `weaponLabel` is the display label of the weapon this recording applies to - the row whose OWN
@@ -193,6 +211,14 @@ function recordFocusPolicy(
 ): void {
   if (!ctx.focusPolicyLog || mass <= 0) return;
   const situation = situationOf(debuffState);
+  if (situation === 'debuffed') {
+    let causes = ctx.focusPolicyLog.debuffCausesByAttacker.get(attackerIndex);
+    if (!causes) {
+      causes = new Set();
+      ctx.focusPolicyLog.debuffCausesByAttacker.set(attackerIndex, causes);
+    }
+    for (const cause of debuffCausesOf(debuffState)) causes.add(cause);
+  }
   let byAttacker = ctx.focusPolicyLog.byAttackerAndSituation.get(attackerIndex);
   if (!byAttacker) {
     byAttacker = new Map();
@@ -1639,7 +1665,7 @@ export function computeSequenceOdds(
     reloadIndexOf,
     attackIndicesByAttacker,
     profileCache,
-    focusPolicyLog: focusAttackerIndices.length > 0 ? { byAttackerAndSituation: new Map() } : undefined,
+    focusPolicyLog: focusAttackerIndices.length > 0 ? { byAttackerAndSituation: new Map(), debuffCausesByAttacker: new Map() } : undefined,
     attackerFocusDownstreamValue: options?.attackerFocusDownstreamValue,
   };
 
@@ -2389,10 +2415,12 @@ export function computeSequenceOdds(
     byWeapon && [...byWeapon.entries()].map(([weaponLabel, tally]) => ({ weaponLabel, ...tally }));
   const focusStrategy: FocusStrategyEntry[] = [...focusIndexOf.keys()].map((attackerIndex) => {
     const bySituation = ctx.focusPolicyLog?.byAttackerAndSituation.get(attackerIndex);
+    const debuffCauses = ctx.focusPolicyLog?.debuffCausesByAttacker.get(attackerIndex);
     return {
       attackerIndex,
       healthy: weaponTalliesFor(bySituation?.get('healthy')),
       debuffed: weaponTalliesFor(bySituation?.get('debuffed')),
+      debuffCauses: debuffCauses && debuffCauses.size > 0 ? [...debuffCauses] : undefined,
     };
   });
 
@@ -2421,131 +2449,197 @@ function joinPhrases(phrases: string[]): string {
   return `${nonEmpty.slice(0, -1).join(', ')}, and ${nonEmpty.at(-1)}`;
 }
 
-/** One weapon's own phrase fragment, e.g. "boost 🗡️ Melee1's attack and damage rolls" or "buy
- *  attacks with 🗡️ Melee1" (or both, joined, if the same weapon does both) - `weaponType`'s emoji
- *  (see `TYPE_EMOJI`) is prefixed onto the weapon's own label everywhere it's named, so a bullet
- *  reads correctly even out of context (e.g. after a "vs Target" prefix has already used up the
- *  sentence's own capitalized start). No separate static "weapon" word is needed alongside it - an
- *  unnamed weapon's own label is already "Weapon N" (see `toSequencedAttack` in
- *  `attack-row.model.ts`), so the emoji+label pair alone already reads as "buy attacks with 🗡️
- *  Weapon 1" without repeating the word. */
-function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: FocusAction[]): string {
+/** One weapon's own phrase fragment, e.g. "boost 🗡️ Melee1's initial attack and damage rolls" or
+ *  "buy attacks with 🗡️ Melee1 and boost 🗡️ Melee1's attack rolls" (buy clause always FIRST when
+ *  both apply, since buying is the step that actually triggers the roll being boosted) -
+ *  `weaponType`'s emoji (see `TYPE_EMOJI`) is prefixed onto the weapon's own label everywhere it's
+ *  named, so a bullet reads correctly even out of context (e.g. after a "vs Target" prefix has
+ *  already used up the sentence's own capitalized start). No separate static "weapon" word is
+ *  needed alongside it - an unnamed weapon's own label is already "Weapon N" (see
+ *  `toSequencedAttack` in `attack-row.model.ts`), so the emoji+label pair alone already reads as
+ *  "buy attacks with 🗡️ Weapon 1" without repeating the word. `phase === 'initial'` names the roll
+ *  as "initial" (this weapon's own ONE configured attack, as opposed to one bought later) and, when
+ *  only ONE of attack/damage is being boosted, uses singular "roll" - there's exactly one such roll
+ *  to boost; `'bought'` stays plural "rolls" regardless (a bought weapon can fire, and so be
+ *  boosted, more than once) and never says "initial". */
+function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: FocusAction[], phase: 'initial' | 'bought'): string {
   const namedWeapon = `${TYPE_EMOJI[weaponType]} ${weaponLabel}`;
   const boostedRolls: string[] = [];
   if (actions.includes('boostAttack')) boostedRolls.push('attack');
   if (actions.includes('boostDamage')) boostedRolls.push('damage');
   const clauses: string[] = [];
-  if (boostedRolls.length > 0) clauses.push(`boost ${namedWeapon}'s ${boostedRolls.join(' and ')} rolls`);
   if (actions.includes('buy')) clauses.push(`buy attacks with ${namedWeapon}`);
+  if (boostedRolls.length > 0) {
+    const rollWord = phase === 'initial' && boostedRolls.length === 1 ? 'roll' : 'rolls';
+    const initialWord = phase === 'initial' ? 'initial ' : '';
+    clauses.push(`boost ${namedWeapon}'s ${initialWord}${boostedRolls.join(' and ')} ${rollWord}`);
+  }
   return joinPhrases(clauses);
 }
 
-/** Turns one situation's own per-weapon tallies into a single sentence fragment, reading BOTH the
- *  initial and bought mass for a given action together (e.g. `boostAttackMass +
- *  boostAttackMassBought`) - e.g. "boost 🏹 Ranged's attack rolls, boost 🗡️ Melee1's attack and
- *  damage rolls, and buy attacks with 🗡️ Melee1" - empty when nothing in this situation clears
- *  `SIGNIFICANT_ACTION_RATIO`. Used only to decide whether the healthy/debuffed situation axis
- *  itself needs a label at all (see `summarizeFocusStrategy`) - the actual displayed text is built
- *  per-phase by `summarizePhase` below, which is what can tell initial and bought advice apart. */
-function summarizeSituationMerged(weaponTallies: FocusWeaponTally[] | undefined): string {
-  if (!weaponTallies || weaponTallies.length === 0) return '';
-  const strongest = Math.max(
-    0,
-    ...weaponTallies.flatMap((t) => [t.boostAttackMass + t.boostAttackMassBought, t.boostDamageMass + t.boostDamageMassBought, t.buyMass])
-  );
-  if (strongest <= 0) return '';
-  const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
-  const weaponPhrases = weaponTallies.map((t) => {
-    const actions: FocusAction[] = [];
-    if (t.boostAttackMass + t.boostAttackMassBought >= threshold) actions.push('boostAttack');
-    if (t.boostDamageMass + t.boostDamageMassBought >= threshold) actions.push('boostDamage');
-    if (t.buyMass >= threshold) actions.push('buy');
-    return actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions) : '';
-  });
-  return joinPhrases(weaponPhrases);
-}
-
-/** Same idea as `summarizeSituationMerged`, but scoped to only ONE phase's own mass - `'initial'`
- *  reads a weapon's own configured-attack boost mass (`boostAttackMass`/`boostDamageMass`, no
- *  `buy` - buying only ever happens once configured attacks are done); `'bought'` reads the
- *  boost mass recorded on attacks bought with leftover Focus (`*MassBought`) together with
- *  `buyMass` itself, since "buy this weapon" and "boost the roll you just bought" are both
- *  "once you're buying" advice. `SIGNIFICANT_ACTION_RATIO`'s threshold is computed within this
- *  phase's own values only - a phase's own "which weapon dominates THIS phase" question,
- *  independent of the other phase's own numbers. */
-function summarizePhase(weaponTallies: FocusWeaponTally[] | undefined, phase: 'initial' | 'bought'): string {
-  if (!weaponTallies || weaponTallies.length === 0) return '';
+/** One weapon's own phrase fragment for ONE phase's own mass - `'initial'` reads a weapon's own
+ *  configured-attack boost mass (`boostAttackMass`/`boostDamageMass`, no `buy` - buying only ever
+ *  happens once configured attacks are done); `'bought'` reads the boost mass recorded on attacks
+ *  bought with leftover Focus (`*MassBought`) together with `buyMass` itself, since "buy this
+ *  weapon" and "boost the roll you just bought" are both "once you're buying" advice.
+ *  `SIGNIFICANT_ACTION_RATIO`'s threshold is computed within this phase's own values only - a
+ *  phase's own "which weapon dominates THIS phase" question, independent of the other phase's own
+ *  numbers. Always returns one entry per weapon in `weaponTallies` (empty `phrase` when it doesn't
+ *  clear the threshold), rather than dropping insignificant weapons - callers (the hoist-vs-branch
+ *  algorithm in `summarizeFocusStrategy`) need to tell "this weapon reaches this phase but nothing
+ *  here is worth doing" (present, empty phrase) apart from "this weapon never reaches this
+ *  phase/situation at all" (absent from `weaponTallies` altogether). */
+function weaponPhrasesForPhase(
+  weaponTallies: FocusWeaponTally[] | undefined,
+  phase: 'initial' | 'bought'
+): { weaponLabel: string; phrase: string }[] {
+  if (!weaponTallies || weaponTallies.length === 0) return [];
   const boostAttackOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostAttackMass : t.boostAttackMassBought);
   const boostDamageOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostDamageMass : t.boostDamageMassBought);
   const strongest = Math.max(0, ...weaponTallies.flatMap((t) => [boostAttackOf(t), boostDamageOf(t), phase === 'bought' ? t.buyMass : 0]));
-  if (strongest <= 0) return '';
   const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
-  const weaponPhrases = weaponTallies.map((t) => {
+  return weaponTallies.map((t) => {
+    if (strongest <= 0) return { weaponLabel: t.weaponLabel, phrase: '' };
     const actions: FocusAction[] = [];
     if (boostAttackOf(t) >= threshold) actions.push('boostAttack');
     if (boostDamageOf(t) >= threshold) actions.push('boostDamage');
     if (phase === 'bought' && t.buyMass >= threshold) actions.push('buy');
-    return actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions) : '';
+    return { weaponLabel: t.weaponLabel, phrase: actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions, phase) : '' };
   });
-  return joinPhrases(weaponPhrases);
+}
+
+/** Joins every weapon's own phrase fragment for one phase into a single sentence, e.g. "boost 🏹
+ *  Ranged's attack rolls, boost 🗡️ Melee1's attack and damage rolls, and buy attacks with 🗡️
+ *  Melee1". Used for the "buying" phase, which stays ONE combined step in the walkthrough (see
+ *  `summarizeFocusStrategy`) rather than being decomposed per weapon the way the "initial
+ *  attacks" step is (see `collectInitialAttackLines`) - buying only ever happens at one point in
+ *  the sequence (after every configured attack), so there's no earlier/later weapon ordering to
+ *  preserve the way there is for each weapon's own configured roll. */
+function summarizePhase(weaponTallies: FocusWeaponTally[] | undefined, phase: 'initial' | 'bought'): string {
+  return joinPhrases(weaponPhrasesForPhase(weaponTallies, phase).map((f) => f.phrase));
 }
 
 function capitalize(s: string): string {
   return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
-/** Builds 1 or 2 lines of advice for one situation bucket (healthy or debuffed), splitting into a
- *  separate "on your initial attacks" / "once buying" line whenever the true-optimal policy's
- *  initial-attack advice and bought-attack advice actually differ - a single unlabeled line
- *  otherwise (today's format, whichever phase has content). `situationLabel` ('while healthy',
- *  'once Knocked Down or Stationary', or '' for the non-branching case) is combined with the
- *  phase label, when both apply, as "situationLabel, phaseLabel: phrase." */
-function linesForSituation(weaponTallies: FocusWeaponTally[] | undefined, situationLabel: string): string[] {
-  const initialPhrase = summarizePhase(weaponTallies, 'initial');
-  const boughtPhrase = summarizePhase(weaponTallies, 'bought');
-  const mkLine = (phaseLabel: string, phrase: string): string => {
-    const header = [situationLabel, phaseLabel].filter(Boolean).join(', ');
-    return header ? `${header}: ${phrase}.` : `${phrase}.`;
-  };
-  if (initialPhrase && boughtPhrase && initialPhrase !== boughtPhrase) {
-    return [mkLine('initial attacks', initialPhrase), mkLine('buying', boughtPhrase)];
+/**
+ * Builds the "initial attacks" portion of a `summarizeFocusStrategy` walkthrough: one line per
+ * weapon (in configured-row order, read off `weaponPhrasesForPhase`'s own array order) whose own
+ * advice doesn't depend on target situation - pushed onto `hoisted`, unconditioned - and one line
+ * per weapon whose advice genuinely differs, pushed onto whichever of `healthyLines`/
+ * `debuffedLines` it actually applies to (so the caller can nest them under an "if Knocked Down" /
+ * "if not Knocked Down" branch). A weapon reachable in only ONE of `entry.healthy`/`entry.debuffed`
+ * - not just insignificant there, but literally ABSENT (e.g. an attacker's first weapon can never
+ * fire while the target is already debuffed, since nothing could have knocked it down before that
+ * first roll) - is ALSO hoisted rather than nested: there's no real branch to speak of when a step
+ * structurally only ever happens in one situation, and nesting it under "if not Knocked Down"
+ * would wrongly imply its advice depends on what happens LATER in the sequence, when really it was
+ * already decided before the target's situation could even be in question.
+ */
+function collectInitialAttackLines(entry: FocusStrategyEntry, hoisted: string[], healthyLines: string[], debuffedLines: string[]): void {
+  const healthyFragments = weaponPhrasesForPhase(entry.healthy, 'initial');
+  const debuffedFragments = weaponPhrasesForPhase(entry.debuffed, 'initial');
+  const healthyPhraseOf = new Map(healthyFragments.map((f) => [f.weaponLabel, f.phrase]));
+  const debuffedPhraseOf = new Map(debuffedFragments.map((f) => [f.weaponLabel, f.phrase]));
+  const weaponOrder = [
+    ...healthyFragments.map((f) => f.weaponLabel),
+    ...debuffedFragments.map((f) => f.weaponLabel).filter((label) => !healthyPhraseOf.has(label)),
+  ];
+
+  for (const weaponLabel of weaponOrder) {
+    const reachesHealthy = healthyPhraseOf.has(weaponLabel);
+    const reachesDebuffed = debuffedPhraseOf.has(weaponLabel);
+    const healthyPhrase = healthyPhraseOf.get(weaponLabel) ?? '';
+    const debuffedPhrase = debuffedPhraseOf.get(weaponLabel) ?? '';
+    if (!(reachesHealthy && reachesDebuffed)) {
+      const onlyPhrase = healthyPhrase || debuffedPhrase;
+      if (onlyPhrase) hoisted.push(onlyPhrase);
+      continue;
+    }
+    if (healthyPhrase === debuffedPhrase) {
+      if (healthyPhrase) hoisted.push(healthyPhrase);
+    } else {
+      if (healthyPhrase) healthyLines.push(healthyPhrase);
+      if (debuffedPhrase) debuffedLines.push(debuffedPhrase);
+    }
   }
-  return [mkLine('', initialPhrase || boughtPhrase)];
 }
 
 /**
  * Turns one attacker's own `FocusStrategyEntry` (raw, probability-weighted tallies recorded during
- * the forward replay - see `recordFocusPolicy`) into short, player-facing step-by-step bullets
- * describing the true-optimal Focus policy actually computed, one line per distinct step rather
- * than one glued run-on sentence - branching by target situation (healthy vs. once Knocked
- * Down/Stationary) and, independently, by whether a weapon's own roll is a configured/initial
- * attack or one bought with leftover Focus, whenever the computed policy itself branches along
- * either axis (see `linesForSituation`/`summarizePhase`), and naming which weapon (with its type
- * emoji, see `TYPE_EMOJI`) each boost/buy applies to. Never a hand-authored heuristic or raw
- * numbers. The caller is expected to show the attacker's own name as a heading ABOVE one or more
- * of these bullets (one or more per target the attacker's Focus reaches, since it's one pool spent
- * across the whole sequence - see the module doc comment's Attacker Focus section) rather than
- * repeating it inside the text itself - `targetLabel`, when given (a multi-target sequence), is
- * folded into each returned line as a "vs {targetLabel}: " prefix so every line still reads
- * standalone; omit it for a single-target sequence, where no line needs a target reference at all.
- * Data-driven, not template-hardcoded advice: which action(s) dominate on which weapon, and
- * whether the policy branches by situation and/or phase at all, is read directly off whatever
+ * the forward replay - see `recordFocusPolicy`) into a short, player-facing step-by-step
+ * walkthrough of the true-optimal Focus policy actually computed - an ordered list of
+ * `FocusStrategyItem`s, each either a plain unconditioned step or a branch (`condition` plus its
+ * own nested `lines`) for a step whose advice genuinely depends on whether the target ends up
+ * Knocked Down/Stationary. A step only gets wrapped in a branch when it actually needs one -
+ * `collectInitialAttackLines` hoists any weapon's own configured-attack advice that doesn't vary
+ * (or structurally can only ever happen in one situation) into an unconditioned line instead, and
+ * the "buying" step (always a single combined step, since it happens once, after every configured
+ * attack) is compared the same way: identical (or only reachable in one situation) hoists it as a
+ * final unconditioned line; genuinely different appends it to whichever branch(es) it applies to.
+ * Never a hand-authored heuristic or raw numbers - which action(s) dominate on which weapon, and
+ * whether the policy branches by situation at all, is read directly off whatever
  * `computeSequenceOdds` actually decided for THIS specific attacker/target combination, so two
- * different setups can legitimately produce different summaries.
+ * different setups can legitimately produce different walkthroughs. The caller is expected to show
+ * the attacker's own name as a heading ABOVE the returned items (one full walkthrough per target
+ * the attacker's Focus reaches, since it's one pool spent across the whole sequence - see the
+ * module doc comment's Attacker Focus section) rather than repeating it inside the text itself -
+ * `targetLabel`, when given (a multi-target sequence), is folded in as a "vs {targetLabel}: "
+ * prefix on every unconditioned line's `text` and on each branch's own `condition` (once per
+ * branch, not repeated on every one of its nested lines); omit it for a single-target sequence.
  */
-export function summarizeFocusStrategy(entry: FocusStrategyEntry, targetLabel?: string): readonly string[] {
-  const healthyMerged = summarizeSituationMerged(entry.healthy);
-  const debuffedMerged = summarizeSituationMerged(entry.debuffed);
-  const prefix = targetLabel ? `vs ${targetLabel}: ` : '';
+const DEBUFF_CAUSE_LABEL: Record<'knockedDown' | 'stationary', string> = { knockedDown: 'Knocked Down', stationary: 'Stationary' };
 
-  if (!healthyMerged && !debuffedMerged) {
-    return [`${prefix}${capitalize('rarely worth spending Focus here.')}`];
+/** Turns `entry.debuffCauses` into the real debuff name(s) that actually put this attacker's own
+ *  decisions into the "debuffed" bucket - "Knocked Down", "Stationary", or "Knocked Down or
+ *  Stationary" only when BOTH are genuinely reachable causes for this attacker/target. Falls back
+ *  to the umbrella phrase if `debuffCauses` is missing/empty (shouldn't happen whenever the
+ *  debuffed bucket has real data, but keeps this defensive rather than producing an empty label). */
+function debuffConditionLabel(debuffCauses: readonly ('knockedDown' | 'stationary')[] | undefined): string {
+  const names = (debuffCauses ?? []).map((cause) => DEBUFF_CAUSE_LABEL[cause]);
+  return names.length > 0 ? names.join(' or ') : 'Knocked Down or Stationary';
+}
+
+export function summarizeFocusStrategy(entry: FocusStrategyEntry, targetLabel?: string): readonly FocusStrategyItem[] {
+  const prefix = targetLabel ? `vs ${targetLabel}: ` : '';
+  const debuffLabel = debuffConditionLabel(entry.debuffCauses);
+
+  const hoisted: string[] = [];
+  const healthyLines: string[] = [];
+  const debuffedLines: string[] = [];
+  collectInitialAttackLines(entry, hoisted, healthyLines, debuffedLines);
+
+  const healthyReachable = !!entry.healthy;
+  const debuffedReachable = !!entry.debuffed;
+  const healthyBought = summarizePhase(entry.healthy, 'bought');
+  const debuffedBought = summarizePhase(entry.debuffed, 'bought');
+  let hoistedBought = '';
+  if (!(healthyReachable && debuffedReachable)) {
+    hoistedBought = healthyBought || debuffedBought;
+  } else if (healthyBought === debuffedBought) {
+    hoistedBought = healthyBought;
+  } else {
+    if (healthyBought) healthyLines.push(healthyBought);
+    if (debuffedBought) debuffedLines.push(debuffedBought);
   }
 
-  const lines =
-    healthyMerged && debuffedMerged && healthyMerged !== debuffedMerged
-      ? [...linesForSituation(entry.healthy, 'healthy'), ...linesForSituation(entry.debuffed, 'Knocked Down/Stationary')]
-      : linesForSituation(entry.healthy ?? entry.debuffed, '');
+  const items: FocusStrategyItem[] = hoisted.map((phrase) => ({ kind: 'line', text: `${prefix}${capitalize(`${phrase}.`)}` }));
+  if (debuffedLines.length > 0) {
+    items.push({ kind: 'branch', condition: `${prefix}If ${debuffLabel}`, lines: debuffedLines.map((l) => capitalize(`${l}.`)) });
+  }
+  if (healthyLines.length > 0) {
+    items.push({ kind: 'branch', condition: `${prefix}If not ${debuffLabel}`, lines: healthyLines.map((l) => capitalize(`${l}.`)) });
+  }
+  // Skip a hoisted buying line that reads IDENTICALLY to an already-hoisted initial-attack line
+  // (only possible in a single-weapon sequence where boosting is worthwhile but buying never adds
+  // anything beyond it) - repeating the exact same sentence twice would look like a copy/paste bug.
+  if (hoistedBought && !hoisted.includes(hoistedBought)) {
+    items.push({ kind: 'line', text: `${prefix}${capitalize(`${hoistedBought}.`)}` });
+  }
 
-  return lines.map((line) => `${prefix}${capitalize(line)}`);
+  if (items.length === 0) {
+    items.push({ kind: 'line', text: `${prefix}${capitalize('rarely worth spending Focus here.')}` });
+  }
+  return items;
 }

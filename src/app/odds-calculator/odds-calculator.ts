@@ -12,7 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { OddsEngine } from '../engine/odds-engine';
-import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
+import { chanceToDestroyAllTargets, FocusStrategyItem, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -299,19 +299,19 @@ export class OddsCalculator {
     const reachesTarget = (attackerIndex: number, targetIndex: number): boolean =>
       attacks.some((a) => a.attackerIndex === attackerIndex && (!a.eligibleTargetIndices || a.eligibleTargetIndices.includes(targetIndex)));
 
-    const bulletsByAttacker = new Map<number, string[]>();
+    const itemsByAttacker = new Map<number, FocusStrategyItem[]>();
     results.forEach((t, targetIndex) => {
       for (const entry of t.result.focusStrategy) {
         if (!reachesTarget(entry.attackerIndex, targetIndex)) continue;
-        const bullets = bulletsByAttacker.get(entry.attackerIndex) ?? [];
-        bulletsByAttacker.set(entry.attackerIndex, bullets);
-        bullets.push(...summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
+        const items = itemsByAttacker.get(entry.attackerIndex) ?? [];
+        itemsByAttacker.set(entry.attackerIndex, items);
+        items.push(...summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
       }
     });
 
-    return [...bulletsByAttacker.entries()].map(([attackerIndex, bullets]) => ({
+    return [...itemsByAttacker.entries()].map(([attackerIndex, items]) => ({
       attackerName: attackerIndex < attackers.length ? attackerDisplayName(attackers[attackerIndex], attackerIndex) : `Attacker ${attackerIndex + 1}`,
-      bullets,
+      items,
     }));
   });
 

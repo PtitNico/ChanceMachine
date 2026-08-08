@@ -41,7 +41,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     date: 'Unreleased',
     items: [
-      'Focus strategy advice in the Details pop-up now breaks into separate steps for before/after the target is debuffed and for initial vs. bought-with-Focus attacks, instead of one run-on sentence.',
+      'Focus strategy advice in the Details pop-up now reads as a step-by-step walkthrough instead of one run-on sentence, only branching into "If Knocked Down" / "If not" cases (naming the real debuff involved) where the advice actually depends on it, and calling out a weapon\'s own initial attack separately from one bought later with leftover Focus.',
       'Fixed a bug where buying an extra attack with Focus could recommend a lower-POW weapon over a higher-POW one available to the same attacker, whenever the two were close enough in value that floating-point precision could no longer tell them apart.',
     ],
   },

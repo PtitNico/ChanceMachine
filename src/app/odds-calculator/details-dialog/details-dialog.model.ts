@@ -1,18 +1,21 @@
+import { FocusStrategyItem } from '../../engine/sequence';
+
 export interface DamagePoint {
   readonly damage: number;
   readonly label: string;
   readonly probability: number;
 }
 
-/** One Focus-enabled attacker's own strategy block - the attacker's name as a heading, then one
- *  bullet per target its Focus actually reaches (Focus is one pool spent across the whole
- *  sequence, so a single attacker can have bullets for several targets - see
- *  `summarizeFocusStrategy` in `sequence.ts`). `bullets` is already fully formatted text (a "vs
- *  {target}: " prefix baked in whenever there's more than one target); the template just lists
- *  them. */
+/** One Focus-enabled attacker's own strategy block - the attacker's name as a heading, then its
+ *  full walkthrough (one `FocusStrategyItem` per step) for every target its Focus actually reaches
+ *  (Focus is one pool spent across the whole sequence, so a single attacker's `items` can cover
+ *  several targets back to back - see `summarizeFocusStrategy` in `sequence.ts`). `items` is
+ *  already fully formatted text (a "vs {target}: " prefix baked in whenever there's more than one
+ *  target); the template just renders each item - a plain line, or a branch with its own nested
+ *  lines. */
 export interface FocusStrategyBlock {
   readonly attackerName: string;
-  readonly bullets: string[];
+  readonly items: FocusStrategyItem[];
 }
 
 /** One row in the "Step by step" list - one per actual ATTACK (shot), not per weapon, restoring
