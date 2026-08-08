@@ -58,7 +58,7 @@
       [chanceToDestroyAll]="chanceToDestroyAll()"
       [calculating]="calculating()"
       [progress]="progress()"
-      (showDetails)="detailsDialogRef.open($event)"
+      (showDetails)="detailsDialogRef.open($event); onDetailsOpened()"
     />
   </div>
 

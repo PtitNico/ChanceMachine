@@ -11,6 +11,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { trackDetailsOpen } from '../analytics';
 import { OddsEngine } from '../engine/odds-engine';
 import { chanceToDestroyAllTargets, FocusStrategyItem, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
@@ -88,8 +89,17 @@ export class OddsCalculator {
 
   /** The current sequence builder state as JSON, captured for the Feedback pop-up (see
    *  `serializeFeedbackData`) so a report can be reproduced exactly instead of relying on the
-   *  reporter to describe their setup in prose. */
+   *  reporter to describe their setup in prose - also fed to `trackDetailsOpen` (see
+   *  `onDetailsOpened` below) as the GoatCounter event's own payload. */
   protected readonly feedbackData = computed(() => serializeFeedbackData(this.targets(), this.attackers()));
+
+  /** Fires the `details-open` analytics event with the CURRENT configuration - called alongside
+   *  opening the Details pop-up itself (see odds-calculator.html's `(showDetails)` binding).
+   *  `trackDetailsOpen` itself skips re-firing when this exact JSON was already tracked, so
+   *  reopening the pop-up without changing anything doesn't inflate the count. */
+  protected onDetailsOpened(): void {
+    trackDetailsOpen(this.feedbackData());
+  }
 
   /** Attacks still resolve as ONE flat ordered sequence for the engine, regardless of which
    *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see

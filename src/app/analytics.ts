@@ -34,3 +34,21 @@ export function trackPwaInstall(): void {
 export function trackPwaInstallDismiss(): void {
   window.goatcounter?.count({ path: 'pwa-install-dismiss', title: 'PWA install banner dismissed', event: true });
 }
+
+/** The last sequence configuration (see `serializeFeedbackData`) a `details-open` event actually
+ *  fired for - `trackDetailsOpen` skips re-firing when the CURRENT config is identical, so
+ *  repeatedly opening/closing the Details pop-up without changing anything doesn't inflate the
+ *  count. Deliberately module-level (not per-component) - resets naturally on a page reload, which
+ *  is exactly when a fresh "first open" SHOULD fire again. */
+let lastTrackedDetailsData: string | undefined;
+
+/** Fires when the Details pop-up opens, carrying the current targets/attackers/weapons config (see
+ *  `serializeFeedbackData`) as the event's `title` - `path` stays the fixed, aggregatable event
+ *  name `pwa-install`/`pwa-install-dismiss` already use, rather than a unique-per-config path,
+ *  since GoatCounter's own dashboard groups hits BY path - a unique path per call would defeat that
+ *  grouping and scatter this into one distinct "page" per configuration. */
+export function trackDetailsOpen(data: string): void {
+  if (data === lastTrackedDetailsData) return;
+  lastTrackedDetailsData = data;
+  window.goatcounter?.count({ path: 'details-open', title: data, event: true });
+}
