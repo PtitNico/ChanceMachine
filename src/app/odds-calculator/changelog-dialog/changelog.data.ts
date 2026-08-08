@@ -39,7 +39,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: 'Unreleased',
+    date: '2026-08-08',
     items: [
       'Fixed a major bug where an "on hit" effect (Knockdown, Stationary, Ice Cage, Paralysis, "-X ARM", etc.) would be applied even when the attack that was supposed to grant it actually missed.',
       'Added Reload [1, 2 or ∞] for ranged weapons.',
