@@ -20,7 +20,9 @@
  *    src/app/odds-calculator/feedback-dialog/feedback-dialog.ts.
  *
  * Every submission becomes one row: timestamp, type (feedback/bug), message, email (if the
- * sender left one), the page URL, and their browser's user agent string.
+ * sender left one), the reporter's current sequence builder state as JSON (targets/attackers/
+ * weapons - see `serializeFeedbackData` in feedback-data.ts), and their browser's user agent
+ * string.
  *
  * If you ever change this file, you need to re-deploy (Deploy > Manage deployments > edit the
  * existing deployment > New version) for the change to actually reach the live Web app URL -
@@ -28,7 +30,7 @@
  */
 
 const SHEET_NAME = 'Feedback';
-const HEADERS = ['Timestamp', 'Type', 'Message', 'Email', 'Page', 'User agent', 'Status'];
+const HEADERS = ['Timestamp', 'Type', 'Message', 'Email', 'Data', 'User agent', 'Status'];
 
 /** Run this once by hand after pasting the script - see the setup steps above. */
 function setup() {
@@ -40,7 +42,7 @@ function setup() {
 function doPost(e) {
   const sheet = getSheet_();
   const p = (e && e.parameter) || {};
-  sheet.appendRow([new Date(), p.type || '', p.message || '', p.email || '', p.page || '', p.userAgent || '', 'New']);
+  sheet.appendRow([new Date(), p.type || '', p.message || '', p.email || '', p.data || '', p.userAgent || '', 'New']);
 
   MailApp.sendEmail({
     to: 'ptitnico.meyer@gmail.com',
@@ -51,10 +53,12 @@ function doPost(e) {
 
       <p><strong>Type :</strong> ${escapeHtml_(p.type || '')}</p>
       <p><strong>Email :</strong> ${escapeHtml_(p.email || '(non renseigné)')}</p>
-      <p><strong>Page :</strong> ${escapeHtml_(p.page || '')}</p>
 
       <h3>Message</h3>
       <pre>${escapeHtml_(p.message || '')}</pre>
+
+      <h3>Data</h3>
+      <pre>${escapeHtml_(p.data || '')}</pre>
 
       <h3>User agent</h3>
       <pre>${escapeHtml_(p.userAgent || '')}</pre>

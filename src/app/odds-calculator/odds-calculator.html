@@ -5,7 +5,7 @@
       (reset)="resetAll()"
       (openAbout)="aboutDialogRef.open()"
       (openChangelog)="changelogDialogRef.open()"
-      (openFeedback)="feedbackDialogRef.open()"
+      (openFeedback)="feedbackDialogRef.open(feedbackData())"
     />
   </header>
 
@@ -58,7 +58,7 @@
       [chanceToDestroyAll]="chanceToDestroyAll()"
       [calculating]="calculating()"
       [progress]="progress()"
-      (showDetails)="detailsDialogRef.open($event)"
+      (showDetails)="detailsDialogRef.open($event); onDetailsOpened()"
     />
   </div>
 

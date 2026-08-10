@@ -11,8 +11,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { trackDetailsOpen } from '../analytics';
 import { OddsEngine } from '../engine/odds-engine';
-import { chanceToDestroyAllTargets, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
+import { chanceToDestroyAllTargets, FocusStrategyItem, SequencedAttack, SequenceTarget, summarizeFocusStrategy } from '../engine/sequence';
 import { AboutDialog } from './about-dialog/about-dialog';
 import { AppMenu } from './app-menu/app-menu';
 import { AttackEditDialog } from './attack-edit-dialog/attack-edit-dialog';
@@ -24,6 +25,7 @@ import { ChangelogDialog } from './changelog-dialog/changelog-dialog';
 import { DamagePoint, FocusStrategyBlock, ShotRow } from './details-dialog/details-dialog.model';
 import { DetailsDialog } from './details-dialog/details-dialog';
 import { FeedbackDialog } from './feedback-dialog/feedback-dialog';
+import { serializeFeedbackData } from './feedback-dialog/feedback-data';
 import { PwaInstallBanner } from './pwa-install-banner/pwa-install-banner';
 import { ResultsPanel } from './results-panel/results-panel';
 import { TargetPanel } from './target-panel/target-panel';
@@ -84,6 +86,20 @@ export class OddsCalculator {
 
   // --- Attack sequence, grouped by attacker ---
   protected readonly attackers = signal<Attacker[]>([createAttacker()]);
+
+  /** The current sequence builder state as JSON, captured for the Feedback pop-up (see
+   *  `serializeFeedbackData`) so a report can be reproduced exactly instead of relying on the
+   *  reporter to describe their setup in prose - also fed to `trackDetailsOpen` (see
+   *  `onDetailsOpened` below) as the GoatCounter event's own payload. */
+  protected readonly feedbackData = computed(() => serializeFeedbackData(this.targets(), this.attackers()));
+
+  /** Fires the `details-open` analytics event with the CURRENT configuration - called alongside
+   *  opening the Details pop-up itself (see odds-calculator.html's `(showDetails)` binding).
+   *  `trackDetailsOpen` itself skips re-firing when this exact JSON was already tracked, so
+   *  reopening the pop-up without changing anything doesn't inflate the count. */
+  protected onDetailsOpened(): void {
+    trackDetailsOpen(this.feedbackData());
+  }
 
   /** Attacks still resolve as ONE flat ordered sequence for the engine, regardless of which
    *  attacker owns them - `stat`/`attackerName` are no longer the row's own values (see
@@ -299,19 +315,19 @@ export class OddsCalculator {
     const reachesTarget = (attackerIndex: number, targetIndex: number): boolean =>
       attacks.some((a) => a.attackerIndex === attackerIndex && (!a.eligibleTargetIndices || a.eligibleTargetIndices.includes(targetIndex)));
 
-    const bulletsByAttacker = new Map<number, string[]>();
+    const itemsByAttacker = new Map<number, FocusStrategyItem[]>();
     results.forEach((t, targetIndex) => {
       for (const entry of t.result.focusStrategy) {
         if (!reachesTarget(entry.attackerIndex, targetIndex)) continue;
-        const bullets = bulletsByAttacker.get(entry.attackerIndex) ?? [];
-        bulletsByAttacker.set(entry.attackerIndex, bullets);
-        bullets.push(summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
+        const items = itemsByAttacker.get(entry.attackerIndex) ?? [];
+        itemsByAttacker.set(entry.attackerIndex, items);
+        items.push(...summarizeFocusStrategy(entry, multipleTargets ? targetNames[targetIndex] : undefined));
       }
     });
 
-    return [...bulletsByAttacker.entries()].map(([attackerIndex, bullets]) => ({
+    return [...itemsByAttacker.entries()].map(([attackerIndex, items]) => ({
       attackerName: attackerIndex < attackers.length ? attackerDisplayName(attackers[attackerIndex], attackerIndex) : `Attacker ${attackerIndex + 1}`,
-      bullets,
+      items,
     }));
   });
 

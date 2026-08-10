@@ -393,6 +393,7 @@ export type {
   SequenceStepResult,
   SequenceResult,
   FocusStrategyEntry,
+  FocusStrategyItem,
   RowInjection,
   SequenceOptions,
   TargetSequenceResult,

@@ -2243,10 +2243,19 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
   }
 
   // `entry.healthy`/`entry.debuffed` are now arrays of per-weapon tallies (see FocusWeaponTally) -
-  // these sum across every weapon so single-weapon tests below can still assert on a plain total.
-  const sumBoostAttack = (tallies?: { boostAttackMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.boostAttackMass, 0);
-  const sumBoostDamage = (tallies?: { boostDamageMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.boostDamageMass, 0);
+  // these sum across every weapon, AND across the initial/bought phase split (`*MassBought`), so
+  // tests below that only care "was this ever boosted at all" can still assert on a plain total.
+  const sumBoostAttack = (tallies?: { boostAttackMass: number; boostAttackMassBought: number }[]) =>
+    (tallies ?? []).reduce((s, t) => s + t.boostAttackMass + t.boostAttackMassBought, 0);
+  const sumBoostDamage = (tallies?: { boostDamageMass: number; boostDamageMassBought: number }[]) =>
+    (tallies ?? []).reduce((s, t) => s + t.boostDamageMass + t.boostDamageMassBought, 0);
   const sumBuy = (tallies?: { buyMass: number }[]) => (tallies ?? []).reduce((s, t) => s + t.buyMass, 0);
+
+  // `summarizeFocusStrategy` now returns `FocusStrategyItem[]` (plain lines and/or branches with
+  // their own nested lines) rather than flat strings - flattens everything into one string for
+  // tests that only care whether some text appears somewhere, not the exact structure.
+  const flatten = (items: readonly { kind: 'line' | 'branch'; text?: string; condition?: string; lines?: readonly string[] }[]) =>
+    items.map((i) => (i.kind === 'line' ? i.text : `${i.condition}: ${(i.lines ?? []).join(' ')}`)).join(' ');
 
   it('is empty when no attacker has Focus active (regression safety)', () => {
     const result = computeSequenceOdds([attack({ stat: 6, pow: 12 })], target);
@@ -2274,7 +2283,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const result = computeSequenceOdds([certainKill], { def: 13, arm: 0, boxes: 1 });
     const entry = result.focusStrategy[0];
     const text = summarizeFocusStrategy(entry);
-    expect(text).toContain('Rarely worth spending Focus');
+    expect(flatten(text)).toContain('Rarely worth spending Focus');
   });
 
   it('branches the summary by situation when the computed policy actually differs before/after Knocked Down', () => {
@@ -2292,6 +2301,39 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(entry.healthy).toBeDefined();
     const text = summarizeFocusStrategy(entry);
     expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('labels a branch with the SPECIFIC debuff that actually happened, not the generic "Knocked Down or Stationary" umbrella', () => {
+    // Weapon 1 can only ever knock the target down (never Stationary), so the only real cause
+    // reachable for this attacker's own "debuffed" bucket is Knocked Down - the branch condition
+    // should say exactly that, not the coarse either-or phrasing.
+    const attacks: SequencedAttack[] = [
+      attack({ id: '1', label: 'Weapon 1', stat: 9, pow: 8, attackerIndex: 0, attackerFocus: 4, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
+      attack({ id: '2', label: 'Weapon 2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
+    ];
+    const result = computeSequenceOdds(attacks, target);
+    const entry = result.focusStrategy[0];
+    expect(entry.debuffed).toBeDefined();
+    expect(entry.debuffCauses).toEqual(['knockedDown']);
+    const conditions = summarizeFocusStrategy(entry)
+      .filter((i): i is Extract<typeof i, { kind: 'branch' }> => i.kind === 'branch')
+      .map((b) => b.condition);
+    expect(conditions).toContain('If Knocked Down');
+    expect(conditions.some((c) => c.includes('Stationary'))).toBe(false);
+
+    // A Stationary-only trigger produces the mirror-image label.
+    const stationaryAttacks: SequencedAttack[] = [
+      attack({ id: '1', label: 'Weapon 1', stat: 9, pow: 8, attackerIndex: 0, attackerFocus: 4, statEffects: [{ type: 'stationary', trigger: 'crit' }] }),
+      attack({ id: '2', label: 'Weapon 2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
+    ];
+    const stationaryResult = computeSequenceOdds(stationaryAttacks, target);
+    const stationaryEntry = stationaryResult.focusStrategy[0];
+    expect(stationaryEntry.debuffCauses).toEqual(['stationary']);
+    const stationaryConditions = summarizeFocusStrategy(stationaryEntry)
+      .filter((i): i is Extract<typeof i, { kind: 'branch' }> => i.kind === 'branch')
+      .map((b) => b.condition);
+    expect(stationaryConditions).toContain('If Stationary');
+    expect(stationaryConditions.some((c) => c.includes('Knocked Down'))).toBe(false);
   });
 
   it('never wastes Focus boosting an attack roll that is already guaranteed to auto-hit (regression sweep, DEF: KD)', () => {
@@ -2333,7 +2375,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(entry.healthy).toBeUndefined();
     expect(sumBoostAttack(entry.debuffed)).toBeCloseTo(0, 9);
     expect(sumBoostDamage(entry.debuffed)).toBeGreaterThan(0);
-    const text = summarizeFocusStrategy(entry);
+    const text = flatten(summarizeFocusStrategy(entry));
     expect(text).toContain("🗡️ Attack's damage rolls");
     expect(text).not.toContain('attack rolls');
   });
@@ -2353,7 +2395,59 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     const entry = result.focusStrategy[0];
     expect(sumBoostAttack(entry.healthy)).toBeGreaterThan(0);
     expect(sumBoostDamage(entry.healthy)).toBeGreaterThan(0);
-    expect(summarizeFocusStrategy(entry)).toBe("Boost 🏹 Attack's attack and damage rolls.");
+    expect(summarizeFocusStrategy(entry)).toEqual([{ kind: 'line', text: "Boost 🏹 Attack's initial attack and damage rolls." }]);
+  });
+
+  it('reports initial-attack and buying advice as two separate unconditioned lines when they genuinely differ (no situation branching needed)', () => {
+    // A single melee weapon with enough Focus to both boost the one configured swing AND, once
+    // that's resolved, keep spending on bought attacks with the same weapon: the true-optimal
+    // policy boosts the initial swing's attack AND damage rolls, but once buying, ALSO buys further
+    // attacks with this weapon on top of boosting - a genuinely different action set per phase, not
+    // just a difference in how strongly it's recommended. Since the target never gets debuffed here,
+    // neither line needs an "if Knocked Down" branch - both are hoisted, unconditioned lines.
+    const atk: SequencedAttack = {
+      id: 'a', attackerName: 'Attacker', label: 'Attack', type: 'melee', stat: 6, pow: 10,
+      attackerIndex: 0, attackerFocus: 6,
+    };
+    const result = computeSequenceOdds([atk], { def: 15, arm: 10, boxes: 3 });
+    const entry = result.focusStrategy[0];
+    expect(entry.debuffed).toBeUndefined();
+    const [tally] = entry.healthy!;
+    expect(tally.boostAttackMassBought).toBeGreaterThan(0);
+    expect(tally.boostDamageMassBought).toBeGreaterThan(0);
+    expect(tally.buyMass).toBeGreaterThan(0);
+    expect(summarizeFocusStrategy(entry)).toEqual([
+      { kind: 'line', text: "Boost 🗡️ Attack's initial attack and damage rolls." },
+      { kind: 'line', text: "Buy attacks with 🗡️ Attack and boost 🗡️ Attack's attack and damage rolls." },
+    ]);
+  });
+
+  it('buying prefers the higher-POW candidate weapon even when the destroy-probability delta between them is too small for floating-point to represent (regression)', () => {
+    // A target with far more boxes (100) than 5 Focus points' worth of buying could ever
+    // realistically threaten: the TRUE destroy-probability difference between buying with a POW 12
+    // vs a POW 16 weapon is so tiny it used to underflow to bit-identical doubles for both
+    // candidates, and the naive `<` comparison (ties always keep whichever weapon was checked
+    // first) silently bought with whichever weapon happened to be configured FIRST, regardless of
+    // its actual POW - confirmed by swapping which weapon has the higher POW below and seeing the
+    // "preferred" weapon follow the POW, not the array position.
+    const higherPowFirst: SequencedAttack[] = [
+      { id: '1', attackerName: 'Attacker', label: 'Weapon 1', type: 'melee', stat: 6, pow: 16, attackerIndex: 0, attackerFocus: 5 },
+      { id: '2', attackerName: 'Attacker', label: 'Weapon 2', type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5 },
+    ];
+    const higherPowSecond: SequencedAttack[] = [
+      { id: '1', attackerName: 'Attacker', label: 'Weapon 1', type: 'melee', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5 },
+      { id: '2', attackerName: 'Attacker', label: 'Weapon 2', type: 'melee', stat: 6, pow: 16, attackerIndex: 0, attackerFocus: 5 },
+    ];
+    const target: SequenceTarget = { def: 'KD', arm: 15, boxes: 100 };
+
+    const entryA = computeSequenceOdds(higherPowFirst, target).focusStrategy[0];
+    const entryB = computeSequenceOdds(higherPowSecond, target).focusStrategy[0];
+
+    // Both scenarios should buy with whichever weapon has POW 16, never the POW 12 one.
+    expect(sumBuy(entryA.debuffed?.filter((t) => t.weaponLabel === 'Weapon 1'))).toBeGreaterThan(0);
+    expect(sumBuy(entryA.debuffed?.filter((t) => t.weaponLabel === 'Weapon 2'))).toBeCloseTo(0, 9);
+    expect(sumBuy(entryB.debuffed?.filter((t) => t.weaponLabel === 'Weapon 1'))).toBeCloseTo(0, 9);
+    expect(sumBuy(entryB.debuffed?.filter((t) => t.weaponLabel === 'Weapon 2'))).toBeGreaterThan(0);
   });
 
   it('an attacker with leftover Focus can keep buying attacks against a second target once the first dies', () => {

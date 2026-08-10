@@ -186,16 +186,28 @@ yet). Each point can be spent, once per roll, to:
 
 Unlike Puppet Master, Focus is spent **optimally** — the same whole-sequence lookahead already used
 for the target's own Focus/Fury (see below): the app computes, ahead of time, the spending policy
-that gives this attacker the best chance of destroying the target, rather than a fixed rule. A short
-**"Focus strategy"** summary is shown per (Focus-enabled attacker, target) pair in the Details
-pop-up, describing in plain language what the computed policy actually does against THAT target,
-naming the exact weapon each action applies to (e.g. "boost Ranged's attack rolls until the target
-is Knocked Down, then boost Ranged's damage rolls", or "buy extra attacks with Melee1 whenever
-Focus is available") — generated directly from the policy the app actually computed, not a
-hand-written description of what Focus can do in general. An attacker that spends differently
-against different targets (e.g. boosting a single ranged shot at a fragile solo, then buying extra
-melee attacks against a tankier second target) gets one line per target rather than one sentence
-blurring both together, since Focus is spent target by target even though the pool itself is shared
+that gives this attacker the best chance of destroying the target, rather than a fixed rule. A
+step-by-step **"Focus strategy"** walkthrough is shown per (Focus-enabled attacker, target) pair in
+the Details pop-up, describing in plain language what the computed policy actually does against
+THAT target, naming the exact weapon each action applies to. It reads like an ordered list of
+steps rather than one dense sentence: a step that never depends on how the fight goes (e.g. "boost
+Melee1's initial attack roll", which always happens before the target could possibly be debuffed
+yet) is shown once, plainly; a step whose advice genuinely differs depending on whether the target
+ends up debuffed is nested under its own "If Knocked Down" / "If not Knocked Down" sub-list instead
+(e.g. boosting a weapon's attack roll is only worth doing while the target can still be missed —
+once it's guaranteed to auto-hit, that same weapon's advice switches to boosting damage instead, or
+buying further attacks with it) — the condition names the REAL debuff involved (Knocked Down,
+Stationary, or "Knocked Down or Stationary" only when either one could genuinely be the cause for
+this specific attacker), never a generic placeholder. A step naming a weapon's own configured
+attack always says "initial" (e.g. "boost Melee1's initial damage roll") to distinguish it from a
+later attack bought with leftover Focus, which doesn't; when a bought step both buys AND boosts,
+the buy clause comes first ("buy attacks with Melee1 and boost Melee1's attack rolls"), matching
+the order those two decisions actually happen in. Each line is generated directly from the policy
+the app actually computed, not a hand-written description of what Focus can do in general. An
+attacker that spends differently against different
+targets (e.g. boosting a single ranged shot at a fragile solo, then buying extra melee attacks
+against a tankier second target) gets its own walkthrough per target rather than blurring every
+target together, since Focus is spent target by target even though the pool itself is shared
 across the whole sequence.
 
 Each effect in the Effects pop-up is a **rounded "toggle" button**: grey/inactive by default, it fills with color (brass background) once activated — a single click turns it on or off, with no checkbox or dropdown involved. Buttons are grouped by category, each category shown on its own row that **wraps as soon as needed** rather than widening the pop-up (so the number of active effects never affects the app's width):
@@ -236,13 +248,18 @@ than one target, a row of tabs at the top of this pop-up — one per target, eac
 chance to destroy AND average damage — lets the player switch which target's breakdown is shown
 below; with a single target, this tab row is hidden entirely and the pop-up looks exactly as it
 always has:
-- **Focus strategy**: shown only when at least one attacker in the sequence has Focus active — one
-  sentence per (Focus-enabled attacker, target) pair the attacker actually engages, above "Step by
-  step", summarizing the app's computed spending policy for that attacker against that specific
-  target (see "Focus" above), naming the exact weapon each boost or buy applies to (e.g. "boost
-  Ranged's attack rolls" or "buy extra attacks with Melee1") — an attacker using different weapons
-  differently against different targets gets one line per target rather than one blurred-together
-  sentence for the whole fight. With a single target, the "vs Target Name" suffix is dropped since
+- **Focus strategy**: shown only when at least one attacker in the sequence has Focus active — a
+  step-by-step walkthrough per (Focus-enabled attacker, target) pair the attacker actually engages,
+  above "Step by step", summarizing the app's computed spending policy for that attacker against
+  that specific target (see "Focus" above), naming the exact weapon each boost or buy applies to
+  (e.g. "boost Ranged's initial attack roll" or "buy extra attacks with Melee1"). Steps that don't
+  depend on how the fight goes are listed plainly; a step only gets nested under an "If Knocked
+  Down" / "If not Knocked Down" sub-list (naming whichever real debuff applies - Stationary
+  instead, or "Knocked Down or Stationary" when either could genuinely be the cause) when the
+  policy's own advice for it genuinely differs by situation — an attacker using different weapons
+  differently against
+  different targets gets its own full walkthrough per target rather than one blurred-together
+  sentence for the whole fight. With a single target, the "vs Target Name" prefix is dropped since
   there's nothing to disambiguate.
 - **Step by step**: one row per actual ATTACK, not per weapon — a weapon firing several times (via `# Atks` and/or ROF) gets one row per shot, numbered continuously across the whole sequence (numbering never restarts at a weapon boundary). Each weapon's own rows are grouped under a small header showing its type icon (🗡️/🏹/🪄) — the owning attacker's name is shown too, but only the first time that attacker appears (consecutive weapons from the same attacker just repeat the icon, not the name). Each row shows: *Chance* (the odds this particular shot actually fires at all — always 100% for a guaranteed shot, and less than 100% for a shot past a weapon's guaranteed `# Atks` base whose firing depends on ROF's roll, a `# Atks = 0` pure-ROF weapon's very first shot, a shot that never gets reached because an earlier shot in the SAME weapon's volley already destroyed the target, or — with more than one target — a shot that never gets reached because an earlier TARGET is still alive when the sequence runs out), *Hit* (chance to hit), *Crit* (chance of a critical hit, a double on the to-hit roll), *Avg damage* (average damage dealt by this attack's damage roll, dice + POW − ARM). Hit/Crit/Avg damage are all conditional on the target still being alive AND this specific shot actually firing (see *Chance*) — "if this shot happens, here's what to expect from it" — and don't account for any Focus/Fury mitigation (they're properties of the attack itself, not of the sequence's outcome). Each row's own label sits above its value rather than beside it, so the whole row always fits the pop-up's width without needing to scroll sideways. With more than one target selected in the tab row above, a weapon that isn't in THIS target's own range (see "Weapon range" above) contributes no rows at all — each target's own list only ever shows the weapons that could actually hit it.
 - **Total damage distribution**: a histogram of the distribution of total damage dealt over the whole sequence (0 up to `boxesInitial - 1`), with every outcome that destroys the target grouped into a single aggregated bucket labelled `"N+"` (e.g. `"5+"` for a 5-box target) — since a destroyed target's exact overkill isn't tracked beyond "it reached or exceeded its box count".

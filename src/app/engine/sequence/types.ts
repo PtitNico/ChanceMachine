@@ -262,30 +262,53 @@ export interface SequenceResult {
 
 /** One weapon's own recorded Focus-spending tally within one attacker/situation bucket - see
  *  `FocusStrategyEntry`. `weaponLabel` is the display label of the weapon this mass applies to:
- *  for `boostAttackMass`/`boostDamageMass`, the weapon whose OWN roll is being decided; for
- *  `buyMass`, the weapon actually fired as the bought attack - which can be a DIFFERENT weapon
- *  than whichever row's own boundary triggered the buy decision (buying always happens at the
- *  attacker's own LAST configured row, but picks whichever melee weapon scores best). All three
- *  mass figures are probability-weighted (summing to at most 1 across the whole per-attacker log,
- *  not per weapon or situation). */
+ *  for `boostAttackMass`/`boostDamageMass`/their `*Bought` counterparts, the weapon whose OWN roll
+ *  is being decided; for `buyMass`, the weapon actually fired as the bought attack - which can be
+ *  a DIFFERENT weapon than whichever row's own boundary triggered the buy decision (buying always
+ *  happens at the attacker's own LAST configured row, but picks whichever melee weapon scores
+ *  best). All mass figures are probability-weighted (summing to at most 1 across the whole
+ *  per-attacker log, not per weapon or situation). The `Mass`/`MassBought` split lets the Focus
+ *  strategy summary say WHEN a boost applies - on this weapon's own configured attack(s), on an
+ *  attack bought with leftover Focus, or both, since the true-optimal policy can genuinely differ
+ *  between the two (e.g. boost the attack roll on a guaranteed initial swing, but boost damage
+ *  instead once buying extra attacks late in the fight). `buyMass` itself needs no such split - the
+ *  decision to buy an attack at all only ever happens once Focus is being spent past the attacker's
+ *  own configured attacks, so it's inherently a "bought" concept already. */
 export interface FocusWeaponTally {
   weaponLabel: string;
   /** The weapon's own `AttackType` - lets the summary name the weapon's type emoji alongside its
    *  label (see `TYPE_EMOJI` in `attack-model.ts`). */
   weaponType: AttackType;
   boostAttackMass: number;
+  boostAttackMassBought: number;
   boostDamageMass: number;
+  boostDamageMassBought: number;
   buyMass: number;
 }
 
 /** One attacker's own recorded Focus-spending tallies, split by target "situation" (healthy vs
  *  debuffed - see single-target.ts's `situationOf`) and, within each situation, by weapon -
- *  `undefined` for a situation this attacker never actually reached during the forward replay. */
+ *  `undefined` for a situation this attacker never actually reached during the forward replay.
+ *  `debuffCauses`, when the `debuffed` bucket has any data at all, names which SPECIFIC debuff(s)
+ *  actually put the target there for this attacker (`'knockedDown'`/`'stationary'`, either or
+ *  both) - lets `summarizeFocusStrategy` label its branch condition with the real debuff instead
+ *  of the coarse "Knocked Down or Stationary" umbrella every time. */
 export interface FocusStrategyEntry {
   attackerIndex: number;
   healthy?: FocusWeaponTally[];
   debuffed?: FocusWeaponTally[];
+  debuffCauses?: readonly ('knockedDown' | 'stationary')[];
 }
+
+/** One step of a `summarizeFocusStrategy` walkthrough - either a plain unconditioned line (a step
+ *  whose advice doesn't depend on target situation, e.g. it only ever fires while the target is
+ *  still healthy) or a branch: a situation condition ("If Knocked Down or Stationary" / "If not
+ *  Knocked Down or Stationary") together with the ordered lines of advice specific to that
+ *  situation. A branch only appears when the true-optimal policy's advice genuinely differs by
+ *  situation for at least one weapon/step - see `summarizeFocusStrategy`'s own doc comment. */
+export type FocusStrategyItem =
+  | { readonly kind: 'line'; readonly text: string }
+  | { readonly kind: 'branch'; readonly condition: string; readonly lines: readonly string[] };
 
 /** Where a target's probability mass enters the fight, instead of the default "100% before row
  *  0" - see the module doc comment's "Multiple targets" section. `shotsRemaining === 0` means

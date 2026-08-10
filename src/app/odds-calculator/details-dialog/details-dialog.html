@@ -23,8 +23,19 @@
         <div class="focus-strategy__block">
           <span class="focus-strategy__attacker">{{ block.attackerName }}</span>
           <ul class="focus-strategy__bullets">
-            @for (bullet of block.bullets; track bullet) {
-              <li class="focus-strategy__bullet">{{ bullet }}</li>
+            @for (item of block.items; track $index) {
+              @if (item.kind === 'line') {
+                <li class="focus-strategy__bullet">{{ item.text }}</li>
+              } @else {
+                <li class="focus-strategy__bullet">
+                  <span class="focus-strategy__condition">{{ item.condition }}:</span>
+                  <ul class="focus-strategy__bullets focus-strategy__bullets--nested">
+                    @for (line of item.lines; track line) {
+                      <li class="focus-strategy__bullet">{{ line }}</li>
+                    }
+                  </ul>
+                </li>
+              }
             }
           </ul>
         </div>
