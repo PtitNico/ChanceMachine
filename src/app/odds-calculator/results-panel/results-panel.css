@@ -34,6 +34,11 @@
   transition: opacity 0.15s ease;
 }
 
+/* A solid-ish backdrop (not just the dimmed content underneath) so the label reads clearly on its
+   own instead of blending into whatever it's laid over - without this, the thin single-line
+   multi-target bar below barely has room to show through, making "Calculating" easy to miss
+   entirely, unlike the taller single-target grid where the dimmed gauges left more visual gap
+   around the centered text. */
 .readout__overlay {
   position: absolute;
   inset: 0;
@@ -44,6 +49,7 @@
   pointer-events: none;
   color: var(--brass-bright);
   font-size: 0.85rem;
+  background: rgba(26, 28, 31, 0.78);
 }
 
 .readout__overlay-gear {
