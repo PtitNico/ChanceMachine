@@ -71,8 +71,11 @@ function rofOutcomes(atk: SequencedAttack): { count: number; probability: number
  *  Cavalry-Charge-eligible row (see `SequencedAttack.chargeAttackBoost`/`chargeDamageBoost`) -
  *  callers use this ONLY at the two points in this file where that first shot is genuinely about
  *  to resolve (`buildShotsValue`'s `shotsValue` and `resolveRofAttackForward`'s `resolveVolley`),
- *  never for a later shot of the same row, a Focus-bought extra attack with this weapon, or (see
- *  below) a Critical-Shred bonus attack.
+ *  never for a later shot of the same row, a Focus-bought extra attack with this weapon, or a
+ *  Critical-Shred bonus attack chained off it (a Shred bonus attack is a new, separate attack, per
+ *  a user report - `attackChainValue`/`resolveAttackChainForward`/`resolveOneOutcome` all thread a
+ *  SEPARATE `baseAtk` parameter, always the row's true never-boosted attack, purely for their own
+ *  Shred-recursion call sites, precisely so this function is never reachable from one).
  *
  *  Reuses the EXISTING `boostedAttack`/`boostedDamage` fields (rather than inventing a parallel
  *  mechanism) so every place that already treats those as "already boosted, don't also spend Focus
@@ -80,17 +83,7 @@ function rofOutcomes(atk: SequencedAttack): { count: number; probability: number
  *  here for free - no other function needs to change. Doesn't stack with an already-Boosted weapon
  *  (`atk.boostedAttack`/`boostedDamage` already true from the toggle) - a roll can only ever be
  *  boosted once, so charge's own contribution is skipped when the toggle already covers every
- *  shot including this one.
- *
- *  Known scope cut: if this same first shot crits and triggers Critical Shred, the shred-chained
- *  bonus attack is resolved via a fresh `attackChainValue`/`resolveAttackChainForward` recursion
- *  that receives whatever `atk` reference the triggering call used - so a Shred bonus attack
- *  riding off a charge-boosted first shot incorrectly inherits the boost too. This combo (Charge +
- *  Critical/Sustained Shred on the SAME first melee weapon) is narrow enough, and fully correctly
- *  threading a "genuinely still the first shot" flag through Shred's own recursive call chain
- *  invasive enough, that it's left as a known limitation rather than fixed here - consistent with
- *  this file's existing "Deliberate scope cut" precedent for similarly narrow combos (see
- *  `buildBoughtAttacksValue`'s own doc comment). */
+ *  shot including this one. */
 function withChargeBoost(atk: SequencedAttack): SequencedAttack {
   const addAttack = !!atk.chargeAttackBoost && !atk.boostedAttack;
   const addDamage = !!atk.chargeDamageBoost && !atk.boostedDamage;
@@ -700,6 +693,7 @@ function resolveAttackerDamageBoostChoice(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   attackerFocusLeft: number[],
   finalProfile: AttackProfile,
@@ -740,7 +734,7 @@ function resolveAttackerDamageBoostChoice(
 
   const scoreOf = (profile: AttackProfile, candidateFocusLeft: number[]) =>
     profileScore(
-      ctx, profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+      ctx, profile, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
       resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, candidateFocusLeft, shotsRemainingThisRow,
       sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
     );
@@ -921,6 +915,13 @@ function resolveOneOutcome(
   outcome: AppliedOutcome,
   k: number,
   atk: SequencedAttack,
+  // The row's TRUE base attack (never a `withChargeBoost` view), used ONLY by `shredValueAt` below
+  // for its own recursive `attackChainValue` call - a Critical-Shred bonus attack is a new, separate
+  // attack (per a user report), never eligible for a charge boost even when it's chained off the
+  // row's OWN charge-boosted first shot (`atk` here). Every other read of `atk` in this function
+  // (statEffects, criticalShred, sustainedAttack) is identical either way, so only the recursion
+  // needs the distinction.
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -950,11 +951,14 @@ function resolveOneOutcome(
   // A Shred follow-up is still resolving THIS SAME row's own instance (see the module doc comment's
   // Critical Shred section) - `downstreamRow`/`downstreamShotsRemaining` describe "what happens if
   // the target dies here", which is exactly as true for a Shred-chained attack as for the original,
-  // so they pass through unchanged rather than being recomputed.
+  // so they pass through unchanged rather than being recomputed. Recurses with `baseAtk` (NEVER
+  // `atk`, which may be this shot's own charge-boosted view) and `isFirstShot: false` - both belt
+  // and braces, since `depthRemaining - 1 !== MAX_SHRED_DEPTH` already independently rules out the
+  // boost applying again on its own.
   const shredValueAt: ValueLookup = rawContinuesChain
     ? (b, d, f, fu, sg, sc) =>
         attackChainValue(
-          ctx, k, atk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow, outcomeSustained, depthRemaining - 1, outerValueAt, cache,
+          ctx, k, baseAtk, baseAtk, d, b, f, fu, sg, sc, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow, outcomeSustained, depthRemaining - 1, outerValueAt, cache,
           downstreamRow, downstreamShotsRemaining
         )
     : outerFallback;
@@ -988,6 +992,7 @@ function profileScore(
   profile: AttackProfile,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1009,7 +1014,7 @@ function profileScore(
   let score: [number, number, number] = [0, 0, 0];
   for (const outcome of applyProfile(profile)) {
     const { branches, continuationValueAt } = resolveOneOutcome(
-      ctx, outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+      ctx, outcome, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
       resultingMask, resultingOffKotdLeft, candidateDefKotdLeft, attackerFocusLeft, shotsRemainingThisRow,
       sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
     );
@@ -1032,6 +1037,7 @@ function resolveKotdDefChoice(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   kotdDefLeft: number,
   inputProfile: AttackProfile,
@@ -1056,7 +1062,7 @@ function resolveKotdDefChoice(
 
   const scoreOf = (profile: AttackProfile, candidateLeft: number) =>
     profileScore(
-      ctx, profile, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
+      ctx, profile, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, candidateLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
       downstreamRow, downstreamShotsRemaining
     );
 
@@ -1118,6 +1124,7 @@ function pipelineScore(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   trueOriginal: AttackProfile,
   boxes: number,
@@ -1143,18 +1150,18 @@ function pipelineScore(
       ctx, k, atk, debuffState, kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal, sustained
     )) {
       const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
-        ctx, k, atk, debuffState, kotdDefLeft, offProfile, trueOriginal,
+        ctx, k, atk, baseAtk, debuffState, kotdDefLeft, offProfile, trueOriginal,
         boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, attackerFocusLeft,
         shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
       );
       for (const { profile: boostedFinalProfile, resultingAttackerFocusLeft } of resolveAttackerDamageBoostChoice(
-        ctx, k, atk, debuffState, attackerFocusLeft, finalProfile,
+        ctx, k, atk, baseAtk, debuffState, attackerFocusLeft, finalProfile,
         boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft, resultingMask, resultingOffKotdLeft, resultingDefKotdLeft,
         shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
       )) {
         for (const outcome of applyProfile(boostedFinalProfile)) {
           const { branches, continuationValueAt } = resolveOneOutcome(
-            ctx, outcome, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+            ctx, outcome, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, resultingAttackerFocusLeft, shotsRemainingThisRow,
             sustained, depthRemaining, outerValueAt, cache, downstreamRow, downstreamShotsRemaining
           );
@@ -1186,6 +1193,7 @@ function chooseAttackerAttackBoost(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1206,7 +1214,7 @@ function chooseAttackerAttackBoost(
 ): { trueOriginal: AttackProfile; attackerFocusLeft: number[]; score: [number, number, number] } {
   const unboostedOriginal = profileFor(ctx, k, atk, debuffState, sustained, false);
   const unboostedScore = pipelineScore(
-    ctx, k, atk, debuffState, unboostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+    ctx, k, atk, baseAtk, debuffState, unboostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
     pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
     downstreamRow, downstreamShotsRemaining
   );
@@ -1220,7 +1228,7 @@ function chooseAttackerAttackBoost(
   const boostedAttackerFocusLeft = attackerFocusLeft.slice();
   boostedAttackerFocusLeft[slot] -= 1;
   const boostedScore = pipelineScore(
-    ctx, k, atk, debuffState, boostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+    ctx, k, atk, baseAtk, debuffState, boostedOriginal, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
     pmMask, kotdOffLeft, kotdDefLeft, boostedAttackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
     downstreamRow, downstreamShotsRemaining
   );
@@ -1240,6 +1248,7 @@ function resolveAttackerAttackBoostChoice(
   ctx: SequenceContext,
   k: number,
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1259,7 +1268,7 @@ function resolveAttackerAttackBoostChoice(
   downstreamShotsRemaining: number
 ): number {
   return chooseAttackerAttackBoost(
-    ctx, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+    ctx, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
     pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
     downstreamRow, downstreamShotsRemaining
   ).score[0];
@@ -1282,7 +1291,13 @@ function resolveAttackerAttackBoostChoice(
 function attackChainValue(
   ctx: SequenceContext,
   k: number,
+  // `atk` is whatever the caller decided to resolve THIS call with (possibly a `withChargeBoost`
+  // view, for a genuine first-shot entry from `buildShotsValue`) - `baseAtk` is always the row's
+  // true, never-boosted attack, threaded straight through to `resolveOneOutcome`'s own Shred
+  // recursion (see its doc comment for why a Shred bonus attack must never inherit `atk`'s own
+  // possible boost). Every OTHER function in this pipeline only ever needs `atk`.
   atk: SequencedAttack,
+  baseAtk: SequencedAttack,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1306,7 +1321,7 @@ function attackChainValue(
   if (cached !== undefined) return cached;
 
   const total = resolveAttackerAttackBoostChoice(
-    ctx, k, atk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
+    ctx, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
     pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
     downstreamRow, downstreamShotsRemaining
   );
@@ -1378,12 +1393,25 @@ function mergeDestroyed(into: DestroyedAccumulator, from: DestroyedAccumulator):
 function resolveAttackChainForward(
   ctx: SequenceContext,
   k: number,
+  // Always the row's TRUE base attack (never a `withChargeBoost` view) - unlike an earlier version
+  // of this function, which received a possibly-already-boosted `atk` from its caller and used it
+  // uniformly for the WHOLE call including any Shred-continuation depth, silently handing the free
+  // charge boost to shred-chained bonus attacks too. `isFirstShot` below is what now decides, PER
+  // ITERATION of this function's own depth loop, whether THIS iteration's own resolution gets the
+  // boost - a shred-chained bonus attack is a new, separate attack (per a user report), so it must
+  // always resolve from the same unboosted `atk` every other non-first shot does.
   atk: SequencedAttack,
   // Is this call resolving a configured row (false) or an attack bought with leftover Focus
   // (true, from `resolveBoughtAttacksForward`)? Only used to route the two `recordFocusPolicy`
   // calls below into `FocusWeaponTally`'s `*Mass` vs `*MassBought` fields - see that type's own
   // doc comment for why the Focus strategy summary wants this distinction.
   isBoughtAttack: boolean,
+  // True only when this call is resolving the row's own genuine first configured shot (see
+  // `resolveRofAttackForward`'s own `resolveVolley` for exactly how that's determined) - combined
+  // with `topLevel` below (never true for a Shred-continuation depth) to decide, once per depth
+  // iteration, whether `withChargeBoost(atk)` applies to THAT iteration's own resolution. Always
+  // `false` for a bought attack (`resolveBoughtAttacksForward`'s own call site).
+  isFirstShot: boolean,
   debuffState: DebuffState,
   boxes: number,
   focusLeft: number,
@@ -1413,6 +1441,12 @@ function resolveAttackChainForward(
 
   while (current.size > 0) {
     const topLevel = depthRemaining === MAX_SHRED_DEPTH;
+    // Only a genuinely fresh top-level resolution of this row's own first shot gets the boost -
+    // never a Shred-continuation depth (`topLevel` false), matching `buildShotsValue`'s own
+    // `shotsRemaining === maxShots` gate for the backward pass. `atk` itself (this function's own
+    // parameter) stays the true base throughout, unaffected by `rollAtk` - so the NEXT iteration of
+    // this same loop (a Shred-continuation depth) naturally resolves from the base again.
+    const rollAtk = isFirstShot && topLevel ? withChargeBoost(atk) : atk;
     const continuing = new Map<string, { state: FwdState; probability: number }>();
 
     for (const { state, probability: p0 } of current.values()) {
@@ -1425,7 +1459,7 @@ function resolveAttackChainForward(
       // own attack-roll/damage-roll boost choices) are recomputed fresh (pure functions of
       // reproducible inputs, exactly like `bestAction` already is in both passes today).
       const { trueOriginal, attackerFocusLeft: postBoostFocusLeft } = chooseAttackerAttackBoost(
-        ctx, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
+        ctx, k, rollAtk, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
         state.pmMask, state.kotdOffLeft, state.kotdDefLeft, state.attackerFocusLeft, shotsRemainingThisRow,
         state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
       );
@@ -1436,18 +1470,18 @@ function resolveAttackChainForward(
       if (postBoostFocusLeft !== state.attackerFocusLeft) {
         recordFocusPolicy(ctx, atk.attackerIndex ?? 0, state.debuffState, 'boostAttack', isBoughtAttack, p0, atk.label, atk.type);
       }
-      for (const { profile: pmProfile, resultingMask } of resolvePmSplit(ctx, k, atk, state.debuffState, state.pmMask, trueOriginal, state.sustained)) {
+      for (const { profile: pmProfile, resultingMask } of resolvePmSplit(ctx, k, rollAtk, state.debuffState, state.pmMask, trueOriginal, state.sustained)) {
         for (const { profile: offProfile, resultingLeft: resultingOffKotdLeft } of resolveKotdOffSplit(
-          ctx, k, atk, state.debuffState, state.kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal, state.sustained
+          ctx, k, rollAtk, state.debuffState, state.kotdOffLeft, shotsRemainingThisRow, pmProfile, trueOriginal, state.sustained
         )) {
           const { profile: finalProfile, resultingLeft: resultingDefKotdLeft } = resolveKotdDefChoice(
-            ctx, k, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
+            ctx, k, rollAtk, atk, state.debuffState, state.kotdDefLeft, offProfile, trueOriginal,
             state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, postBoostFocusLeft, shotsRemainingThisRow,
             state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
           );
           for (const { profile: boostedFinalProfile, resultingAttackerFocusLeft } of resolveAttackerDamageBoostChoice(
-            ctx, k, atk, state.debuffState, postBoostFocusLeft, finalProfile,
+            ctx, k, rollAtk, atk, state.debuffState, postBoostFocusLeft, finalProfile,
             state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
             resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, shotsRemainingThisRow,
             state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
@@ -1466,7 +1500,7 @@ function resolveAttackChainForward(
               stats.damageMass += p * outcome.damageDealt;
 
               const { branches, continuesChain, outcomeSustained } = resolveOneOutcome(
-                ctx, outcome, k, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
+                ctx, outcome, k, rollAtk, atk, state.debuffState, state.boxes, state.focusLeft, state.furyLeft,
                 state.shieldGuardsLeft, state.scapegoatsLeft,
                 resultingMask, resultingOffKotdLeft, resultingDefKotdLeft, resultingAttackerFocusLeft, shotsRemainingThisRow,
                 state.sustained, depthRemaining, outerValueAt, shredCache, downstreamRow, downstreamShotsRemaining
@@ -1787,6 +1821,7 @@ export function computeSequenceOdds(
         ctx,
         k,
         shotsRemaining === maxShots ? withChargeBoost(atk) : atk,
+        atk,
         debuffState,
         boxes,
         focusLeft,
@@ -1912,7 +1947,7 @@ export function computeSequenceOdds(
               chainCachesByFocusLeftAndWeapon[focusLeftHere].set(w, weaponCache);
             }
             const value = attackChainValue(
-              ctx, w, attacks[w], debuffState, boxes, focus, fury, shieldGuards, scapegoats,
+              ctx, w, attacks[w], attacks[w], debuffState, boxes, focus, fury, shieldGuards, scapegoats,
               pmMask, kotdOffLeft, kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH,
               (b, d, f, fu, sg, sc, m, o, dk, afl) => readValueTable(boughtTable(afl[slot], d, m, o, dk, afl), b, f, fu, sg, sc),
               weaponCache,
@@ -2106,14 +2141,16 @@ export function computeSequenceOdds(
         // `i === 1 && reportOffset === 0` is this row's own genuine first shot: a fresh volley
         // (not `partialInjections`, which by construction always resumes mid-volley - at least one
         // shot already fired - see this function's own doc comment) starting its very first shot.
-        // See `withChargeBoost`'s own doc comment.
-        const shotAtk = i === 1 && reportOffset === 0 ? withChargeBoost(atk) : atk;
+        // `resolveAttackChainForward` itself decides, per Shred depth, whether to actually apply
+        // the boost (`atk` passed here always stays the true base) - see its own doc comment.
+        const isFirstShot = i === 1 && reportOffset === 0;
         for (const { state, probability } of current.values()) {
           resolveAttackChainForward(
             ctx,
             k,
-            shotAtk,
+            atk,
             false,
+            isFirstShot,
             state.debuffState,
             state.boxes,
             state.focusLeft,
@@ -2235,7 +2272,7 @@ export function computeSequenceOdds(
             // doesn't include `k`/the weapon index (see `buildBoughtAttacksValue`'s own doc comment
             // for why that's normally safe and why it wouldn't be here).
             const value = attackChainValue(
-              ctx, w, attacks[w], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
+              ctx, w, attacks[w], attacks[w], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
               state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, number>(),
               downstreamRow, 0
             );
@@ -2271,7 +2308,7 @@ export function computeSequenceOdds(
         const shredCache = new Map<string, number>();
         const boughtStats: ShotStats = { hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 };
         resolveAttackChainForward(
-          ctx, bestWeapon, attacks[bestWeapon], true, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
+          ctx, bestWeapon, attacks[bestWeapon], true, false, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
           state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, p0, valueAt, shredCache, boughtStats, continuing, destroyed,
           downstreamRow, 0
         );

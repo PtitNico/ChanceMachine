@@ -3270,5 +3270,48 @@ describe('sequence engine - Attacker Charge (first-shot-only boost)', () => {
 
     expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(control.steps[0].shots[0].averageDamage, 9);
   });
+
+  it('a Critical Shred bonus attack chained off the charge-boosted first shot does not itself inherit the boost (regression)', () => {
+    // Not auto-hit here (unlike the other tests in this block) - an auto-hit attack can never crit
+    // (see attack-model.ts), so Critical Shred could never trigger at all without a real attack
+    // roll. MAT 8 vs DEF 7 still hits almost every time, but the crit (doubles) chance stays real.
+    const target = { def: 7, arm: 5, boxes: 500 };
+
+    function avgDamage(r: ReturnType<typeof computeSequenceOdds>): number {
+      const survivalMass = r.survivalDistribution.reduce((sum, p) => sum + (target.boxes - p.boxes) * p.probability, 0);
+      return survivalMass + r.finalDestroyChance * target.boxes;
+    }
+
+    const chargedShredRow: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 8, pow: 10,
+      criticalShred: true, chargeDamageBoost: true,
+    };
+    // The bug this guards against: an earlier version baked the charge boost into the row's own
+    // `damageModifiers`/`boostedDamage`, applying it uniformly to EVERY instance of the weapon,
+    // shred-chained ones included - reproduced here directly (not via `chargeDamageBoost`) as the
+    // "what the old bug would have produced" upper bound.
+    const bugEquivalentRow: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 8, pow: 10,
+      criticalShred: true, boostedDamage: true, damageModifiers: { boostDice: 1 },
+    };
+    // Never boosted at all - the lower bound (shot 1 itself should still be ABOVE this).
+    const neverBoostedRow: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 8, pow: 10,
+      criticalShred: true,
+    };
+
+    const charged = computeSequenceOdds([chargedShredRow], target);
+    const bugEquivalent = computeSequenceOdds([bugEquivalentRow], target);
+    const neverBoosted = computeSequenceOdds([neverBoostedRow], target);
+
+    // `shots[0].averageDamage` already folds in every Shred-chained continuation's own damage too
+    // (a Shred chain is "additional depth within resolving this ONE shot", never a separate shot -
+    // see `SequenceShotResult`'s own doc comment), so it's NOT expected to match between these two -
+    // it should sit strictly between "nothing ever boosted" and "everything boosted, including every
+    // shred-chained bonus attack" (the bug this guards against), confirming shot 1 itself is boosted
+    // but the shred continuations riding on it are not.
+    expect(avgDamage(charged)).toBeLessThan(avgDamage(bugEquivalent));
+    expect(avgDamage(charged)).toBeGreaterThan(avgDamage(neverBoosted));
+  });
 });
 
