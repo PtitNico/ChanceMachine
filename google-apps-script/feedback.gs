@@ -58,7 +58,7 @@ function doPost(e) {
       <pre>${escapeHtml_(p.message || '')}</pre>
 
       <h3>Data</h3>
-      <pre>${escapeHtml_(p.data || '')}</pre>
+      <pre><code>${escapeHtml_(prettyPrintJson_(p.data || ''))}</code></pre>
 
       <h3>User agent</h3>
       <pre>${escapeHtml_(p.userAgent || '')}</pre>
@@ -79,6 +79,16 @@ function getSheet_() {
     sheet.appendRow(HEADERS);
   }
   return sheet;
+}
+
+/** Re-indents the sequence-data JSON for the email body (the sheet cell keeps the compact form as
+ *  submitted). Falls back to the raw string unchanged if it isn't valid JSON. */
+function prettyPrintJson_(json) {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch (e) {
+    return json;
+  }
 }
 
 function escapeHtml_(str) {

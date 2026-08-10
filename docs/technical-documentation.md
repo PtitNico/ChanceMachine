@@ -697,6 +697,8 @@ The app has no backend of its own (it's a static PWA), so the Feedback form post
 
 `FEEDBACK_ENDPOINT_URL` is a module-level constant in `feedback-dialog.ts` holding the deployed Web App URL (`.../exec`) from `feedback.gs`'s own setup steps.
 
+The notification email re-indents `data` for readability (`prettyPrintJson_` in `feedback.gs`: `JSON.parse` then `JSON.stringify(_, null, 2)`, falling back to the raw string if it isn't valid JSON) and renders it in a `<pre><code>` block - the sheet cell itself keeps the compact single-line form `serializeFeedbackData` actually sends, since re-indenting there would just spread one submission across many spreadsheet rows visually.
+
 **`mode: 'no-cors'`, not `'cors'` - a deliberate, necessary tradeoff, not an oversight.** Apps Script Web Apps don't reliably send back `Access-Control-Allow-Origin` headers a cross-origin `fetch` can read, so requesting in `'cors'` mode fails outright even when the script executes correctly server-side; `'no-cors'` is the standard, documented workaround for calling Apps Script from client-side JS. The cost: the response becomes **opaque** - `submit()`'s `await fetch(...)` resolving only means the request left the browser, not that `doPost` actually ran or wrote the row (a wrong URL, an undeployed script, or an error inside `doPost` won't surface as a caught exception here, only a genuine network failure will). The UI is deliberately honest about this asymmetry: a successful `fetch` shows "Thanks! Your message has been sent" (optimistic), and only a thrown exception - not a script-side failure - shows the retry notice.
 
 ### App shell: title/Results fixed, Target and Attack sequence share the rest
