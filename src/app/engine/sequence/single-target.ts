@@ -67,6 +67,43 @@ function rofOutcomes(atk: SequencedAttack): { count: number; probability: number
   return [...dist.entries()].sort(([a], [b]) => a - b).map(([count, probability]) => ({ count, probability }));
 }
 
+/** Builds a one-shot "boosted view" of `atk` for the SINGLE genuine first attack of a Charge/
+ *  Cavalry-Charge-eligible row (see `SequencedAttack.chargeAttackBoost`/`chargeDamageBoost`) -
+ *  callers use this ONLY at the two points in this file where that first shot is genuinely about
+ *  to resolve (`buildShotsValue`'s `shotsValue` and `resolveRofAttackForward`'s `resolveVolley`),
+ *  never for a later shot of the same row, a Focus-bought extra attack with this weapon, or (see
+ *  below) a Critical-Shred bonus attack.
+ *
+ *  Reuses the EXISTING `boostedAttack`/`boostedDamage` fields (rather than inventing a parallel
+ *  mechanism) so every place that already treats those as "already boosted, don't also spend Focus
+ *  on it" (`chooseAttackerAttackBoost`, `resolveAttackerDamageBoostChoice`) does the right thing
+ *  here for free - no other function needs to change. Doesn't stack with an already-Boosted weapon
+ *  (`atk.boostedAttack`/`boostedDamage` already true from the toggle) - a roll can only ever be
+ *  boosted once, so charge's own contribution is skipped when the toggle already covers every
+ *  shot including this one.
+ *
+ *  Known scope cut: if this same first shot crits and triggers Critical Shred, the shred-chained
+ *  bonus attack is resolved via a fresh `attackChainValue`/`resolveAttackChainForward` recursion
+ *  that receives whatever `atk` reference the triggering call used - so a Shred bonus attack
+ *  riding off a charge-boosted first shot incorrectly inherits the boost too. This combo (Charge +
+ *  Critical/Sustained Shred on the SAME first melee weapon) is narrow enough, and fully correctly
+ *  threading a "genuinely still the first shot" flag through Shred's own recursive call chain
+ *  invasive enough, that it's left as a known limitation rather than fixed here - consistent with
+ *  this file's existing "Deliberate scope cut" precedent for similarly narrow combos (see
+ *  `buildBoughtAttacksValue`'s own doc comment). */
+function withChargeBoost(atk: SequencedAttack): SequencedAttack {
+  const addAttack = !!atk.chargeAttackBoost && !atk.boostedAttack;
+  const addDamage = !!atk.chargeDamageBoost && !atk.boostedDamage;
+  if (!addAttack && !addDamage) return atk;
+  return {
+    ...atk,
+    boostedAttack: atk.boostedAttack || addAttack,
+    boostedDamage: atk.boostedDamage || addDamage,
+    modifiers: addAttack ? { ...atk.modifiers, boostDice: (atk.modifiers?.boostDice ?? 0) + 1 } : atk.modifiers,
+    damageModifiers: addDamage ? { ...atk.damageModifiers, boostDice: (atk.damageModifiers?.boostDice ?? 0) + 1 } : atk.damageModifiers,
+  };
+}
+
 /** Is THIS ONE ROW (regardless of ROF shot count or Critical Shred depth - both deliberately
  *  treated as "one roll opportunity", see the module doc comment's Knowledge of the Damned
  *  section) guaranteed to auto-hit given `debuffState`? Pure/no-lookahead: only static per-attack
@@ -357,10 +394,16 @@ function contextFor(ctx: SequenceContext, atk: SequencedAttack, debuffState: Deb
  *  It must be part of the cache key: omitting it would silently hand a caller asking for the
  *  boosted profile the cached UNBOOSTED one (or vice versa) the second time this exact
  *  (k, context) combination is seen - the sharpest correctness trap in the whole Attacker Focus
- *  feature, since nothing else about the call site would look wrong. */
+ *  feature, since nothing else about the call site would look wrong. `atk.boostedAttack`/
+ *  `boostedDamage` are ALSO part of the key, for the same reason: `ctx.profileCache` is one cache
+ *  shared across the WHOLE computation, not scoped per shot, and `withChargeBoost` now means the
+ *  `atk` object passed in for a given `k` is no longer necessarily the SAME one on every call (the
+ *  row's own genuine first shot gets a locally-boosted view, later shots of the same row don't) -
+ *  without these in the key, a later, unboosted shot's query would silently hit the first shot's
+ *  own cached (boosted) profile instead of building its own. */
 function profileFor(ctx: SequenceContext, k: number, atk: SequencedAttack, debuffState: DebuffState, sustained: boolean, attackBoosted = false): AttackProfile {
   const { usesAutoHit, def, arm } = contextFor(ctx, atk, debuffState, sustained);
-  const cacheKey = `${k}|${usesAutoHit}|${def}|${arm}|${debuffState.knockedDown}|${isStationary(debuffState)}|${attackBoosted}`;
+  const cacheKey = `${k}|${usesAutoHit}|${def}|${arm}|${debuffState.knockedDown}|${isStationary(debuffState)}|${attackBoosted}|${atk.boostedAttack}|${atk.boostedDamage}`;
   const cached = ctx.profileCache.get(cacheKey);
   if (cached) return cached;
 
@@ -1737,10 +1780,13 @@ export function computeSequenceOdds(
       // last shot (next row fresh), otherwise the row itself continues with that many shots still owed.
       const downstreamShotsRemaining = shotsRemaining - 1;
       const downstreamRow = downstreamShotsRemaining === 0 ? k + 1 : k;
+      // `shotsRemaining === maxShots` is always the OUTERMOST call for this row (the entry point
+      // built by `getValueTableAt[k]`'s own `rofDist.reduce(...)`) - i.e. genuinely about to
+      // resolve this row's own first shot. See `withChargeBoost`'s own doc comment.
       return attackChainValue(
         ctx,
         k,
-        atk,
+        shotsRemaining === maxShots ? withChargeBoost(atk) : atk,
         debuffState,
         boxes,
         focusLeft,
@@ -2057,11 +2103,16 @@ export function computeSequenceOdds(
         const survivors = new Map<string, { state: FwdState; probability: number }>();
         const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk, afl, sus) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk, afl, sus);
 
+        // `i === 1 && reportOffset === 0` is this row's own genuine first shot: a fresh volley
+        // (not `partialInjections`, which by construction always resumes mid-volley - at least one
+        // shot already fired - see this function's own doc comment) starting its very first shot.
+        // See `withChargeBoost`'s own doc comment.
+        const shotAtk = i === 1 && reportOffset === 0 ? withChargeBoost(atk) : atk;
         for (const { state, probability } of current.values()) {
           resolveAttackChainForward(
             ctx,
             k,
-            atk,
+            shotAtk,
             false,
             state.debuffState,
             state.boxes,

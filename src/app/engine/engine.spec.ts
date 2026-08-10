@@ -3201,3 +3201,74 @@ describe('sequence engine - Attacker Focus vs a fixed manual translation', () =>
   }, 20000);
 });
 
+describe('sequence engine - Attacker Charge (first-shot-only boost)', () => {
+  // Unconditional destroy/survival total, weighted average damage across the whole sequence - used
+  // below where the fixture spans more than one row (`steps[0].shots[]` alone only covers the FIRST
+  // row's own shots), unlike `totalAverageDamage` at the top of this file (one row's own total).
+  function avgDamage(result: ReturnType<typeof computeSequenceOdds>, boxesInitial: number): number {
+    const survivalMass = result.survivalDistribution.reduce(
+      (sum, p) => sum + (boxesInitial - p.boxes) * p.probability,
+      0
+    );
+    return survivalMass + result.finalDestroyChance * boxesInitial;
+  }
+
+  it("boosts only the row's own first shot, not later shots from attackCount > 1 (regression for the reported bug)", () => {
+    // forceAutoHit removes attack-roll/crit randomness entirely (an auto-hit attack can never crit -
+    // see attack-model.ts), isolating the damage-roll boost's own effect on each shot.
+    const chargedRow: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 10, pow: 10,
+      forceAutoHit: true, attackCount: 2, chargeDamageBoost: true,
+    };
+    const plainRow: SequencedAttack = { ...chargedRow, chargeDamageBoost: undefined };
+    const target = { def: 7, arm: 5, boxes: 100 };
+
+    const charged = computeSequenceOdds([chargedRow], target);
+    const plain = computeSequenceOdds([plainRow], target);
+
+    expect(charged.steps[0].shots[0].averageDamage).toBeGreaterThan(plain.steps[0].shots[0].averageDamage);
+    expect(charged.steps[0].shots[1].averageDamage).toBeCloseTo(plain.steps[0].shots[1].averageDamage, 9);
+  });
+
+  it('a Focus-bought extra attack with the charge-boosted weapon does not inherit the free boost (regression)', () => {
+    // 24 boxes is chosen so buying is deterministically the true-optimal choice across essentially
+    // the WHOLE reachable state space (verified: buyMass ~= 1.0 here) - too few boxes and the first
+    // (already charge-boosted) hit alone destroys the target often enough that the second point goes
+    // unspent in some branches; too many and destroying it is so unlikely either way that spending
+    // the point stops mattering to the optimizer at all. Either makes the two totals below diverge
+    // for reasons that have nothing to do with the bug this test guards against.
+    const target = { def: 7, arm: 5, boxes: 24 };
+    // 1 Focus, forceAutoHit (no attack-roll boost possible), and the first shot already free-boosted
+    // by charge (so Focus's own damage-boost choice is a no-op there too) - the true-optimal policy
+    // has nothing left to do with that point but buy one extra (unboosted) attack with this weapon.
+    const withFocus: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 10, pow: 10,
+      forceAutoHit: true, attackerIndex: 0, attackerFocus: 1, chargeDamageBoost: true,
+    };
+    // The same thing spelled out by hand: one boosted configured attack, one plain unboosted one.
+    const manualTranslation: SequencedAttack[] = [
+      { id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 10, pow: 10, forceAutoHit: true, damageModifiers: { boostDice: 1 } },
+      { id: 'bought', attackerName: 'A', label: 'Bought', type: 'melee', stat: 10, pow: 10, forceAutoHit: true },
+    ];
+
+    const focusResult = computeSequenceOdds([withFocus], target);
+    const manualResult = computeSequenceOdds(manualTranslation, target);
+
+    expect(avgDamage(focusResult, target.boxes)).toBeCloseTo(avgDamage(manualResult, target.boxes), 6);
+  });
+
+  it('does not stack with an already-Boosted weapon - still +1 die on the first shot, not +2 (regression)', () => {
+    const target = { def: 7, arm: 5, boxes: 100 };
+    const toggledAndCharged: SequencedAttack = {
+      id: 'a', attackerName: 'A', label: 'Weapon', type: 'melee', stat: 10, pow: 10,
+      forceAutoHit: true, boostedDamage: true, damageModifiers: { boostDice: 1 }, chargeDamageBoost: true,
+    };
+    const toggledOnly: SequencedAttack = { ...toggledAndCharged, chargeDamageBoost: undefined };
+
+    const result = computeSequenceOdds([toggledAndCharged], target);
+    const control = computeSequenceOdds([toggledOnly], target);
+
+    expect(result.steps[0].shots[0].averageDamage).toBeCloseTo(control.steps[0].shots[0].averageDamage, 9);
+  });
+});
+

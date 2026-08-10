@@ -419,12 +419,16 @@ export function toSequencedAttack(
     statEffects.push({ type: 'armPenalty', trigger: 'crit', amount: row.armPenaltyCritAmount() });
   }
 
-  // Charge/Cavalry Charge are just another SOURCE for the same "Boosted" flags a weapon's own
-  // toggle sets (see AttackRow.reload's neighboring doc comments for the broader "Boosted"
-  // mechanism) - OR'd together so a roll boosted by either (or both) source still only gets +1
-  // die, never stacked, exactly matching the "not cumulative" rule for both Focus and each other.
-  const boostedAttack = isEffectOn(row, 'boostedAttack') || (isFirstMeleeAttack && charge === 'cavalryCharge');
-  const boostedDamage = isEffectOn(row, 'boostedDamage') || (isFirstMeleeAttack && charge !== 'off');
+  const boostedAttack = isEffectOn(row, 'boostedAttack');
+  const boostedDamage = isEffectOn(row, 'boostedDamage');
+  // Charge/Cavalry Charge boost only the attacker's genuine FIRST melee attack, never every shot
+  // of this row (unlike the "Boosted" toggle above, which is a persistent weapon-level rule) - so,
+  // unlike an earlier version of this function, these are NOT folded into `boostedAttack`/
+  // `boostedDamage`/`modifiers.boostDice`/`damageModifiers.boostDice` here. Recorded instead as
+  // their own `chargeAttackBoost`/`chargeDamageBoost` eligibility flags below; `single-target.ts`'s
+  // `withChargeBoost` applies the actual +1 die dynamically, ONLY at the row's own first shot.
+  const chargeAttackBoost = isFirstMeleeAttack && charge === 'cavalryCharge';
+  const chargeDamageBoost = isFirstMeleeAttack && charge !== 'off';
 
   return {
     id: row.id,
@@ -467,6 +471,8 @@ export function toSequencedAttack(
     attackerFocus: attackerFocus || undefined,
     boostedAttack: boostedAttack || undefined,
     boostedDamage: boostedDamage || undefined,
+    chargeAttackBoost: chargeAttackBoost || undefined,
+    chargeDamageBoost: chargeDamageBoost || undefined,
     eligibleTargetIndices,
   };
 }

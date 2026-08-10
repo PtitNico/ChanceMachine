@@ -89,15 +89,26 @@ export interface SequencedAttack {
    *  attacker has no Focus and every Focus code path is a no-op for it. See the Attacker Focus
    *  section in single-target.ts. */
   attackerFocus?: number;
-  /** This attack's own to-hit roll is boosted (+1 die) for free, unconditionally - already baked
-   *  into `modifiers.boostDice` by `toSequencedAttack`. This flag's only remaining job is telling
-   *  Attacker Focus's boost-attack-roll decision (`chooseAttackerAttackBoost`) that this roll is
-   *  already boosted and ineligible for a further Focus-funded boost (a roll can only be boosted
-   *  once). */
+  /** This attack's own to-hit roll is boosted (+1 die) for free, unconditionally, on EVERY shot of
+   *  this row - already baked into `modifiers.boostDice` by `toSequencedAttack` (the weapon's own
+   *  "Boosted" toggle only; see `chargeAttackBoost` below for Cavalry Charge's own, narrower,
+   *  first-shot-only version of this). This flag's only remaining job is telling Attacker Focus's
+   *  boost-attack-roll decision (`chooseAttackerAttackBoost`) that this roll is already boosted and
+   *  ineligible for a further Focus-funded boost (a roll can only be boosted once). */
   boostedAttack?: boolean;
   /** Same idea for the damage roll and `resolveAttackerDamageBoostChoice` - already baked into
-   *  `damageModifiers.boostDice`. */
+   *  `damageModifiers.boostDice` (the "Boosted" toggle only - see `chargeDamageBoost` below). */
   boostedDamage?: boolean;
+  /** This row is eligible for Cavalry Charge's free attack-roll boost - but, unlike `boostedAttack`
+   *  above, only on the row's own genuine first configured shot, never on a later shot from
+   *  `attackCount > 1`, a Focus-bought extra attack with this weapon, or (a documented scope cut)
+   *  a Critical-Shred bonus attack chained off that first shot. NOT baked into `modifiers` by
+   *  `toSequencedAttack` - `single-target.ts`'s `withChargeBoost` applies the actual +1 die
+   *  dynamically, only where the row's first shot is genuinely resolved. */
+  chargeAttackBoost?: boolean;
+  /** Same idea for the damage roll - true for both `charge` and `cavalryCharge` (Charge alone only
+   *  ever boosts the damage roll, not the attack roll - see `withChargeBoost`). */
+  chargeDamageBoost?: boolean;
   /** Which targets (by index into `computeMultiTargetSequenceOdds`'s own `targets` array) this
    *  weapon is in range of - unset means every target (the default - see the module doc comment's
    *  "Multiple targets" section). Index-based for the same reason `attackerIndex` is: a display

@@ -43,6 +43,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       'Focus strategy advice in the Details pop-up is now a clearer step-by-step breakdown instead of one run-on sentence.',
       'Fixed a bug where buying an extra attack with Focus could recommend a lower-POW weapon over a higher-POW one available to the same attacker.',
+      'Fixed Charge/Cavalry Charge boosting every attack made with the weapon instead of only the first.',
     ],
   },
   {
