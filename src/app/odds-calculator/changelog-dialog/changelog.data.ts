@@ -39,7 +39,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: 'Unreleased',
+    date: '2026-08-10',
     items: [
       'Focus strategy advice in the Details pop-up is now a clearer step-by-step breakdown instead of one run-on sentence.',
       'Fixed a bug where buying an extra attack with Focus could recommend a lower-POW weapon over a higher-POW one available to the same attacker.',
