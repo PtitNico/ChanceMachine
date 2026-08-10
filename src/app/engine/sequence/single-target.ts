@@ -2440,6 +2440,29 @@ export function computeSequenceOdds(
  *  "significant" purely because it's the largest of its own small numbers. */
 const SIGNIFICANT_ACTION_RATIO = 0.5;
 
+/** Below this, a phase's own local "strongest action" (see `weaponPhrasesForPhase`) is treated as
+ *  noise rather than a real recommendation, regardless of how it compares to its (possibly also
+ *  tiny) siblings within the same phase. Necessary on top of `SIGNIFICANT_ACTION_RATIO`: a phase
+ *  where every weapon's own mass is near 0 (e.g. "initial attacks" for an attacker whose MAT/RAT
+ *  already guarantees a hit on every configured weapon, so boosting the attack/damage roll almost
+ *  never actually matters) still has SOME weapon with the largest of those near-0 numbers, which
+ *  would otherwise trivially "win" its own phase by default and get phrased as confidently as a
+ *  genuinely dominant action in the OTHER phase (e.g. "buy attacks with the strongest weapon",
+ *  whose own mass - spent from the very same attacker's Focus pool - can be 50-100x larger). A
+ *  phase's two "opportunity budgets" genuinely aren't comparable in magnitude (an initial-attack
+ *  boost decision is capped at mass 1 - one roll, decided once - while buying/boosting bought
+ *  rolls can accumulate mass well past 1 across several bought attacks), so this floor deliberately
+ *  stays a small ABSOLUTE cutoff rather than a threshold relative to the other phase's own numbers -
+ *  that relative comparison was tried and reverted (see git history) after it silently dropped
+ *  legitimate, real advice whenever one phase's mass was just structurally smaller than the other's
+ *  (e.g. "sometimes also worth buying more" at 30-something% mass, dwarfed by a mass-1 "always
+ *  worth boosting the guaranteed initial roll" in the SAME entry, but still true and worth saying).
+ *  Kept low - a `debuffed` situation in particular can legitimately have a real, low-double-digit-
+ *  percent mass overall (it's inherently capped by how often the debuff is even reached at all, not
+ *  by how good the advice is once there) - so this only ever needs to catch genuine near-zero noise
+ *  (a couple of percent or less), not a real but minority branch of the true-optimal policy. */
+const PHASE_WORTH_MENTIONING_FLOOR = 0.05;
+
 type FocusAction = 'boostAttack' | 'boostDamage' | 'buy';
 
 function joinPhrases(phrases: string[]): string {
@@ -2484,11 +2507,14 @@ function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: F
  *  weapon" and "boost the roll you just bought" are both "once you're buying" advice.
  *  `SIGNIFICANT_ACTION_RATIO`'s threshold is computed within this phase's own values only - a
  *  phase's own "which weapon dominates THIS phase" question, independent of the other phase's own
- *  numbers. Always returns one entry per weapon in `weaponTallies` (empty `phrase` when it doesn't
- *  clear the threshold), rather than dropping insignificant weapons - callers (the hoist-vs-branch
- *  algorithm in `summarizeFocusStrategy`) need to tell "this weapon reaches this phase but nothing
- *  here is worth doing" (present, empty phrase) apart from "this weapon never reaches this
- *  phase/situation at all" (absent from `weaponTallies` altogether). */
+ *  numbers - EXCEPT that the phase's own strongest action must also clear `PHASE_WORTH_MENTIONING_
+ *  FLOOR` in absolute terms, or the whole phase is treated as empty (see that constant's doc
+ *  comment for why a purely-relative, single-phase comparison isn't enough on its own). Always
+ *  returns one entry per weapon in `weaponTallies` (empty `phrase` when it doesn't clear the
+ *  threshold), rather than dropping insignificant weapons - callers (the hoist-vs-branch algorithm
+ *  in `summarizeFocusStrategy`) need to tell "this weapon reaches this phase but nothing here is
+ *  worth doing" (present, empty phrase) apart from "this weapon never reaches this phase/situation
+ *  at all" (absent from `weaponTallies` altogether). */
 function weaponPhrasesForPhase(
   weaponTallies: FocusWeaponTally[] | undefined,
   phase: 'initial' | 'bought'
@@ -2499,7 +2525,7 @@ function weaponPhrasesForPhase(
   const strongest = Math.max(0, ...weaponTallies.flatMap((t) => [boostAttackOf(t), boostDamageOf(t), phase === 'bought' ? t.buyMass : 0]));
   const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
   return weaponTallies.map((t) => {
-    if (strongest <= 0) return { weaponLabel: t.weaponLabel, phrase: '' };
+    if (strongest < PHASE_WORTH_MENTIONING_FLOOR) return { weaponLabel: t.weaponLabel, phrase: '' };
     const actions: FocusAction[] = [];
     if (boostAttackOf(t) >= threshold) actions.push('boostAttack');
     if (boostDamageOf(t) >= threshold) actions.push('boostDamage');

@@ -2309,7 +2309,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     // should say exactly that, not the coarse either-or phrasing.
     const attacks: SequencedAttack[] = [
       attack({ id: '1', label: 'Weapon 1', stat: 9, pow: 8, attackerIndex: 0, attackerFocus: 4, statEffects: [{ type: 'knockdown', trigger: 'crit' }] }),
-      attack({ id: '2', label: 'Weapon 2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
+      attack({ id: '2', label: 'Weapon 2', stat: 4, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
     ];
     const result = computeSequenceOdds(attacks, target);
     const entry = result.focusStrategy[0];
@@ -2324,7 +2324,7 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     // A Stationary-only trigger produces the mirror-image label.
     const stationaryAttacks: SequencedAttack[] = [
       attack({ id: '1', label: 'Weapon 1', stat: 9, pow: 8, attackerIndex: 0, attackerFocus: 4, statEffects: [{ type: 'stationary', trigger: 'crit' }] }),
-      attack({ id: '2', label: 'Weapon 2', stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
+      attack({ id: '2', label: 'Weapon 2', stat: 4, pow: 12, attackerIndex: 0, attackerFocus: 4 }),
     ];
     const stationaryResult = computeSequenceOdds(stationaryAttacks, target);
     const stationaryEntry = stationaryResult.focusStrategy[0];
@@ -2420,6 +2420,31 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
       { kind: 'line', text: "Boost 🗡️ Attack's initial attack and damage rolls." },
       { kind: 'line', text: "Buy attacks with 🗡️ Attack and boost 🗡️ Attack's attack and damage rolls." },
     ]);
+  });
+
+  it('does not promote a near-noise boost action from a near-empty phase over a dominant buying action from the other phase (regression)', () => {
+    // Reported scenario: MAT 8 vs DEF 7 already guarantees a hit on every melee swing, and Weapon
+    // 1's damage roll is already boosted for free by Charge (`boostedDamage: true`, so Focus can
+    // never usefully boost it either) - so the "initial attacks" phase has essentially nothing
+    // worth boosting on either melee weapon. Only the far weaker ranged weapon (RAT 5, well below
+    // ARM) ever has the true-optimal policy spend a sliver of Focus boosting it, in a handful of
+    // rare branches. Comparing PURELY within that near-empty phase (the bug) let that sliver "win"
+    // its own phase by default and get phrased as confidently as the genuinely dominant action:
+    // buying more attacks with the strongest melee weapon, whose own mass (spent from the SAME
+    // Focus pool) dwarfs it by 1-2 orders of magnitude.
+    const attacks: SequencedAttack[] = [
+      {
+        id: 'w1', attackerName: 'Attacker', label: 'Weapon 1', type: 'melee', stat: 8, pow: 21, attackerIndex: 0,
+        attackerFocus: 3, boostedDamage: true, damageModifiers: { boostDice: 1 },
+      },
+      { id: 'w2', attackerName: 'Attacker', label: 'Weapon 2', type: 'melee', stat: 8, pow: 16, attackerIndex: 0, attackerFocus: 3 },
+      { id: 'w3', attackerName: 'Attacker', label: 'Weapon 3', type: 'ranged', stat: 5, pow: 14, attackerIndex: 0, attackerFocus: 3 },
+    ];
+    const result = computeSequenceOdds(attacks, { def: 7, arm: 22, boxes: 58 });
+    const entry = result.focusStrategy[0];
+    const text = flatten(summarizeFocusStrategy(entry));
+    expect(text).toContain('Buy attacks with 🗡️ Weapon 1');
+    expect(text).not.toContain('Weapon 3');
   });
 
   it('buying prefers the higher-POW candidate weapon even when the destroy-probability delta between them is too small for floating-point to represent (regression)', () => {
