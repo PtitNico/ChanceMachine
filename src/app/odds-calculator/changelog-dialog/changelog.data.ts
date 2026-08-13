@@ -39,7 +39,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: 'Unreleased',
+    date: '2026-08-13',
     items: [
       'Fixed a bug where a complex enough combination of attackers with Focus (or ranged weapons with Reload) could silently freeze the app instead of either calculating or showing a clear error.',
       'Added a "this might take a long time" note under "Calculating" instead when a configuration is likely to be slow.',
