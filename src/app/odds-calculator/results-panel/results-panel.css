@@ -43,17 +43,75 @@
   position: absolute;
   inset: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
   pointer-events: none;
   color: var(--brass-bright);
   font-size: 0.85rem;
+  text-align: center;
   background: rgba(26, 28, 31, 0.78);
 }
 
 .readout__overlay-gear {
   animation: spin 1.1s linear infinite;
+}
+
+/* A failed computation (almost always one of sequence.ts's own guard-rail caps, e.g. too many
+   attackers with Attacker Focus active at once - see OddsEngine.error's own doc comment) needs its
+   own distinct color from "Calculating" (which is reassuring, not alarming) plus room to wrap: the
+   message is a real sentence, not a short fixed label, so this can't stay a single centered line. */
+.readout__overlay--error {
+  color: #e08a7d;
+  line-height: 1.3;
+}
+
+/* Forces onto its own line below the "Calculating"/Cancel row (`.readout__overlay` is already
+   `flex-wrap: wrap`) via `flex-basis: 100%` - a dimmer, smaller aside, not equal billing with the
+   main label. Purely advisory (see OddsEngine.slow's own doc comment): the computation runs either
+   way, this is just a heads-up so the player can decide whether to wait it out. */
+.readout__overlay-hint {
+  flex-basis: 100%;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+/* Cancelling is a deliberate player action, not a failure - calmer than .readout__overlay--error's
+   red, distinct from the default brass "Calculating" tone so it still reads as "this stopped". */
+.readout__overlay--cancelled {
+  color: var(--text-dim);
+}
+
+/* The overlay itself is `pointer-events: none` (a passive backdrop over the dimmed gauges) - this
+   is the one interactive element inside it (Cancel while calculating, Retry once cancelled), so it
+   opts back in. Brass by default (the "Calculating" case); `.readout__overlay--cancelled` below
+   overrides it to the calmer `--text-dim` tone next to "Cancelled" instead. */
+.readout__overlay-action {
+  pointer-events: auto;
+  background: none;
+  border: 1px solid var(--brass);
+  color: var(--brass-bright);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  cursor: pointer;
+}
+
+.readout__overlay-action:hover {
+  background: var(--brass);
+  color: var(--bg);
+}
+
+.readout__overlay--cancelled .readout__overlay-action {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
+.readout__overlay--cancelled .readout__overlay-action:hover {
+  background: var(--text-dim);
+  color: var(--panel);
 }
 
 @keyframes spin {
@@ -123,6 +181,15 @@
 .readout__all-destroyed--calculating {
   opacity: 0.35;
   transition: opacity 0.15s ease;
+  /* Unlike `.readout__grid` (already tall from its two gauge cells), this bar is normally a single
+     thin line - its own auto height comes from its own in-flow text only, since the overlay sits on
+     top via `position: absolute` and contributes nothing to that calculation. Without this, a
+     two-line overlay (Calculating + Cancel on one line, the `slow` hint wrapped onto a second one
+     via `flex-basis: 100%`) simply overflows past the bar's own bottom edge, unstyled and cut off
+     against the page background instead of staying inside the bar's own backdrop. Sized for the
+     tallest realistic case (two overlay lines plus padding) so height stays constant across every
+     overlay state instead of visibly resizing as the message changes. */
+  min-height: 3.5rem;
 }
 
 .readout__all-destroyed-value {

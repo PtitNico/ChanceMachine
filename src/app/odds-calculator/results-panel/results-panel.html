@@ -1,7 +1,7 @@
 <section class="readout" aria-label="Results">
   @if (results().length <= 1) {
     <div class="readout__row">
-      <div class="readout__grid" [class.readout__grid--calculating]="calculating()">
+      <div class="readout__grid" [class.readout__grid--calculating]="calculating() || error() || cancelled()">
         <div class="gauge gauge--highlight">
           <span class="gauge__value">{{ pct(results()[0]?.result?.finalDestroyChance ?? 0) }}</span>
           <span class="gauge__label">Chance to destroy</span>
@@ -11,12 +11,27 @@
           <span class="gauge__label">Average damage</span>
         </div>
 
-        @if (calculating()) {
+        @if (error()) {
+          <div class="readout__overlay readout__overlay--error" aria-live="assertive">
+            <span class="material-symbols-outlined">error</span>
+            <span class="readout__overlay-label">Can't calculate: {{ error() }}</span>
+          </div>
+        } @else if (cancelled()) {
+          <div class="readout__overlay readout__overlay--cancelled" aria-live="polite">
+            <span class="material-symbols-outlined">cancel</span>
+            <span class="readout__overlay-label">Cancelled</span>
+            <button type="button" class="readout__overlay-action" (click)="retry.emit()">Retry</button>
+          </div>
+        } @else if (calculating()) {
           <div class="readout__overlay" aria-live="polite">
             <span class="material-symbols-outlined readout__overlay-gear">settings</span>
             <span class="readout__overlay-label">
               Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
             </span>
+            <button type="button" class="readout__overlay-action" (click)="cancel.emit()">Cancel</button>
+            @if (slow()) {
+              <span class="readout__overlay-hint">This might take a long time.</span>
+            }
           </div>
         }
       </div>
@@ -27,16 +42,31 @@
     </div>
   } @else {
     <div class="readout__row">
-      <div class="readout__all-destroyed" [class.readout__all-destroyed--calculating]="calculating()">
+      <div class="readout__all-destroyed" [class.readout__all-destroyed--calculating]="calculating() || error() || cancelled()">
         Chance to destroy all targets:
         <span class="readout__all-destroyed-value">{{ pct(chanceToDestroyAll() ?? 0) }}</span>
 
-        @if (calculating()) {
+        @if (error()) {
+          <div class="readout__overlay readout__overlay--error" aria-live="assertive">
+            <span class="material-symbols-outlined">error</span>
+            <span class="readout__overlay-label">Can't calculate: {{ error() }}</span>
+          </div>
+        } @else if (cancelled()) {
+          <div class="readout__overlay readout__overlay--cancelled" aria-live="polite">
+            <span class="material-symbols-outlined">cancel</span>
+            <span class="readout__overlay-label">Cancelled</span>
+            <button type="button" class="readout__overlay-action" (click)="retry.emit()">Retry</button>
+          </div>
+        } @else if (calculating()) {
           <div class="readout__overlay" aria-live="polite">
             <span class="material-symbols-outlined readout__overlay-gear">settings</span>
             <span class="readout__overlay-label">
               Calculating{{ progress() !== null ? ' ' + pct(progress()!) : '' }}
             </span>
+            <button type="button" class="readout__overlay-action" (click)="cancel.emit()">Cancel</button>
+            @if (slow()) {
+              <span class="readout__overlay-hint">This might take a long time.</span>
+            }
           </div>
         }
       </div>

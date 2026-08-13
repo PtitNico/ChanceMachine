@@ -310,7 +310,7 @@
  * stay entirely unaware either exists, for the same reason they stay unaware of `pmMask`.
  *
  * Attacker Focus (`SequencedAttack.attackerFocus`, one 0-10 counter per DISTINCT `attackerIndex`
- * with it set - see `focusIndexOf`/`MAX_FOCUS_ATTACKERS` below) is the OFFENSIVE mirror of the
+ * with it set - see `focusIndexOf`/`MAX_SEQUENCE_COMPLEXITY` below) is the OFFENSIVE mirror of the
  * target's own Focus/Fury: a resource the ATTACKER spends, chosen true-optimally via the exact same
  * backward-induction machinery (not a fixed rule like Puppet Master). On any of its own rolls, an
  * attacker can spend one point to boost the attack roll OR the damage roll (+1 die, `RollModifiers
@@ -398,5 +398,6 @@ export type {
   SequenceOptions,
   TargetSequenceResult,
 } from './types';
-export { computeSequenceOdds, summarizeFocusStrategy } from './single-target';
+export { computeSequenceOdds, estimateSequenceComplexity, summarizeFocusStrategy } from './single-target';
 export { computeMultiTargetSequenceOdds, chanceToDestroyAllTargets } from './multi-target';
+export { MAX_SEQUENCE_COMPLEXITY } from './constants';

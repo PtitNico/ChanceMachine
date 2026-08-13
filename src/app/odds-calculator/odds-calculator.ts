@@ -171,8 +171,8 @@ export class OddsCalculator {
   private readonly sequenceTargets = computed<SequenceTarget[]>(() => this.targets().map(OddsCalculator.toSequenceTarget));
 
   /** `OddsEngine` runs the actual computation in a Web Worker (see its own doc comment) - this
-   *  effect just kicks off a new run whenever the inputs change; the result/progress/calculating
-   *  signals below are read straight from the engine, not held here. */
+   *  effect just kicks off a new run whenever the inputs change; the result/progress/calculating/
+   *  error/cancelled signals below are read straight from the engine, not held here. */
   constructor() {
     effect(() => {
       this.engine.computeSequence(this.sequencedAttacks(), this.sequenceTargets());
@@ -183,6 +183,21 @@ export class OddsCalculator {
   protected readonly sequence = this.engine.result;
   protected readonly calculating = this.engine.calculating;
   protected readonly progress = this.engine.progress;
+  protected readonly error = this.engine.error;
+  protected readonly cancelled = this.engine.cancelled;
+  protected readonly slow = this.engine.slow;
+
+  protected onCancel(): void {
+    this.engine.cancel();
+  }
+
+  /** Re-runs the exact computation `onCancel` interrupted - the inputs haven't changed since then
+   *  (the constructor's own `effect()` only re-triggers `computeSequence` when THEY change, and
+   *  cancelling one doesn't touch them), so this just calls it again directly rather than needing
+   *  any dedicated "retry" state. */
+  protected onRetry(): void {
+    this.engine.computeSequence(this.sequencedAttacks(), this.sequenceTargets());
+  }
 
   protected readonly targetNames = computed<string[]>(() => {
     const targets = this.targets();

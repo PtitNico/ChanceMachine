@@ -32,8 +32,31 @@ export class ResultsPanel {
   /** 0-1, or `null` while nothing is in flight - see `computeSequenceOdds`'s own `onProgress` doc
    *  comment for why this can jump unevenly rather than advancing smoothly. */
   readonly progress = input<number | null>(null);
+  /** Set whenever the most recent recompute failed instead of producing a result - see `OddsEngine.error`'s
+   *  own doc comment. Shown as a banner replacing the "Calculating" overlay, over the dimmed last-known
+   *  gauges (mostly obscured by the overlay's own near-opaque backdrop, not legibly "shown" - same
+   *  underlying `readout__grid--calculating` treatment `calculating` itself gets, just relabeled). */
+  readonly error = input<string | null>(null);
+  /** True once the player has cancelled a still-running computation - see `OddsEngine.cancelled`'s
+   *  own doc comment. Shown the same way `error` is (a banner over the dimmed last-known gauges,
+   *  replacing "Calculating"), but with its own calmer styling and a Retry action - being cancelled
+   *  is a deliberate player action, not a failure. */
+  readonly cancelled = input(false);
+  /** True whenever the CURRENT computation's own estimated complexity is high enough to be worth a
+   *  heads-up - see `OddsEngine.slow`'s own doc comment. Shown as a small hint under the "Calculating"
+   *  label itself (not a replacement for it - unlike `error`/`cancelled`, this doesn't change what
+   *  state the overlay is in, just adds context to the SAME "Calculating" one). There is no hard cap
+   *  behind this anymore: the computation runs regardless, this is purely a heads-up so the player can
+   *  decide whether to wait, Cancel, or change the inputs. */
+  readonly slow = input(false);
   /** Which target's own Details breakdown to open - always 0 with a single target. */
   readonly showDetails = output<number>();
+  /** The player clicked "Cancel" on a still-running computation - see `OddsEngine.cancel`. */
+  readonly cancel = output<void>();
+  /** The player clicked "Retry" after cancelling - re-runs the exact same computation `cancel` had
+   *  interrupted (the inputs haven't changed, so there's nothing for the parent to recompute from
+   *  scratch - it just calls `OddsEngine.computeSequence` again with what it already has). */
+  readonly retry = output<void>();
 
   protected readonly pct = pct;
 }

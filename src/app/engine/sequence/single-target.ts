@@ -8,7 +8,7 @@ import {
   buildAttackProfile,
   splitAttackDamageByAverage,
 } from '../attack-model';
-import { DEF_FLOOR, MAX_FOCUS_ATTACKERS, MAX_PM_ATTACKERS, MAX_RELOAD_WEAPONS, MAX_RESOURCE_POINTS, MAX_SCAPEGOATS, MAX_SHRED_DEPTH } from './constants';
+import { DEF_FLOOR, MAX_PM_ATTACKERS, MAX_RESOURCE_POINTS, MAX_SCAPEGOATS, MAX_SHRED_DEPTH } from './constants';
 import {
   DebuffState,
   INITIAL_DEBUFFS,
@@ -306,6 +306,48 @@ function focusSlotOf(ctx: SequenceContext, atk: SequencedAttack): number | undef
  *  Reload slice begins, see that module's `hasSpendableFocus`. */
 export function focusAttackerIndicesOf(attacks: SequencedAttack[]): number[] {
   return [...new Set(attacks.filter((a) => (a.attackerFocus ?? 0) > 0).map((a) => a.attackerIndex ?? 0))];
+}
+
+/** Rough estimated "reachable (Map-keyed-state x boxes) combination count" for one target's own
+ *  computation against `attacks` - see `MAX_SEQUENCE_COMPLEXITY`'s own doc comment (constants.ts)
+ *  for the full reasoning and calibration history. Exported (rather than kept as a local inside
+ *  `computeSequenceOdds`, as it used to be) so `OddsEngine` can compute it on the MAIN thread,
+ *  synchronously, before ever dispatching to the Worker - a cheap O(1) multiplication, unlike the
+ *  actual computation it's estimating the cost of. This is purely advisory now: nothing in the
+ *  engine itself rejects a high estimate (a hard cap here was tried and explicitly rejected - a
+ *  player's own device may well be able to afford far more than this estimate's absolute number
+ *  suggests, and there's no way to know that in advance). `OddsEngine`/`ResultsPanel` use it only to
+ *  show a "this might take a long time" hint alongside the "Calculating" indicator, leaving the
+ *  actual go/no-go call (wait it out, Cancel, or change the inputs) to the player. */
+export function estimateSequenceComplexity(attacks: SequencedAttack[], target: SequenceTarget): number {
+  const boxes = target.boxes;
+  const focus = Math.floor(target.focusPoints ?? 0);
+  const fury = Math.floor(target.furyPoints ?? 0);
+  const shieldGuards = Math.floor(target.shieldGuards ?? 0);
+  const scapegoats = Math.floor(target.scapegoats ?? 0);
+  const kotdOff = Math.floor(target.offensiveKnowledgeOfTheDamned ?? 0);
+  const kotdDef = Math.floor(target.defensiveKnowledgeOfTheDamned ?? 0);
+  const pmAttackerCount = new Set(attacks.filter((a) => a.hasPuppetMaster).map((a) => a.attackerIndex ?? 0)).size;
+  const focusProduct = focusAttackerIndicesOf(attacks).reduce((product, idx) => {
+    const attackerFocus = Math.floor(attacks.find((a) => (a.attackerIndex ?? 0) === idx)?.attackerFocus ?? 0);
+    return product * (attackerFocus + 1);
+  }, 1);
+  const reloadProduct = attacks
+    .filter((a) => a.type === 'ranged' && Number.isFinite(a.reload) && (a.reload ?? 0) > 0)
+    .reduce((product, a) => product * ((a.reload ?? 0) + 1), 1);
+
+  return (
+    (boxes + 1) *
+    (focus + 1) *
+    (fury + 1) *
+    (shieldGuards + 1) *
+    (scapegoats + 1) *
+    (kotdOff + 1) *
+    (kotdDef + 1) *
+    2 ** pmAttackerCount *
+    focusProduct *
+    reloadProduct
+  );
 }
 
 /** Is it ALREADY clear, given `debuffState` as of entering attack `k`, that every one of this
@@ -1657,9 +1699,6 @@ export function computeSequenceOdds(
   // empty and every new code path below (boost-attack-roll, boost-damage-roll, bought attacks) is a
   // verified no-op, same reasoning as `pmAttackerIndices` above.
   const focusAttackerIndices = focusAttackerIndicesOf(attacks);
-  if (focusAttackerIndices.length > MAX_FOCUS_ATTACKERS) {
-    throw new Error(`Focus active on ${focusAttackerIndices.length} attackers (cap: ${MAX_FOCUS_ATTACKERS})`);
-  }
   const focusIndexOf = new Map<number, number>(focusAttackerIndices.map((idx, i) => [idx, i]));
   const initialFocusValues = focusAttackerIndices.map((idx) => {
     const focus = Math.floor(attacks.find((a) => (a.attackerIndex ?? 0) === idx)?.attackerFocus ?? 0);
@@ -1678,9 +1717,6 @@ export function computeSequenceOdds(
   const reloadWeaponIndices = attacks
     .map((_, i) => i)
     .filter((i) => attacks[i].type === 'ranged' && Number.isFinite(attacks[i].reload) && (attacks[i].reload ?? 0) > 0);
-  if (reloadWeaponIndices.length > MAX_RELOAD_WEAPONS) {
-    throw new Error(`Reload active on ${reloadWeaponIndices.length} weapons (cap: ${MAX_RELOAD_WEAPONS})`);
-  }
   const reloadIndexOf = new Map<number, number>(reloadWeaponIndices.map((idx, i) => [idx, focusAttackerIndices.length + i]));
   const initialReloadValues = reloadWeaponIndices.map((idx) => {
     const reload = attacks[idx].reload ?? 0;

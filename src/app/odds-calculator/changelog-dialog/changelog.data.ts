@@ -39,6 +39,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Fixed a bug where a complex enough combination of attackers with Focus (or ranged weapons with Reload) could silently freeze the app instead of either calculating or showing a clear error.',
+      'Added a "this might take a long time" note under "Calculating" instead when a configuration is likely to be slow.',
+      'Added Cancel and Retry buttons next to "Calculating", for when you\'d rather not wait a slow calculation out.',
+    ],
+  },
+  {
     date: '2026-08-10',
     items: [
       'Focus strategy advice in the Details pop-up is now a clearer step-by-step breakdown instead of one run-on sentence.',

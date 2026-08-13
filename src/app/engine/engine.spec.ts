@@ -5,6 +5,7 @@ import {
   chanceToDestroyAllTargets,
   computeMultiTargetSequenceOdds,
   computeSequenceOdds,
+  estimateSequenceComplexity,
   SequencedAttack,
   SequenceStepResult,
   SequenceTarget,
@@ -1957,11 +1958,6 @@ describe('sequence engine - Attacker Focus (boost attack/damage rolls)', () => {
     expect(bothFocus.finalDestroyChance).toBeGreaterThanOrEqual(onlyAFocus.finalDestroyChance - 1e-9);
   });
 
-  it('throws when Focus is active on more attackers than the cap allows', () => {
-    const attacks = [0, 1, 2].map((i) => attack({ id: `${i}`, attackerIndex: i, attackerFocus: 1 }));
-    expect(() => computeSequenceOdds(attacks, target)).toThrow();
-  });
-
   it('throws when attackerFocus exceeds the realistic point cap', () => {
     expect(() => computeSequenceOdds([attack({ attackerIndex: 0, attackerFocus: 11 })], target)).toThrow();
   });
@@ -2192,11 +2188,68 @@ describe('sequence engine - Attacker Focus (Reload: per-weapon cap on buying a r
     expect(result.finalDestroyChance + survivalMass).toBeCloseTo(1, 9);
   });
 
-  it('throws when Reload is active on more weapons than the cap allows', () => {
-    const attacks = [0, 1, 2].map((i) =>
-      attack({ id: `${i}`, type: 'ranged', attackerIndex: 0, attackerFocus: 1, reload: 1 })
+  it('never throws for being "too complex" regardless of how many Reload-capped weapons are active - there is no hard cap', () => {
+    const bigTarget = { def: 13, arm: 15, boxes: 99 };
+    const attacks = [0, 1, 2, 3, 4, 5].map((i) =>
+      attack({ id: `${i}`, type: 'ranged', attackerIndex: 0, attackerFocus: 1, reload: 2 })
     );
-    expect(() => computeSequenceOdds(attacks, target)).toThrow();
+    expect(() => computeSequenceOdds(attacks, bigTarget)).not.toThrow();
+  });
+});
+
+describe('estimateSequenceComplexity', () => {
+  function attack(overrides: Partial<SequencedAttack> = {}): SequencedAttack {
+    return {
+      id: overrides.id ?? 'a',
+      attackerName: 'Attacker',
+      label: 'Attack',
+      type: 'melee',
+      stat: 7,
+      pow: 14,
+      ...overrides,
+    };
+  }
+
+  it('is just (boxes+1) with no attacks and no target resources active', () => {
+    expect(estimateSequenceComplexity([], { def: 13, arm: 15, boxes: 9 })).toBe(10);
+  });
+
+  it('multiplies in target Focus/Fury/Shield Guards/Scapegoats/Knowledge of the Damned, each as (value+1)', () => {
+    const target: SequenceTarget = {
+      def: 13,
+      arm: 15,
+      boxes: 9,
+      focusPoints: 2,
+      furyPoints: 1,
+      shieldGuards: 3,
+      scapegoats: 1,
+      offensiveKnowledgeOfTheDamned: 2,
+      defensiveKnowledgeOfTheDamned: 1,
+    };
+    expect(estimateSequenceComplexity([], target)).toBe(10 * 3 * 2 * 4 * 2 * 3 * 2);
+  });
+
+  it('multiplies in 2^N for N DISTINCT Puppet-Master-active attackers - repeat attacks from the same attacker do not double-count', () => {
+    const attacks = [
+      attack({ id: '1', attackerIndex: 0, hasPuppetMaster: true }),
+      attack({ id: '2', attackerIndex: 0, hasPuppetMaster: true }),
+      attack({ id: '3', attackerIndex: 1, hasPuppetMaster: true }),
+    ];
+    expect(estimateSequenceComplexity(attacks, { def: 13, arm: 15, boxes: 9 })).toBe(10 * 2 ** 2);
+  });
+
+  it('multiplies in (focus+1) per DISTINCT Focus-enabled attacker', () => {
+    const attacks = [attack({ id: '1', attackerIndex: 0, attackerFocus: 3 }), attack({ id: '2', attackerIndex: 1, attackerFocus: 2 })];
+    expect(estimateSequenceComplexity(attacks, { def: 13, arm: 15, boxes: 9 })).toBe(10 * 4 * 3);
+  });
+
+  it('multiplies in (reloadCap+1) per finite-Reload ranged weapon - Infinity reload (unlimited buying, like melee) contributes no factor at all', () => {
+    const attacks = [
+      attack({ id: '1', type: 'ranged', reload: 2 }),
+      attack({ id: '2', type: 'ranged', reload: 1 }),
+      attack({ id: '3', type: 'ranged', reload: Infinity }),
+    ];
+    expect(estimateSequenceComplexity(attacks, { def: 13, arm: 15, boxes: 9 })).toBe(10 * 3 * 2);
   });
 });
 

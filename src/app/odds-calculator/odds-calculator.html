@@ -58,6 +58,11 @@
       [chanceToDestroyAll]="chanceToDestroyAll()"
       [calculating]="calculating()"
       [progress]="progress()"
+      [error]="error()"
+      [cancelled]="cancelled()"
+      [slow]="slow()"
+      (cancel)="onCancel()"
+      (retry)="onRetry()"
       (showDetails)="detailsDialogRef.open($event); onDetailsOpened()"
     />
   </div>
