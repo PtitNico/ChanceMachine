@@ -39,7 +39,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: 'Unreleased',
+    date: '2026-08-14',
     items: [
       "Fixed a bug where the Attacker Focus strategy favored boosting a single roll (or stopped spending Focus entirely) over buying a whole extra attack, even when buying would deal more damage and destroying the target was already impossible either way - Average Damage and the Total Damage Distribution now reflect that extra damage.",
       'Added a "Normal / At least" switch above the Total Damage Distribution in the Details pop-up, to see the chance of dealing at least a given amount of damage instead of exactly that amount.',
