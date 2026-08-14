@@ -2111,7 +2111,13 @@ describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
   });
 
   it('a bought attack can still chain via Critical Shred if that weapon has it', () => {
-    const shredTarget = { def: 2, arm: 0, boxes: 1000 };
+    // 30 boxes (not the UI's own 99-box ceiling, let alone 1000) is already far more than a POW-0
+    // weapon can plausibly reach even chaining Critical Shred to its own MAX_SHRED_DEPTH cap -
+    // mass conservation is a math invariant that holds at ANY box count, so this stays a real test
+    // of the shred+buy interaction while keeping the state space (and the Focus-preserved-for-
+    // longer effect of the damage-aware buy-vs-boost fix - see `outcomeScore`'s own doc comment)
+    // cheap enough for a unit test.
+    const shredTarget = { def: 2, arm: 0, boxes: 30 };
     const without = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true })], shredTarget);
     const withBuying = computeSequenceOdds([attack({ stat: 20, pow: 0, criticalShred: true, attackerIndex: 0, attackerFocus: 1 })], shredTarget);
     expect(withBuying.finalDestroyChance).toBeGreaterThanOrEqual(without.finalDestroyChance - 1e-9);
@@ -2139,6 +2145,67 @@ describe('sequence engine - Attacker Focus (buy an extra attack)', () => {
 
     expect(result.finalDestroyChance).toBeGreaterThan(0);
     expect(elapsedMs).toBeLessThan(5000);
+  });
+
+  // Unconditional destroy/survival total, weighted average damage - see the identical helper in the
+  // Attacker Charge describe block below for why this can't just be one shared module-level function.
+  function avgDamage(result: ReturnType<typeof computeSequenceOdds>, boxesInitial: number): number {
+    const survivalMass = result.survivalDistribution.reduce((sum, p) => sum + (boxesInitial - p.boxes) * p.probability, 0);
+    return survivalMass + result.finalDestroyChance * boxesInitial;
+  }
+
+  it('keeps buying even once destroying the target is already impossible - it maximizes damage dealt, not just destroy chance (bug fix: a tie against "stop" used to leave both Focus AND the damage it could have dealt on the table - see buildBoughtAttacksValue\'s own doc comment)', () => {
+    // 1000 boxes is far beyond anything a single POW-12-vs-ARM-15 weapon could ever reach even with
+    // every one of 5 Focus points spent buying MORE attacks (each capped well under 20 damage) - so
+    // finalDestroyChance is identically 0 whether Focus gets spent or not, isolating the fix's own
+    // effect (more damage dealt) from any destroy-chance change (there isn't one).
+    const unreachableTarget = { def: 13, arm: 15, boxes: 1000 };
+    const withoutFocus = computeSequenceOdds([attack({ stat: 6, pow: 12 })], unreachableTarget);
+    const withFocus = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 5 })], unreachableTarget);
+    expect(withoutFocus.finalDestroyChance).toBeCloseTo(0, 9);
+    expect(withFocus.finalDestroyChance).toBeCloseTo(0, 9);
+    expect(avgDamage(withFocus, unreachableTarget.boxes)).toBeGreaterThan(avgDamage(withoutFocus, unreachableTarget.boxes));
+  });
+
+  it('the Focus strategy summary reports buying even when the target cannot possibly be destroyed', () => {
+    const unreachableTarget = { def: 13, arm: 15, boxes: 1000 };
+    const result = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], unreachableTarget);
+    const entry = result.focusStrategy.find((e) => e.attackerIndex === 0);
+    const buyMass = entry?.healthy?.reduce((sum, w) => sum + w.buyMass, 0) ?? 0;
+    expect(buyMass).toBeGreaterThan(0);
+  });
+
+  it('prefers buying a whole extra attack over boosting a single roll\'s damage, when destroying the target is impossible either way (bug fix: the boost-vs-buy tiebreak used to be "myopic" - only aware of boxes remaining right after ONE hit, with no visibility into what a saved Focus point could still buy later - see outcomeScore\'s own doc comment)', () => {
+    // With exactly 1 Focus point, only 2 total swings are ever possible (the configured attack plus
+    // at most one bought copy) - max damage per swing here is 2d6+3=15, so 2 swings can reach at
+    // most 30, far short of 57 boxes: destroying the target is PROVABLY impossible regardless of
+    // whether that one point boosts the configured attack's damage roll or buys a second swing, so
+    // finalDestroyChance is identically 0 either way - isolating the decision purely to "which use
+    // of the point deals more expected damage" (buying an entire extra 2d6+3 swing beats adding a
+    // single die to one already-happening roll).
+    const target = { def: 9, arm: 19, boxes: 57 };
+    const withFocus = computeSequenceOdds([attack({ stat: 6, pow: 22, attackerIndex: 0, attackerFocus: 1 })], target);
+    // Forces every roll (initial and any bought copy) to be ineligible for a further Focus-funded
+    // boost, via the same `boostedAttack`/`boostedDamage` eligibility gates a real "Boosted" weapon
+    // toggle uses - with no matching `modifiers.boostDice` bump, this adds no free dice, it just
+    // makes buying the ONLY thing the one Focus point can be spent on.
+    const buyOnly = computeSequenceOdds([attack({ stat: 6, pow: 22, attackerIndex: 0, attackerFocus: 1, boostedAttack: true, boostedDamage: true })], target);
+    expect(withFocus.finalDestroyChance).toBeCloseTo(0, 9);
+    expect(buyOnly.finalDestroyChance).toBeCloseTo(0, 9);
+    expect(avgDamage(withFocus, target.boxes)).toBeCloseTo(avgDamage(buyOnly, target.boxes), 6);
+  });
+
+  it('still boosts the damage roll when buying could never deal damage on its own - the fix does not blindly prefer buying regardless of whether it helps', () => {
+    // ARM (24) is high enough that an UNBOOSTED hit (2d6, max roll 12) can never punch through -
+    // `max(0, 12 + 10 - 24)` is 0 even on the best possible roll - so buying more unboosted copies
+    // of this weapon is worthless. A boosted damage roll (3d6, max 18) CAN exceed ARM on a high
+    // enough roll, so a genuinely damage-aware policy should spend Focus boosting instead of buying.
+    const target = { def: 4, arm: 24, boxes: 50 };
+    const withFocus = computeSequenceOdds([attack({ stat: 10, pow: 10, attackerIndex: 0, attackerFocus: 2 })], target);
+    expect(avgDamage(withFocus, target.boxes)).toBeGreaterThan(0);
+    const entry = withFocus.focusStrategy.find((e) => e.attackerIndex === 0);
+    const boostDamageMass = entry?.healthy?.reduce((sum, w) => sum + w.boostDamageMass + w.boostDamageMassBought, 0) ?? 0;
+    expect(boostDamageMass).toBeGreaterThan(0);
   });
 });
 

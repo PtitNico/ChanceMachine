@@ -79,12 +79,32 @@
   </div>
 
   <div class="distribution">
-    <h3 class="distribution__title">Total damage distribution</h3>
-    @for (point of damagePointsByTarget()[selectedIndex()]; track point.damage) {
+    <div class="distribution__header">
+      <h3 class="distribution__title">Total damage distribution</h3>
+      <div class="distribution__mode" role="group" aria-label="Distribution mode">
+        <button
+          type="button"
+          class="distribution__mode-btn"
+          [class.distribution__mode-btn--active]="distributionMode() === 'exact'"
+          (click)="setDistributionMode('exact')"
+        >
+          Normal
+        </button>
+        <button
+          type="button"
+          class="distribution__mode-btn"
+          [class.distribution__mode-btn--active]="distributionMode() === 'atLeast'"
+          (click)="setDistributionMode('atLeast')"
+        >
+          At least
+        </button>
+      </div>
+    </div>
+    @for (point of displayedDamagePoints(); track point.damage) {
       <div class="distribution__row">
         <span class="distribution__damage">{{ point.label }}</span>
         <span class="distribution__bar-track">
-          <span class="distribution__bar" [style.width.%]="(point.probability / maxDamageProbabilityByTarget()[selectedIndex()]) * 100"></span>
+          <span class="distribution__bar" [style.width.%]="(point.probability / maxDisplayedProbability()) * 100"></span>
         </span>
         <span class="distribution__prob">{{ pct(point.probability) }}</span>
       </div>
