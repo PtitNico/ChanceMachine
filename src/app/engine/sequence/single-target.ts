@@ -751,7 +751,7 @@ function resolveAttackerDamageBoostChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): AttackerFocusDamagePopulation[] {
@@ -978,7 +978,7 @@ function resolveOneOutcome(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): { branches: ResourceBranch[]; continuationValueAt: ValueLookup; continuesChain: boolean; outcomeSustained: boolean } {
@@ -1049,7 +1049,7 @@ function profileScore(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): [number, number, number] {
@@ -1096,7 +1096,7 @@ function resolveKotdDefChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): { profile: AttackProfile; resultingLeft: number } {
@@ -1182,7 +1182,7 @@ function pipelineScore(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): [number, number, number] {
@@ -1250,7 +1250,7 @@ function chooseAttackerAttackBoost(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
 ): { trueOriginal: AttackProfile; attackerFocusLeft: number[]; score: [number, number, number] } {
@@ -1305,15 +1305,19 @@ function resolveAttackerAttackBoostChoice(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
-): number {
-  return chooseAttackerAttackBoost(
+): [number, number] {
+  // Propagates survivalValue AND expectedBoxes upward (was survivalValue alone) - see
+  // `outcomeScore`'s own doc comment for why a bare scalar can no longer represent "the value of
+  // this state" on its own.
+  const { score } = chooseAttackerAttackBoost(
     ctx, k, atk, baseAtk, debuffState, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft,
     pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft, shotsRemainingThisRow, sustained, depthRemaining, outerValueAt, cache,
     downstreamRow, downstreamShotsRemaining
-  ).score[0];
+  );
+  return [score[0], score[2]];
 }
 
 /**
@@ -1354,10 +1358,10 @@ function attackChainValue(
   sustained: boolean,
   depthRemaining: number,
   outerValueAt: ExtendedValueLookup,
-  cache: Map<string, number>,
+  cache: Map<string, [number, number]>,
   downstreamRow: number,
   downstreamShotsRemaining: number
-): number {
+): [number, number] {
   const key = `${depthRemaining}|${debuffKey(debuffState)}|${boxes}|${focusLeft}|${furyLeft}|${shieldGuardsLeft}|${scapegoatsLeft}|${pmMask}|${kotdOffLeft}|${kotdDefLeft}|${attackerFocusLeft.join(',')}|${sustained}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
@@ -1468,7 +1472,7 @@ function resolveAttackChainForward(
   sustained: boolean,
   probability: number,
   outerValueAt: ExtendedValueLookup,
-  shredCache: Map<string, number>,
+  shredCache: Map<string, [number, number]>,
   stats: ShotStats,
   next: Map<string, { state: FwdState; probability: number }>,
   destroyed: DestroyedAccumulator,
@@ -1821,9 +1825,9 @@ export function computeSequenceOdds(
     kotdDefLeft: number,
     attackerFocusLeft: number[],
     sustained: boolean
-  ) => number {
+  ) => [number, number] {
     const maxShots = Math.max(...rofOutcomes(atk).map((o) => o.count));
-    const cachesByShotsRemaining: Map<string, number>[] = Array.from({ length: maxShots + 1 }, () => new Map());
+    const cachesByShotsRemaining: Map<string, [number, number]>[] = Array.from({ length: maxShots + 1 }, () => new Map());
 
     function shotsValue(
       shotsRemaining: number,
@@ -1838,7 +1842,7 @@ export function computeSequenceOdds(
       kotdDefLeft: number,
       attackerFocusLeft: number[],
       sustained: boolean
-    ): number {
+    ): [number, number] {
       if (shotsRemaining === 0) {
         const table = getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft);
         return readValueTable(table, boxes, focusLeft, furyLeft, shieldGuardsLeft, scapegoatsLeft);
@@ -1898,11 +1902,22 @@ export function computeSequenceOdds(
    * bought attack is always a standalone singleton, never part of a Rate of Fire volley) - it goes
    * through the FULL pipeline (Tough/Rapid Healing/target Focus-Fury/Shield Guard/Critical
    * Shred/Sustained Attack/this attacker's own further boost choices all apply normally, since a
-   * bought attack is a genuine attack). Picks the BEST candidate (stop, or one of the melee
-   * weapons) via a plain numeric comparison, not `isBetterForAttacker`'s lexicographic triple -
-   * `attackChainValue` already collapses to the single scalar these need to be compared as (whole
-   * downstream expected-values, not single-outcome branches), so the triple's tie-break semantics
-   * don't apply here.
+   * bought attack is a genuine attack), returning `[survivalValue, expectedBoxes]` (see
+   * `outcomeScore`'s own doc comment). Picks the BEST candidate (stop, or one of the melee weapons)
+   * via `isBetterForAttacker` on a `[survivalValue, expectedBoxes, weaponPow]` triple - survival
+   * first, then the genuinely-downstream `expectedBoxes` as a tiebreak (this is what makes the
+   * buy-vs-boost decision damage-aware, not just destroy-chance-aware - a user-reported bug where
+   * spending Focus buying a whole extra attack kept losing to boosting a single roll's damage, even
+   * when destroying the target was already impossible either way, because `expectedBoxes` used to
+   * be a MYOPIC "boxes right after this one hit" number with no visibility into what a saved point
+   * could still buy), then weapon POW as a final tiebreak between two otherwise-identical
+   * candidates. "stop" uses `-Infinity` as its own POW, so a real weapon always wins a stop/weapon
+   * tie at that third level - this is what makes buying never lose to stopping on a tie without a
+   * special-cased exemption: firing another attack can only ever add non-negative expected damage
+   * on top of whatever "stop" nets, on BOTH the survival and expectedBoxes axes, so a real weapon's
+   * triple can never score worse than `[stopSurvival, stopBoxes, -Infinity]` (see
+   * `resolveBoughtAttacksForward`'s identical comparison, which must stay in lockstep since it
+   * replays the SAME policy this table encodes).
    *
    * Deliberate scope cut: a bought attack reuses its weapon's own row index for Puppet Master/
    * Offensive Knowledge of the Damned eligibility - exactly right for Puppet Master (a pure mask
@@ -1952,7 +1967,7 @@ export function computeSequenceOdds(
     // index (safe everywhere else in this file because a single cache is always scoped to one
     // fixed `k` already - see buildShotsValue). Sharing one cache across multiple weapons here
     // would let one weapon's cached value get silently returned for a different weapon's query.
-    const chainCachesByFocusLeftAndWeapon: Map<number, Map<string, number>>[] = Array.from({ length: MAX_RESOURCE_POINTS + 1 }, () => new Map());
+    const chainCachesByFocusLeftAndWeapon: Map<number, Map<string, [number, number]>>[] = Array.from({ length: MAX_RESOURCE_POINTS + 1 }, () => new Map());
 
     function boughtTable(focusLeftHere: number, debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]): ValueTable {
       const key = tableKey(debuffState, pmMask, kotdOffLeft, kotdDefLeft, attackerFocusLeft);
@@ -1964,7 +1979,7 @@ export function computeSequenceOdds(
         const stopFocusLeft = attackerFocusLeft.slice();
         stopFocusLeft[slot] = focusLeftHere;
         let best = readValueTable(getNextTable(debuffState, pmMask, kotdOffLeft, kotdDefLeft, stopFocusLeft), boxes, focus, fury, shieldGuards, scapegoats);
-        let bestAdjusted = withAttackerFocusValue(ctx, best, downstreamRow, 0, stopFocusLeft);
+        let bestAdjusted = withAttackerFocusValue(ctx, best[0], downstreamRow, 0, stopFocusLeft);
         let bestWeapon = -1;
 
         if (focusLeftHere > 0) {
@@ -1979,7 +1994,7 @@ export function computeSequenceOdds(
 
             let weaponCache = chainCachesByFocusLeftAndWeapon[focusLeftHere].get(w);
             if (!weaponCache) {
-              weaponCache = new Map<string, number>();
+              weaponCache = new Map<string, [number, number]>();
               chainCachesByFocusLeftAndWeapon[focusLeftHere].set(w, weaponCache);
             }
             const value = attackChainValue(
@@ -1989,13 +2004,23 @@ export function computeSequenceOdds(
               weaponCache,
               downstreamRow, 0
             );
-            const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
-            // Prefer a strictly better value; on an exact TIE with the current best WEAPON specifically
-            // (never against the "stop" baseline) break toward the higher-POW weapon - see
-            // `resolveBoughtAttacksForward`'s identical tiebreak (kept consistent with this one, since
-            // that function replays the SAME policy this table encodes) for why exact ties are a real,
-            // common case here.
-            const isBetter = adjustedValue < bestAdjusted || (bestWeapon !== -1 && adjustedValue === bestAdjusted && attacks[w].pow > attacks[bestWeapon].pow);
+            const adjustedValue = withAttackerFocusValue(ctx, value[0], downstreamRow, 0, spentFocusLeft);
+            // 3-level lexicographic comparison via the SAME `isBetterForAttacker` the rest of the
+            // pipeline uses: survival value first, then the now-genuinely-downstream `expectedBoxes`
+            // (`value[1]`/`best[1]` - see `outcomeScore`'s own doc comment for why this used to be
+            // myopic and silently biased this exact comparison toward NOT buying), then weapon POW as
+            // a final tiebreak between two otherwise-identical candidates. "stop" uses `-Infinity` as
+            // its own POW so a real weapon always wins a stop/weapon tie at that third level - this
+            // is what makes buying never lose to stopping on a tie (firing another attack can only
+            // ever add non-negative expected damage on top of whatever "stop" nets, on BOTH axes, so
+            // `[adjustedValue, value[1], pow]` can never score worse than `[bestAdjusted, best[1],
+            // -Infinity]` for "stop") without needing a special-cased exemption the way an earlier,
+            // narrower fix here used to (see `resolveBoughtAttacksForward`'s identical comparison,
+            // which must stay in lockstep since it replays the SAME policy this table encodes).
+            const isBetter = isBetterForAttacker(
+              [adjustedValue, value[1], attacks[w].pow],
+              [bestAdjusted, best[1], bestWeapon === -1 ? -Infinity : attacks[bestWeapon].pow]
+            );
             if (isBetter) {
               best = value;
               bestAdjusted = adjustedValue;
@@ -2046,7 +2071,7 @@ export function computeSequenceOdds(
   // turn calls `getValueTableAt[k + 1]` at its own base case - so accessors must exist before a
   // LATER one's build step can call into them, even though no actual TABLE gets built until the
   // forward simulation below first asks for one.
-  const baseValueTable = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, () => 1);
+  const baseValueTable = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, (boxes) => [1, boxes]);
   const getValueTableAt: ((debuffState: DebuffState, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[]) => ValueTable)[] = new Array(n + 1);
   getValueTableAt[n] = () => baseValueTable;
 
@@ -2077,7 +2102,7 @@ export function computeSequenceOdds(
   }
 
   // Built once per attack as the backward pass reaches it, then reused by the forward pass below.
-  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[], sustained: boolean) => number)[] =
+  const shotsValueByAttack: ((shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[], sustained: boolean) => [number, number])[] =
     new Array(n);
 
   // Attacker Focus's own "buy an extra attack" ladder, one per focus-enabled attacker, built once
@@ -2110,9 +2135,16 @@ export function computeSequenceOdds(
       const key = tableKey(debuffState, mask, off, def, attackerFocusLeft);
       const cached = cache.get(key);
       if (cached) return cached;
-      const table = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, (boxes, focus, fury, shieldGuards, scapegoats) =>
-        rofDist.reduce((sum, { count, probability }) => sum + probability * shotsValue(count, debuffState, boxes, focus, fury, shieldGuards, scapegoats, mask, off, def, attackerFocusLeft, false), 0)
-      );
+      const table = buildValueTable(initialBoxes, maxFocus, maxFury, maxShieldGuards, maxScapegoats, (boxes, focus, fury, shieldGuards, scapegoats) => {
+        let survivalSum = 0;
+        let boxesSum = 0;
+        for (const { count, probability } of rofDist) {
+          const [survival, boxesRemaining] = shotsValue(count, debuffState, boxes, focus, fury, shieldGuards, scapegoats, mask, off, def, attackerFocusLeft, false);
+          survivalSum += probability * survival;
+          boxesSum += probability * boxesRemaining;
+        }
+        return [survivalSum, boxesSum];
+      });
       cache.set(key, table);
       return table;
     };
@@ -2136,7 +2168,7 @@ export function computeSequenceOdds(
     k: number,
     atk: SequencedAttack,
     initialDist: Map<string, { state: FwdState; probability: number }>,
-    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[], sustained: boolean) => number,
+    shotsValue: (shotsRemaining: number, debuffState: DebuffState, boxes: number, focusLeft: number, furyLeft: number, shieldGuardsLeft: number, scapegoatsLeft: number, pmMask: number, kotdOffLeft: number, kotdDefLeft: number, attackerFocusLeft: number[], sustained: boolean) => [number, number],
     shotStats: ShotStats[],
     destroyedByShotsRemaining: DestroyedAccumulator[],
     next: Map<string, { state: FwdState; probability: number }>,
@@ -2170,7 +2202,7 @@ export function computeSequenceOdds(
         // enter if a kill happens resolving THIS shot" - see that function's own comment.
         const downstreamShotsRemaining = shotsRemainingAfter;
         const downstreamRow = downstreamShotsRemaining === 0 ? k + 1 : k;
-        const shredCache = new Map<string, number>();
+        const shredCache = new Map<string, [number, number]>();
         const survivors = new Map<string, { state: FwdState; probability: number }>();
         const valueAt: ExtendedValueLookup = (b, d, f, fu, sg, sc, m, o, dk, afl, sus) => shotsValue(shotsRemainingAfter, d, b, f, fu, sg, sc, m, o, dk, afl, sus);
 
@@ -2292,7 +2324,8 @@ export function computeSequenceOdds(
         );
 
         let bestWeapon = -1;
-        let bestAdjusted = withAttackerFocusValue(ctx, stopValue, downstreamRow, 0, state.attackerFocusLeft);
+        let bestBoxes = stopValue[1];
+        let bestAdjusted = withAttackerFocusValue(ctx, stopValue[0], downstreamRow, 0, state.attackerFocusLeft);
         let bestSpentFocusLeft: number[] | undefined;
         if (state.attackerFocusLeft[slot] > 0) {
           for (const w of candidateWeapons) {
@@ -2309,21 +2342,21 @@ export function computeSequenceOdds(
             // for why that's normally safe and why it wouldn't be here).
             const value = attackChainValue(
               ctx, w, attacks[w], attacks[w], state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,
-              state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, number>(),
+              state.pmMask, state.kotdOffLeft, state.kotdDefLeft, spentFocusLeft, 0, false, MAX_SHRED_DEPTH, valueAt, new Map<string, [number, number]>(),
               downstreamRow, 0
             );
-            const adjustedValue = withAttackerFocusValue(ctx, value, downstreamRow, 0, spentFocusLeft);
-            // Prefer a strictly better value; on an exact TIE with the current best WEAPON specifically
-            // (never against the "stop" baseline - a tie against stopping still means "not worth
-            // spending Focus") break toward the higher-POW weapon, matching `buildBoughtAttacksValue`'s
-            // own identical tiebreak so the forward replay stays consistent with the backward-computed
-            // policy it's supposed to reproduce - see that function's own comment for why exact ties are
-            // a real, common case here (once the target has far more boxes than the remaining Focus
-            // could ever meaningfully threaten, the destroy-probability delta between two candidate
-            // weapons underflows double precision to bit-identical values).
-            const isBetter = adjustedValue < bestAdjusted || (bestWeapon !== -1 && adjustedValue === bestAdjusted && attacks[w].pow > attacks[bestWeapon].pow);
+            const adjustedValue = withAttackerFocusValue(ctx, value[0], downstreamRow, 0, spentFocusLeft);
+            // Must stay in lockstep with `buildBoughtAttacksValue`'s own identical
+            // `[survivalValue, expectedBoxes, weaponPow]` comparison via `isBetterForAttacker` - see
+            // that function's own doc comment for the full reasoning (this is a forward replay of
+            // the SAME policy, not an independent decision).
+            const isBetter = isBetterForAttacker(
+              [adjustedValue, value[1], attacks[w].pow],
+              [bestAdjusted, bestBoxes, bestWeapon === -1 ? -Infinity : attacks[bestWeapon].pow]
+            );
             if (isBetter) {
               bestAdjusted = adjustedValue;
+              bestBoxes = value[1];
               bestWeapon = w;
               bestSpentFocusLeft = spentFocusLeft;
             }
@@ -2341,7 +2374,7 @@ export function computeSequenceOdds(
         recordFocusPolicy(ctx, attackerIndex, state.debuffState, 'buy', true, p0, attacks[bestWeapon].label, attacks[bestWeapon].type);
 
         const spentFocusLeft = bestSpentFocusLeft!;
-        const shredCache = new Map<string, number>();
+        const shredCache = new Map<string, [number, number]>();
         const boughtStats: ShotStats = { hitMass: 0, critMass: 0, damageMass: 0, occursMass: 0 };
         resolveAttackChainForward(
           ctx, bestWeapon, attacks[bestWeapon], true, false, state.debuffState, state.boxes, state.focusLeft, state.furyLeft, state.shieldGuardsLeft, state.scapegoatsLeft,

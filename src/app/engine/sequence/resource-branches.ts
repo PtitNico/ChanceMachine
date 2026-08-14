@@ -17,6 +17,8 @@ export interface ResourceBranch {
   destroyed: boolean;
 }
 
+/** Returns `[survivalProbability, expectedBoxesRemaining]` - see `ValueTable`'s own doc comment
+ *  (value-table.ts) for why these travel together as one pair rather than two lookups. */
 export type ValueLookup = (
   boxes: number,
   debuffState: DebuffState,
@@ -24,7 +26,7 @@ export type ValueLookup = (
   furyLeft: number,
   shieldGuardsLeft: number,
   scapegoatsLeft: number
-) => number;
+) => [number, number];
 
 /** Like `ValueLookup`, but aware of every FIXED-rule/optimal-choice resource dimension that lives
  *  ABOVE `bestAction`'s own level (`attackChainValue`/`buildShotsValue`/the forward-pass
@@ -46,7 +48,7 @@ export type ExtendedValueLookup = (
   kotdDefLeft: number,
   attackerFocusLeft: number[],
   sustained: boolean
-) => number;
+) => [number, number];
 
 /** One genuinely-occurring sub-population arising from Puppet Master's fixed rule at THIS roll -
  *  see `resolvePmSplit`. Unlike Focus/Fury's `bestAction`, this is never a competing CHOICE between
@@ -162,14 +164,6 @@ function damageBranches(
   ];
 }
 
-export function branchesValue(branches: ResourceBranch[], valueAt: ValueLookup): number {
-  return branches.reduce(
-    (acc, b) =>
-      acc + b.probability * (b.destroyed ? 0 : valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft, b.shieldGuardsLeft, b.scapegoatsLeft)),
-    0
-  );
-}
-
 /**
  * A lexicographic score for choosing between actions: (1) probability of
  * surviving the rest of the sequence - the real objective; (2) probability
@@ -184,23 +178,43 @@ export function branchesValue(branches: ResourceBranch[], valueAt: ValueLookup):
  * whenever that costs nothing on the real objective, matches how a
  * defensively-minded player would actually use these points.
  */
+/**
+ * `expectedBoxes` (the tiebreak component) used to be computed straight from `b.boxes` - "boxes
+ * remaining immediately after THIS ONE hit", with no visibility into what happens afterward. That's
+ * fine for `survivalProbability` (intentionally myopic, see below), but wrong for a tiebreak: once
+ * `survivalValue`/`survivalProbability` are (near-)tied, `expectedBoxes` is the ONLY thing left
+ * deciding the choice, and a purely local number can never credit "save this resource, it's worth
+ * more spent later" over "deal a bit more damage on this hit right now" - a user-reported bug (the
+ * Attacker Focus boost-vs-buy decision kept boosting a single roll instead of saving the point to
+ * buy a whole extra attack, even when the target could not possibly be destroyed either way, because
+ * boosting always looked "better" under the old myopic metric). Fixed by sourcing `expectedBoxes`
+ * from `valueAt` too - the SAME genuinely-downstream-recursive lookup `survivalValue` already uses -
+ * so every decision that goes through this function (the target's own Focus/Fury/Shield Guard
+ * spend via `bestAction`, Defensive Knowledge of the Damned's reroll choice, and the Attacker
+ * Focus boost choices) is now damage-aware, not just destroy-chance-aware, without any of those
+ * call sites needing to change at all.
+ */
 export function outcomeScore(branches: ResourceBranch[], valueAt: ValueLookup): [number, number, number] {
   let survivalValue = 0;
   let survivalProbability = 0;
   let expectedBoxes = 0;
   for (const b of branches) {
     if (b.destroyed) continue;
-    survivalValue += b.probability * valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft, b.shieldGuardsLeft, b.scapegoatsLeft);
+    const [survival, boxesRemaining] = valueAt(b.boxes, b.debuffState, b.focusLeft, b.furyLeft, b.shieldGuardsLeft, b.scapegoatsLeft);
+    survivalValue += b.probability * survival;
     survivalProbability += b.probability;
-    expectedBoxes += b.probability * b.boxes;
+    expectedBoxes += b.probability * boxesRemaining;
   }
   return [survivalValue, survivalProbability, expectedBoxes];
 }
 
 const SCORE_EPSILON = 1e-9;
 
-/** True if `a` is strictly better than `b` under the lexicographic order described above. */
-export function isBetterScore(a: [number, number, number], b: [number, number, number]): boolean {
+/** True if `a` is strictly better than `b` under the lexicographic order described above. Accepts
+ *  any equal-length tuples, not just the 3-element `outcomeScore` triple - `buildBoughtAttacksValue`
+ *  and `resolveBoughtAttacksForward` reuse this for their own 3-level (survival, expected boxes,
+ *  weapon POW) comparison via `isBetterForAttacker` below. */
+export function isBetterScore(a: number[], b: number[]): boolean {
   for (let i = 0; i < a.length; i++) {
     if (a[i] > b[i] + SCORE_EPSILON) return true;
     if (a[i] < b[i] - SCORE_EPSILON) return false;
@@ -214,11 +228,13 @@ export function isBetterScore(a: [number, number, number], b: [number, number, n
  * probability/expected-boxes triple to be as LOW as possible, not high. Every comparison direction
  * simply flips (this is not "prefer lower boxes for its own sake", it's "prefer whatever is worse
  * for the target"). Used by the Attacker Focus boost-roll/damage-roll choices (see
- * `resolveAttackerAttackBoostChoice`/`resolveAttackerDamageBoostChoice` in single-target.ts) -
- * NOT by the bought-attacks weapon-selection ladder, which compares plain scalars directly instead
- * (see `buildBoughtAttacksValue`'s own doc comment for why that's a different comparison shape).
+ * `resolveAttackerAttackBoostChoice`/`resolveAttackerDamageBoostChoice` in single-target.ts) and,
+ * since `outcomeScore`'s fix above made a genuine `expectedBoxes` available, by the bought-attacks
+ * weapon-selection ladder too (`buildBoughtAttacksValue`/`resolveBoughtAttacksForward`, comparing
+ * `[survivalValue, expectedBoxes, weaponPow]` triples - "stop" uses `-Infinity` as its own POW so a
+ * real weapon always wins a stop/weapon tie at that third level).
  */
-export function isBetterForAttacker(a: [number, number, number], b: [number, number, number]): boolean {
+export function isBetterForAttacker(a: number[], b: number[]): boolean {
   return isBetterScore(b, a);
 }
 
