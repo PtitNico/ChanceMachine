@@ -258,10 +258,6 @@ export class OddsCalculator {
     })
   );
 
-  protected readonly maxDamageProbabilityByTarget = computed<number[]>(() =>
-    this.damageDistributionPointsByTarget().map((points) => Math.max(...points.map((p) => p.probability), 0.0001))
-  );
-
   /** Expected value of `rawDamageDistributionByTarget` - see its own doc comment for why this
    *  isn't simply `boxesInitial - steps.at(-1).expectedBoxesRemaining` anymore. */
   protected readonly averageDamageByTarget = computed<number[]>(() =>
