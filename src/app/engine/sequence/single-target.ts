@@ -2671,7 +2671,22 @@ function phraseForWeapon(weaponLabel: string, weaponType: AttackType, actions: F
  *  threshold), rather than dropping insignificant weapons - callers (the hoist-vs-branch algorithm
  *  in `summarizeFocusStrategy`) need to tell "this weapon reaches this phase but nothing here is
  *  worth doing" (present, empty phrase) apart from "this weapon never reaches this phase/situation
- *  at all" (absent from `weaponTallies` altogether). */
+ *  at all" (absent from `weaponTallies` altogether).
+ *
+ *  A user-reported bug: in the `'bought'` phase, `buy` and the two boost actions used to share ONE
+ *  "strongest" pool - but `buyMass` accumulates across however many attacks actually get bought
+ *  (can run well past 1.0), while a boost mass is capped at whatever fraction of ONE roll's own
+ *  mass gets boosted (at most 1.0, same "opportunity budget" ceiling `PHASE_WORTH_MENTIONING_
+ *  FLOOR`'s own doc comment already describes for the initial-vs-bought split) - exactly the same
+ *  mismatched-budget problem that split was built to avoid, just recurring one level down, WITHIN
+ *  the bought phase itself. Since `buyMass` structurally tends to dominate, a real, substantial
+ *  boost-bought mass (e.g. 38% of a weapon's own bought rolls getting a boosted damage roll) could
+ *  fall under `SIGNIFICANT_ACTION_RATIO`'s threshold purely because buying alone reached 200%+ of a
+ *  single roll's ceiling - silently dropping genuine "boost the attacks you buy too" advice from
+ *  the summary even though the underlying policy does exactly that. Fixed by scoring `buy` against
+ *  its own strongest-across-weapons pool (still answering "which weapon is worth buying") and the
+ *  two boost actions against a SEPARATE pool (still answering "which weapon's roll is worth
+ *  boosting"), rather than mixing every candidate from both categories into one comparison. */
 function weaponPhrasesForPhase(
   weaponTallies: FocusWeaponTally[] | undefined,
   phase: 'initial' | 'bought'
@@ -2679,14 +2694,17 @@ function weaponPhrasesForPhase(
   if (!weaponTallies || weaponTallies.length === 0) return [];
   const boostAttackOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostAttackMass : t.boostAttackMassBought);
   const boostDamageOf = (t: FocusWeaponTally) => (phase === 'initial' ? t.boostDamageMass : t.boostDamageMassBought);
-  const strongest = Math.max(0, ...weaponTallies.flatMap((t) => [boostAttackOf(t), boostDamageOf(t), phase === 'bought' ? t.buyMass : 0]));
-  const threshold = strongest * SIGNIFICANT_ACTION_RATIO;
+  const strongestBoost = Math.max(0, ...weaponTallies.flatMap((t) => [boostAttackOf(t), boostDamageOf(t)]));
+  const boostThreshold = strongestBoost * SIGNIFICANT_ACTION_RATIO;
+  const strongestBuy = phase === 'bought' ? Math.max(0, ...weaponTallies.map((t) => t.buyMass)) : 0;
+  const buyThreshold = strongestBuy * SIGNIFICANT_ACTION_RATIO;
   return weaponTallies.map((t) => {
-    if (strongest < PHASE_WORTH_MENTIONING_FLOOR) return { weaponLabel: t.weaponLabel, phrase: '' };
     const actions: FocusAction[] = [];
-    if (boostAttackOf(t) >= threshold) actions.push('boostAttack');
-    if (boostDamageOf(t) >= threshold) actions.push('boostDamage');
-    if (phase === 'bought' && t.buyMass >= threshold) actions.push('buy');
+    if (strongestBoost >= PHASE_WORTH_MENTIONING_FLOOR) {
+      if (boostAttackOf(t) >= boostThreshold) actions.push('boostAttack');
+      if (boostDamageOf(t) >= boostThreshold) actions.push('boostDamage');
+    }
+    if (phase === 'bought' && strongestBuy >= PHASE_WORTH_MENTIONING_FLOOR && t.buyMass >= buyThreshold) actions.push('buy');
     return { weaponLabel: t.weaponLabel, phrase: actions.length > 0 ? phraseForWeapon(t.weaponLabel, t.weaponType, actions, phase) : '' };
   });
 }
