@@ -2690,6 +2690,19 @@ describe('sequence engine - Attacker Focus strategy summary', () => {
     expect(cyreniaWeapons.size).toBeGreaterThan(0);
     for (const label of cyreniaWeapons) expect(['Melee1', 'Melee2']).toContain(label);
   }, 20000);
+
+  it('still mentions boosting a bought attack\'s damage roll even when buying dominates its own phase (bug fix: buyMass used to share one "strongest" comparison with the boost masses, so a real but smaller boost-bought mass got dropped purely because buying itself was structurally larger)', () => {
+    // A user-reported real scenario (DEF 13/ARM 15/15 boxes, MAT 6, 3 Focus, one POW 12 melee
+    // weapon): buyMass ends up several times larger than boostDamageMassBought simply because
+    // buying accumulates across multiple bought attacks while a single roll's own boost mass is
+    // capped at 1 - comparing them head-to-head as "which is the phase's strongest action"
+    // silently dropped a real, substantial ~38%-of-the-phase boost-damage recommendation.
+    const result = computeSequenceOdds([attack({ stat: 6, pow: 12, attackerIndex: 0, attackerFocus: 3 })], { def: 13, arm: 15, boxes: 15 });
+    const entry = result.focusStrategy[0];
+    const text = flatten(summarizeFocusStrategy(entry));
+    expect(text).toContain('Buy attacks with');
+    expect(text).toMatch(/buy attacks with.*and boost.*damage rolls/i);
+  });
 });
 
 describe('sequence engine - Shield Guards and Scapegoats', () => {
