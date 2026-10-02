@@ -1005,6 +1005,14 @@ function resolveOneOutcome(
         )
     : outerFallback;
 
+  // Anatomical Precision (`atk.effects?.anatomicalPrecision`) makes THIS attack ignore Tough
+  // entirely - Tough Steady is untouched (same precedent as Knocked Down/Stationary already only
+  // ever negating plain Tough, never Tough Steady - see `ToughRules`'s own doc comment). Computed
+  // fresh per call rather than cached on `ctx` since it depends on the row's own `atk`, not just
+  // the target - cheap either way (a handful of booleans), unlike `ctx.toughRules` itself which is
+  // genuinely shared/reused across every row.
+  const toughRules = atk.effects?.anatomicalPrecision ? { ...ctx.toughRules, hasTough: false, hasToughPostDispel: false } : ctx.toughRules;
+
   const { branches, valueAt } = bestAction(
     boxes,
     outcome.damageDealt,
@@ -1016,7 +1024,7 @@ function resolveOneOutcome(
     scapegoatsLeft,
     atk.type === 'ranged',
     atk.type === 'melee',
-    ctx.toughRules,
+    toughRules,
     ctx.healingRules,
     shredValueAt,
     outerFallback

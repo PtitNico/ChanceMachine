@@ -13,9 +13,18 @@
  * re-enumerating dice per step.
  *
  * This module only knows about effects that matter for ONE attack in
- * isolation (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter -
- * all resolved using the target's CURRENT DEF/ARM/status, passed in as plain
- * numbers/flags). Effects that persist and change the target's DEF/ARM/status
+ * isolation (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter,
+ * Auto 1 damage, Auto d3 damage, Anatomical Precision - all resolved using
+ * the target's CURRENT DEF/ARM/status, passed in as plain numbers/flags).
+ * Anatomical Precision's OWN "ignores Tough" half is the one exception - it
+ * only ever changes the RESULT of a Tough roll the target attempts, not
+ * anything about ONE attack's own damage math, but since single-attack Tough
+ * resolution already lives here too (`computeAttackOdds`'s own destroy-chance
+ * calculation), that half is resolved in the same place; `sequence.ts`'s own
+ * Tough resolution (`bestAction`/`damageBranches`) needs the identical
+ * per-attack override applied at ITS OWN call site instead, since Tough
+ * there is a whole-sequence lookahead decision, not a single-attack one.
+ * Effects that persist and change the target's DEF/ARM/status
  * for LATER attacks in a sequence (Knockdown, Stationary, Ice Cage,
  * Shadowbind, Blind, Paralysis, Flare, Weaken, generic ARM debuffs) are
  * `sequence.ts`'s job - it computes the effective DEF/ARM for a given point
@@ -73,6 +82,20 @@ export interface AttackEffects {
   trash?: boolean;
   /** Extra d6 on the damage roll if the target is currently Stationary (Shatter). */
   shatter?: boolean;
+  /** On a hit, 1 automatic point of damage on top of the normal damage roll ("Auto 1 damage") -
+   *  added AFTER Decapitation's doubling, since it's separate "automatic" damage, not part of the
+   *  rolled total being doubled. See `applyAutomaticBonusDamage`. */
+  autoOneDamage?: boolean;
+  /** On a hit, an automatic d3 of damage on top of the normal damage roll ("Auto d3 damage") - same
+   *  "added after doubling" placement as Auto 1 damage, just a d3 instead of a flat point - stacks
+   *  with it (two independent bonuses) if somehow both are active on the same attack. */
+  autoD3Damage?: boolean;
+  /** On a hit whose normal damage roll fails to exceed ARM (would floor to 0), this attack still
+   *  deals 1 damage instead (Anatomical Precision) - see `damageDistFromPool`'s own `effects`
+   *  parameter. Also makes this specific attack ignore Tough entirely (see
+   *  `single-target.ts`'s own `bestAction` call site) - bundled into one flag since both halves
+   *  belong to the same named ability. */
+  anatomicalPrecision?: boolean;
 }
 
 export interface AttackInput {
@@ -183,10 +206,15 @@ function isHitOutcome(outcome: DicePoolOutcome, neededDiceSum: number, diceCount
   return outcome.sum >= neededDiceSum;
 }
 
-export function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number): Map<number, number> {
+/** `effects?.anatomicalPrecision` raises the floor from 0 to 1 - "1 damage if the damage roll
+ *  fails to exceed ARM": whenever the raw `sum + pow - arm` is <= 0 (i.e. would have floored to 0),
+ *  this attack still deals 1; any outcome that already exceeds ARM (> 0) is completely unaffected,
+ *  since `Math.max(1, raw)` and `Math.max(0, raw)` only ever disagree at that one boundary. */
+export function damageDistFromPool(pool: DicePoolOutcome[], pow: number, arm: number, effects?: AttackEffects): Map<number, number> {
+  const floor = effects?.anatomicalPrecision ? 1 : 0;
   const dist = new Map<number, number>();
   for (const outcome of pool) {
-    const dealt = Math.max(0, outcome.sum + pow - arm);
+    const dealt = Math.max(floor, outcome.sum + pow - arm);
     dist.set(dealt, (dist.get(dealt) ?? 0) + outcome.probability);
   }
   return dist;
@@ -198,6 +226,43 @@ function doubleDamageValues(dist: Map<number, number>): Map<number, number> {
     doubled.set(dealt * 2, (doubled.get(dealt * 2) ?? 0) + p);
   }
   return doubled;
+}
+
+/** Shifts every damage value in `dist` up by a flat `amount`, keeping each outcome's own probability
+ *  ("Auto 1 damage"'s own bonus). */
+function addFlatDamage(dist: Map<number, number>, amount: number): Map<number, number> {
+  const shifted = new Map<number, number>();
+  for (const [dealt, p] of dist) {
+    shifted.set(dealt + amount, (shifted.get(dealt + amount) ?? 0) + p);
+  }
+  return shifted;
+}
+
+/** Convolves `dist` with an independent, uniform d3 ("Auto d3 damage"'s own automatic bonus roll) -
+ *  each existing outcome splits into three, +1/+2/+3, each keeping a third of its own probability. */
+function addD3Damage(dist: Map<number, number>): Map<number, number> {
+  const result = new Map<number, number>();
+  for (const [dealt, p] of dist) {
+    for (let bonus = 1; bonus <= 3; bonus++) {
+      const total = dealt + bonus;
+      result.set(total, (result.get(total) ?? 0) + p / 3);
+    }
+  }
+  return result;
+}
+
+/** "Auto 1 damage"/"Auto d3 damage"'s own automatic bonus damage - always applied LAST, after
+ *  Decapitation's doubling, since it's separate "automatic" damage on top of the (already fully
+ *  resolved) rolled total, not itself part of what Decapitation doubles. Shared by every damage-
+ *  map-building function below (`buildAttackProfile`, `boostedDamageMap`,
+ *  `splitAttackDamageByAverage`) so the two effects can never drift between them - both
+ *  independently add their own bonus and so stack (a flat +1 AND an independent d3) if somehow both
+ *  are active on the same attack. */
+function applyAutomaticBonusDamage(dist: Map<number, number>, effects: AttackEffects | undefined): Map<number, number> {
+  let result = dist;
+  if (effects?.autoOneDamage) result = addFlatDamage(result, 1);
+  if (effects?.autoD3Damage) result = addD3Damage(result);
+  return result;
 }
 
 /** Whether a one-off effect (Armor Piercing / Decapitation) applies to a non-crit hit. */
@@ -266,8 +331,13 @@ export function buildAttackProfile(
   const nonCritArm = resolveArm(effects, target, 'nonCrit');
   const critArm = resolveArm(effects, target, 'crit');
 
-  let nonCritDamage = damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, nonCritArm);
-  if (appliesOnNonCritHit(effects?.decapitation)) nonCritDamage = doubleDamageValues(nonCritDamage);
+  // Kept separate from the fully-processed `nonCritDamage` below so the crit branch can reuse this
+  // exact BASE distribution (dice + POW - ARM, before Decapitation/Auto-damage) whenever
+  // nothing distinguishes a crit's own dice/ARM from a plain hit's (see `critBase` below) - reusing
+  // the ALREADY-doubled/bonused `nonCritDamage` there instead would double-count both.
+  const nonCritBase = damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, nonCritArm, effects);
+  let nonCritDamage = appliesOnNonCritHit(effects?.decapitation) ? doubleDamageValues(nonCritBase) : nonCritBase;
+  nonCritDamage = applyAutomaticBonusDamage(nonCritDamage, effects);
 
   if (autoHit) {
     // No attack roll is made at all, so no doubles are rolled - an auto-hit
@@ -289,15 +359,18 @@ export function buildAttackProfile(
   const missChance = 1 - hitChance;
 
   const brutalDice = effects?.brutalDamageDice ?? 0;
-  let critDamage: Map<number, number>;
-  if (brutalDice > 0) {
-    critDamage = damageDistFromPool(damagePoolFor(damage, effects, target, brutalDice).pool, damage.pow, critArm);
-  } else if (critArm === nonCritArm) {
-    critDamage = nonCritDamage; // same dice, same ARM -> identical distribution, reuse it
-  } else {
-    critDamage = damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, critArm);
-  }
-  if (appliesOnCritHit(effects?.decapitation)) critDamage = doubleDamageValues(critDamage);
+  // `nonCritBase` is only reusable when NEITHER Brutal Damage nor a differing Armor Piercing ARM
+  // would have changed the dice pool - Decapitation/Auto-damage are then applied fresh,
+  // using the CRIT-specific trigger checks (`appliesOnCritHit`, which can genuinely differ from
+  // `appliesOnNonCritHit` - e.g. `decapitation: 'crit'` doubles only the crit, not the plain hit).
+  const critBase =
+    brutalDice > 0
+      ? damageDistFromPool(damagePoolFor(damage, effects, target, brutalDice).pool, damage.pow, critArm, effects)
+      : critArm === nonCritArm
+        ? nonCritBase
+        : damageDistFromPool(damagePoolFor(damage, effects, target, 0).pool, damage.pow, critArm, effects);
+  let critDamage = appliesOnCritHit(effects?.decapitation) ? doubleDamageValues(critBase) : critBase;
+  critDamage = applyAutomaticBonusDamage(critDamage, effects);
 
   return { missChance, hitNonCritChance, hitCritChance, nonCritDamage, critDamage };
 }
@@ -324,10 +397,10 @@ export function boostedDamageMap(
   };
   const arm = resolveArm(effects, target, variant);
   const extraDice = variant === 'crit' ? effects?.brutalDamageDice ?? 0 : 0;
-  let map = damageDistFromPool(damagePoolFor(boostedDamage, effects, target, extraDice).pool, damage.pow, arm);
+  let map = damageDistFromPool(damagePoolFor(boostedDamage, effects, target, extraDice).pool, damage.pow, arm, effects);
   const doubles = variant === 'crit' ? appliesOnCritHit(effects?.decapitation) : appliesOnNonCritHit(effects?.decapitation);
   if (doubles) map = doubleDamageValues(map);
-  return map;
+  return applyAutomaticBonusDamage(map, effects);
 }
 
 /** Which direction of "away from average" a reroll-granting rule cares about: Puppet Master and
@@ -371,11 +444,12 @@ export function splitAttackDamageByAverage(
   let kept = damageDistFromPool(
     pool.filter((o) => !rerolls(o)),
     damage.pow,
-    arm
+    arm,
+    effects
   );
   const doubles = variant === 'nonCrit' ? appliesOnNonCritHit(effects?.decapitation) : appliesOnCritHit(effects?.decapitation);
   if (doubles) kept = doubleDamageValues(kept);
-  return { kept, rerollMass };
+  return { kept: applyAutomaticBonusDamage(kept, effects), rerollMass };
 }
 
 export interface AppliedOutcome {
@@ -432,7 +506,7 @@ export function computeAttackOdds(input: AttackInput): AttackOdds {
     .reduce((acc, p) => acc + p.probability, 0);
 
   let destroyChance = lethalChance;
-  if (target.tough) {
+  if (target.tough && !effects?.anatomicalPrecision) {
     const toughOn = target.toughOn ?? 5;
     const failToughChance = (toughOn - 1) / 6; // e.g. 5+ survives => fails on 1-4 => 4/6
     destroyChance = lethalChance * failToughChance;

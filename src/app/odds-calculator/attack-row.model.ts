@@ -86,6 +86,9 @@ export type TriggerEffectKey =
   | 'trash'
   | 'shatter'
   | 'chainWeapon'
+  | 'autoOneDamage'
+  | 'autoD3Damage'
+  | 'anatomicalPrecision'
   | 'brutalDamage'
   | 'criticalShred'
   | 'sustainedAttack'
@@ -117,6 +120,9 @@ export const DAMAGE_EFFECT_KEYS: TriggerEffectKey[] = [
   'trash',
   'shatter',
   'chainWeapon',
+  'autoOneDamage',
+  'autoD3Damage',
+  'anatomicalPrecision',
 ];
 
 /** Rendered as a PAIR of buttons, one in "On hit", one in "Critical" - see `TriggerEffectRow`.
@@ -153,6 +159,9 @@ export const TRIGGER_EFFECT_LABELS: Record<TriggerEffectKey, string> = {
   trash: 'Trash',
   shatter: 'Shatter',
   chainWeapon: 'Chain Weapon',
+  autoOneDamage: 'Auto 1 damage',
+  autoD3Damage: 'Auto d3 damage',
+  anatomicalPrecision: 'Anatomical Precision',
   boostedDamage: 'Boosted',
   brutalDamage: 'Brutal Damage',
   criticalShred: 'Shred',
@@ -459,6 +468,9 @@ export function toSequencedAttack(
       decapitation: triggerOf(row, 'decapitation'),
       trash: isEffectOn(row, 'trash') || undefined,
       shatter: isEffectOn(row, 'shatter') || undefined,
+      autoOneDamage: isEffectOn(row, 'autoOneDamage') || undefined,
+      autoD3Damage: isEffectOn(row, 'autoD3Damage') || undefined,
+      anatomicalPrecision: isEffectOn(row, 'anatomicalPrecision') || undefined,
     },
     statEffects: statEffects.length > 0 ? statEffects : undefined,
     forceAutoHit: isEffectOn(row, 'forceAutoHit'),

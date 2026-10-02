@@ -57,7 +57,8 @@ export interface SequencedAttack {
    *  single-target.ts for exactly how that's folded into the existing `attackerFocusLeft` vector.
    *  Ignored entirely for melee/arcane rows. */
   reload?: number;
-  /** Effects scoped to this attack alone (Brutal Damage, Armor Piercing, Decapitation, Trash, Shatter). */
+  /** Effects scoped to this attack alone (Brutal Damage, Armor Piercing, Decapitation, Trash,
+   *  Shatter, Auto 1 damage, Auto d3 damage, Anatomical Precision). */
   effects?: AttackEffects;
   /** Effects that persist on the target for the rest of the sequence once triggered. */
   statEffects?: StatEffect[];

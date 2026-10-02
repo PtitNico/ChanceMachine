@@ -39,6 +39,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'Unreleased',
+    items: [
+      'Added Auto 1 damage, Auto d3 damage, and Anatomical Precision attack effects.',
+    ],
+  },
+  {
     date: '2026-09-11',
     items: [
       "Fixed a bug where the Focus strategy summary could fail to mention boosting attacks bought with Focus, even when the engine was actually boosting them.",

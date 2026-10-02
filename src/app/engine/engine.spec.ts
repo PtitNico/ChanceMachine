@@ -826,6 +826,68 @@ describe('sequence engine - persistent target debuffs', () => {
     expect(withShatter.steps[1].shots[0].averageDamage).toBeGreaterThan(withoutShatter.steps[1].shots[0].averageDamage);
   });
 
+  it('Auto 1 damage adds exactly 1 automatic point of damage on top of the normal damage roll', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const plain = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const withAutoOne = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12, effects: { autoOneDamage: true } })], target);
+    expect(withAutoOne.steps[0].shots[0].averageDamage).toBeCloseTo(plain.steps[0].shots[0].averageDamage + 1, 9);
+  });
+
+  it('Auto 1 damage and Auto d3 damage stack (a flat +1 AND an independent d3) when both are active', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const plain = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const withBoth = computeSequenceOdds(
+      [attack({ forceAutoHit: true, pow: 12, effects: { autoOneDamage: true, autoD3Damage: true } })],
+      target
+    );
+    expect(withBoth.steps[0].shots[0].averageDamage).toBeCloseTo(plain.steps[0].shots[0].averageDamage + 3, 9);
+  });
+
+  it('Auto d3 damage adds an automatic d3 (average +2) of damage on top of the normal damage roll', () => {
+    const target = { def: 13, arm: 15, boxes: 1000 };
+    const plain = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12 })], target);
+    const withAutoD3 = computeSequenceOdds([attack({ forceAutoHit: true, pow: 12, effects: { autoD3Damage: true } })], target);
+    expect(withAutoD3.steps[0].shots[0].averageDamage).toBeCloseTo(plain.steps[0].shots[0].averageDamage + 2, 9);
+  });
+
+  it("Anatomical Precision deals 1 damage instead of 0 whenever the roll fails to exceed ARM, doesn't touch a roll that already exceeds it", () => {
+    // POW so low even a maximum 2d6=12 roll can't exceed ARM - every hit would deal 0 without the effect.
+    const target = { def: 13, arm: 30, boxes: 1000 };
+    const withoutAP = computeSequenceOdds([attack({ forceAutoHit: true, pow: 1, effects: {} })], target);
+    const withAP = computeSequenceOdds([attack({ forceAutoHit: true, pow: 1, effects: { anatomicalPrecision: true } })], target);
+    expect(withoutAP.steps[0].shots[0].averageDamage).toBeCloseTo(0, 9);
+    expect(withAP.steps[0].shots[0].averageDamage).toBeCloseTo(1, 9);
+
+    // Once POW is high enough to already clear ARM on every roll, Anatomical Precision changes nothing.
+    const alreadyClearing = computeSequenceOdds([attack({ forceAutoHit: true, pow: 30, effects: {} })], target);
+    const alreadyClearingWithAP = computeSequenceOdds([attack({ forceAutoHit: true, pow: 30, effects: { anatomicalPrecision: true } })], target);
+    expect(alreadyClearingWithAP.steps[0].shots[0].averageDamage).toBeCloseTo(alreadyClearing.steps[0].shots[0].averageDamage, 9);
+  });
+
+  it('Anatomical Precision makes this specific attack ignore Tough entirely', () => {
+    const target = { def: 13, arm: 30, boxes: 1, tough: true, toughOn: 5 };
+    const withoutAP = computeSequenceOdds([attack({ forceAutoHit: true, pow: 1, effects: {} })], target);
+    const withAP = computeSequenceOdds([attack({ forceAutoHit: true, pow: 1, effects: { anatomicalPrecision: true } })], target);
+    // Without AP: damage always floors to 0, so the target is never even lethally hit at all.
+    expect(withoutAP.finalDestroyChance).toBeCloseTo(0, 9);
+    // With AP: every hit deals the guaranteed 1 damage, which is lethal (1 box) - and Tough never
+    // gets a chance to save the target, so destroy chance is the full (auto-)hit chance, unreduced.
+    expect(withAP.finalDestroyChance).toBeCloseTo(1, 9);
+
+    // The override is scoped to THIS attack alone - a later, non-AP attack against the same target
+    // still respects Tough normally.
+    const twoAttacks = computeSequenceOdds(
+      [
+        attack({ id: '1', forceAutoHit: true, pow: 1, effects: { anatomicalPrecision: true } }),
+        attack({ id: '2', forceAutoHit: true, pow: 1, effects: {} }),
+      ],
+      { def: 13, arm: 30, boxes: 2, tough: true, toughOn: 5 }
+    );
+    // Row 1 (AP) always deals exactly 1 (never lethal at 2 boxes, Tough irrelevant here either way).
+    // Row 2 (no AP) always deals 0 - the target can never actually be destroyed by this pair.
+    expect(twoAttacks.finalDestroyChance).toBeCloseTo(0, 9);
+  });
+
   it('a "hit" trigger fires on any hit including non-crit, a "crit" trigger only fires on a crit', () => {
     const target = { def: 13, arm: 20, boxes: 1000 };
     const hitTrigger = computeSequenceOdds(
