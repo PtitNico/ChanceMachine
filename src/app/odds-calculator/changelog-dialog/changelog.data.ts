@@ -39,7 +39,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: 'Unreleased',
+    date: '2026-10-02',
     items: [
       'Added Auto 1 damage, Auto d3 damage, and Anatomical Precision attack effects.',
     ],
